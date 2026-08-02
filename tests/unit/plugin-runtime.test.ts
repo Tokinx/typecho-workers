@@ -7,6 +7,8 @@ import {
   doHook,
   applyFilter,
   hasHook,
+  getPluginForAdminPage,
+  registerPlugin,
   setActivatedPlugins,
   registerPluginInit,
   registerPluginLoaders,
@@ -111,5 +113,18 @@ describe('lazy plugin init (G6-3)', () => {
     expect(activeLoader).toHaveBeenCalledOnce();
     expect(activeInit).toHaveBeenCalledOnce();
     expect(inactiveLoader).not.toHaveBeenCalled();
+  });
+});
+
+describe('plugin admin pages', () => {
+  it('resolves an admin page slug to the manifest display name', () => {
+    registerPlugin('typecho-plugin-admin-page-test', {
+      id: 'typecho-plugin-admin-page-test',
+      name: 'Plugin Admin Page Test',
+      adminPage: 'admin-page-test',
+    });
+
+    expect(getPluginForAdminPage('admin-page-test')?.manifest.name).toBe('Plugin Admin Page Test');
+    expect(getPluginForAdminPage('missing-page')).toBeUndefined();
   });
 });

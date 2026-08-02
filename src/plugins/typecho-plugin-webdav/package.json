@@ -12,6 +12,7 @@
       "id": "typecho-plugin-webdav",
       "name": "WebDAV",
       "description": "通过 WebDAV 协议挂载和访问 R2/S3/天翼云盘存储后端，支持多挂载点，内置管理面板",
+      "adminPage": "webdav",
       "author": "eslizn",
       "authorUrl": "https://eslizn.com",
       "version": "1.0.0",

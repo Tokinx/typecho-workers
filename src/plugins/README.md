@@ -43,6 +43,7 @@ typecho-plugin-example/
       "homepage": "https://github.com/...",
       "license": "MIT",
       "tags": ["example"],
+      "adminPage": "example",
       "config": {
         "fieldName": {
           "type": "text",
@@ -55,6 +56,9 @@ typecho-plugin-example/
   }
 }
 ```
+
+`adminPage` 是可选字段。声明后，通用路由 `/admin/plugin/<adminPage>` 会自动读取
+该插件的 `name` 作为后台页面标题；插件仍需通过 `admin:page` filter 渲染对应页面内容。
 
 **关键约束**：
 - `keywords` 必须同时包含 `"typecho"` 和 `"plugin"`，否则构建时不会被发现

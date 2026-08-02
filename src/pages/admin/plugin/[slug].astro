@@ -2,7 +2,7 @@
 import Admin from '@/layouts/Admin.astro';
 import { createContext, requireAuth } from '@/lib/context';
 import { hasPermission } from '@/lib/auth';
-import { applyFilterSafely } from '@/lib/plugin';
+import { applyFilterSafely, getPluginForAdminPage } from '@/lib/plugin';
 
 const ctx = await createContext(Astro.locals, Astro.request);
 const authCheck = requireAuth(ctx);
@@ -14,6 +14,8 @@ if (!hasPermission(ctx.user!.group || 'visitor', 'administrator')) {
 
 const { options, urls, user, csrfToken } = ctx!;
 const { slug } = Astro.params;
+const plugin = slug ? getPluginForAdminPage(slug) : undefined;
+const title = plugin?.manifest.name || (slug ? `${slug} 插件页面` : '插件页面');
 
 const pageContent = await applyFilterSafely(ctx, 'admin:page', '', {
   slug,
@@ -25,7 +27,7 @@ const pageContent = await applyFilterSafely(ctx, 'admin:page', '', {
 });
 ---
 
-<Admin title={slug === 'webdav' ? 'WebDAV' : (slug ? `${slug} 插件页面` : '插件页面')} options={options} urls={urls} user={user!} activeMenu={slug ?? 'plugins'} pluginCtx={ctx}>
+<Admin title={title} options={options} urls={urls} user={user!} activeMenu={slug ?? 'plugins'} pluginCtx={ctx}>
   {pageContent ? (
     <Fragment set:html={pageContent} />
   ) : (

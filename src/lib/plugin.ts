@@ -66,6 +66,11 @@ export interface PluginManifest {
   /** Required Typecho version */
   requires?: string;
   /**
+   * Optional slug handled by the generic /admin/plugin/[slug] container.
+   * The container resolves its document title from this plugin's name.
+   */
+  adminPage?: string;
+  /**
    * Plugin configuration fields.
    * If present, the admin panel shows a "设置" link for this plugin.
    * Keys are field names, values are field definitions.
@@ -389,6 +394,14 @@ export function getAvailablePlugins(ctx: HookContext): PluginInfo[] {
  */
 export function getPlugin(pluginId: string): PluginInfo | undefined {
   return pluginRegistry.get(pluginId);
+}
+
+/** Find the plugin that owns a generic plugin-admin page slug. */
+export function getPluginForAdminPage(slug: string): PluginInfo | undefined {
+  for (const info of pluginRegistry.values()) {
+    if (info.manifest.adminPage === slug) return info;
+  }
+  return undefined;
 }
 
 /**

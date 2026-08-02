@@ -43,6 +43,7 @@ Plugin metadata is unified under the `typecho.plugin` field — no separate `plu
       "homepage": "https://github.com/...",
       "license": "MIT",
       "tags": ["example"],
+      "adminPage": "example",
       "config": {
         "fieldName": {
           "type": "text",
@@ -55,6 +56,10 @@ Plugin metadata is unified under the `typecho.plugin` field — no separate `plu
   }
 }
 ```
+
+`adminPage` is optional. When declared, the generic `/admin/plugin/<adminPage>`
+route uses the plugin `name` as its page title. The plugin still renders the page
+body through the `admin:page` filter.
 
 **Key constraints**:
 - `keywords` must include both `"typecho"` and `"plugin"` — otherwise the build-time scanner won't discover it
