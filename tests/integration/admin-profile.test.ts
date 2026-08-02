@@ -4,7 +4,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as schema from '@/db/schema';
 import { createTestDb, seedAdmin, disposeTestDb, makeAuthCookie, type TestDatabase } from '../helpers';
-import { hashPassword, generateRandomString } from '@/lib/auth';
+import { generateAuthToken, hashPassword, validateAuthToken } from '@/lib/auth';
+import { and, eq } from 'drizzle-orm';
 
 let testDb: TestDatabase;
 
@@ -89,6 +90,7 @@ describe('POST /api/admin/profile', () => {
   it('updates password when provided', async () => {
     const cookie = await makeAuthCookie(testDb, 1, AUTH_CODE, SECRET);
     const formData = new URLSearchParams({
+      do: 'password',
       mail: 'admin@example.com',
       password: 'newpassword123',
       passwordConfirm: 'newpassword123',
@@ -109,6 +111,7 @@ describe('POST /api/admin/profile', () => {
   it('rejects password change when confirmation does not match', async () => {
     const cookie = await makeAuthCookie(testDb, 1, AUTH_CODE, SECRET);
     const formData = new URLSearchParams({
+      do: 'password',
       mail: 'admin@example.com',
       password: 'newpassword123',
       passwordConfirm: 'different',
@@ -125,6 +128,7 @@ describe('POST /api/admin/profile', () => {
   it('rejects short password', async () => {
     const cookie = await makeAuthCookie(testDb, 1, AUTH_CODE, SECRET);
     const formData = new URLSearchParams({
+      do: 'password',
       mail: 'admin@example.com',
       password: '12345',
       passwordConfirm: '12345',
@@ -136,6 +140,100 @@ describe('POST /api/admin/profile', () => {
     });
     const res = await POST({ request: req, locals: {} } as any);
     expect(res.status).toBe(400);
+  });
+
+  it('stores contributor writing settings as user options', async () => {
+    const cookie = await makeAuthCookie(testDb, 1, AUTH_CODE, SECRET);
+    const formData = new URLSearchParams([
+      ['do', 'options'],
+      ['markdown', '0'],
+      ['xmlrpcMarkdown', '1'],
+      ['autoSave', '1'],
+      ['defaultAllow', 'comment'],
+      ['defaultAllow', 'feed'],
+    ]);
+    const req = new Request('https://example.com/api/admin/profile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', cookie, origin: 'https://example.com' },
+      body: formData.toString(),
+    });
+
+    const res = await POST({ request: req, locals: {} } as any);
+    expect(res.status).toBe(302);
+
+    const rows = await testDb.select().from(schema.options).where(eq(schema.options.user, 1));
+    expect(Object.fromEntries(rows.map((row) => [row.name, row.value]))).toMatchObject({
+      markdown: '0',
+      xmlrpcMarkdown: '1',
+      autoSave: '1',
+      defaultAllowComment: '1',
+      defaultAllowPing: '0',
+      defaultAllowFeed: '1',
+    });
+  });
+
+  it('accepts Typecho array-style default permission fields', async () => {
+    const cookie = await makeAuthCookie(testDb, 1, AUTH_CODE, SECRET);
+    const formData = new URLSearchParams([
+      ['do', 'options'],
+      ['markdown', '1'],
+      ['defaultAllow[]', 'ping'],
+    ]);
+    const req = new Request('https://example.com/api/admin/profile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', cookie, origin: 'https://example.com' },
+      body: formData.toString(),
+    });
+
+    const res = await POST({ request: req, locals: {} } as any);
+    expect(res.status).toBe(302);
+
+    const rows = await testDb.select().from(schema.options).where(eq(schema.options.user, 1));
+    expect(Object.fromEntries(rows.map((row) => [row.name, row.value]))).toMatchObject({
+      markdown: '1',
+      defaultAllowComment: '0',
+      defaultAllowPing: '1',
+      defaultAllowFeed: '0',
+    });
+  });
+
+  it('forbids subscribers from changing contributor writing settings', async () => {
+    await testDb.update(schema.users).set({ group: 'subscriber' }).where(eq(schema.users.uid, 1));
+    const cookie = await makeAuthCookie(testDb, 1, AUTH_CODE, SECRET);
+    const formData = new URLSearchParams({ do: 'options', markdown: '0' });
+    const req = new Request('https://example.com/api/admin/profile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', cookie, origin: 'https://example.com' },
+      body: formData.toString(),
+    });
+
+    const res = await POST({ request: req, locals: {} } as any);
+    expect(res.status).toBe(403);
+    expect(await testDb.query.options.findFirst({
+      where: and(eq(schema.options.name, 'markdown'), eq(schema.options.user, 1)),
+    })).toBeUndefined();
+  });
+
+  it('rotates existing sessions when changing the password and refreshes this browser session', async () => {
+    const oldToken = await generateAuthToken(1, AUTH_CODE, SECRET);
+    const cookie = await makeAuthCookie(testDb, 1, AUTH_CODE, SECRET);
+    const formData = new URLSearchParams({
+      do: 'password',
+      password: 'newpassword123',
+      passwordConfirm: 'newpassword123',
+    });
+    const req = new Request('https://example.com/api/admin/profile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', cookie, origin: 'https://example.com' },
+      body: formData.toString(),
+    });
+
+    const res = await POST({ request: req, locals: {} } as any);
+    const user = await testDb.query.users.findFirst();
+    expect(res.status).toBe(302);
+    expect(user!.authCode).not.toBe(AUTH_CODE);
+    expect(await validateAuthToken(oldToken, SECRET, testDb as any)).toBeNull();
+    expect(res.headers.get('set-cookie')).toContain('__typecho_authCode=');
   });
 
   it('updates url field', async () => {

@@ -76,4 +76,13 @@ describe('Typecho 1.3 post editor layout', () => {
     expect(source).toContain("textarea.blur().css('opacity', 0.25)");
     expect(source).toContain("textarea.css('opacity', 1)");
   });
+
+  it('uses personal writing preferences for defaults and autosave', () => {
+    expect(source).toContain("inArray(schema.options.name, ['markdown', 'autoSave'");
+    expect(source).toContain("userPreference('markdown'");
+    expect(source).toContain("userPreference('defaultAllowComment'");
+    expect(source).toContain('data-auto-save={autoSave ? \'1\' : \'0\'}');
+    expect(source).toContain("data.set('autosave', '1')");
+    expect(source).toContain('name="autosaveDraftId"');
+  });
 });

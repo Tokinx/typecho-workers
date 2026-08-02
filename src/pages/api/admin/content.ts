@@ -231,6 +231,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const VALID_TYPES = ['post', 'page'];
   const type = VALID_TYPES.includes(typeInput) ? typeInput : 'post';
   const cid = parseInt(formData.get('cid')?.toString() || '0', 10);
+  const autosaveDraftId = parseInt(formData.get('autosaveDraftId')?.toString() || '0', 10);
   const title = formData.get('title')?.toString()?.trim() || '';
   const isMarkdown = formData.get('markdown') === '1';
   let text = formData.get('text')?.toString() || '';
@@ -305,20 +306,66 @@ export const POST: APIRoute = async ({ request, locals }) => {
     });
   };
 
-  // ── Autosave: only allowed for draft-mode content ──
+  // ── Autosave ──
   const isAutosave = formData.get('autosave') === '1';
   const contentType = isDraft ? `${type}_draft` : type;
 
   if (isAutosave) {
-    // Autosave rejection: cannot autosave published content
     if (cid) {
       const existing = await db.query.contents.findFirst({ where: eq(schema.contents.cid, cid) });
       if (!existing) return new Response('not-found', { status: 404 });
-      if (existing.status === 'publish') return jsonError(400, 'autosave-not-allowed-for-published');
       if (!canManageResource(auth.user, existing)) return new Response('Forbidden', { status: 403 });
+
+      // Published content must never be altered by a background save. Mirror
+      // Typecho's draft behaviour by keeping a private, linked autosave row.
+      if (existing.status === 'publish') {
+        const draftType = `${type}_draft`;
+        let draft = autosaveDraftId > 0
+          ? await db.query.contents.findFirst({
+            where: and(
+              eq(schema.contents.cid, autosaveDraftId),
+              eq(schema.contents.authorId, auth.uid),
+              eq(schema.contents.parent, cid),
+              eq(schema.contents.type, draftType),
+            ),
+          })
+          : undefined;
+        if (!draft) {
+          draft = await db.query.contents.findFirst({
+            where: and(
+              eq(schema.contents.authorId, auth.uid),
+              eq(schema.contents.parent, cid),
+              eq(schema.contents.type, draftType),
+              eq(schema.contents.status, 'draft'),
+            ),
+          });
+        }
+        if (draft) {
+          await db.update(schema.contents).set({ title, text, modified: now })
+            .where(eq(schema.contents.cid, draft.cid));
+          return jsonOk({ cid, draftId: draft.cid, autosaved: true });
+        }
+
+        const inserted = await db.insert(schema.contents).values({
+          title,
+          slug: `autosave-${Date.now()}`,
+          created: now,
+          modified: now,
+          text,
+          order: 0,
+          authorId: auth.uid,
+          type: draftType,
+          status: 'draft',
+          parent: cid,
+        } satisfies Record<string, unknown>).returning({ cid: schema.contents.cid });
+        const draftId = inserted[0]?.cid;
+        if (!draftId) return new Response('创建失败', { status: 500 });
+        return jsonOk({ cid, draftId, autosaved: true });
+      }
+
       await db.update(schema.contents).set({
-        title: title || existing.title,
-        text: text || existing.text,
+        title,
+        text,
         modified: now,
       } satisfies Record<string, unknown>).where(eq(schema.contents.cid, cid));
       return jsonOk({ cid, autosaved: true });
@@ -479,6 +526,14 @@ export const POST: APIRoute = async ({ request, locals }) => {
         .set({ count: sql`${schema.metas.count} + 1` })
         .where(sql`${schema.metas.mid} IN (${sql.join(categoryIds.map(id => sql`${id}`), sql`, `)})`),
       );
+    }
+    if (autosaveDraftId > 0 && autosaveDraftId !== cid) {
+      updateStatements.push(db.delete(schema.contents).where(and(
+        eq(schema.contents.cid, autosaveDraftId),
+        eq(schema.contents.authorId, auth.uid),
+        eq(schema.contents.parent, cid),
+        eq(schema.contents.type, `${type}_draft`),
+      )));
     }
     await db.batch(updateStatements as [any, ...any[]]);
 

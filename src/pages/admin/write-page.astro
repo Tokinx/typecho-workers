@@ -2,7 +2,7 @@
 import Admin from '@/layouts/Admin.astro';
 import { createContext, requireAuth } from '@/lib/context';
 import { hasPermission } from '@/lib/auth';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
 import { schema } from '@/db';
 import { formatDate } from '@/lib/content';
 import { renderPermalinkPattern } from '@/lib/permalink-pattern';
@@ -72,10 +72,11 @@ let customFields: { name: string; type: string; value: string }[] = [];
 let attachments: AttachmentItem[] = [];
 let parentPageRows: ContentRow[] = [];
 let editorHeight = normalizeEditorHeight(options.editorSize, 350);
+let userWritingOptionRows: Array<{ name: string; value: string | null }> = [];
 
 const cidNum = cid ? parseInt(cid, 10) : 0;
 if (cidNum > 0) {
-  const [pageRows, fieldRows, attachmentRows, parentRows, editorSizeRows] = await db.batch([
+  const [pageRows, fieldRows, attachmentRows, parentRows, editorSizeRows, writingOptionRows] = await db.batch([
     db.select().from(schema.contents).where(eq(schema.contents.cid, cidNum)).limit(1),
     db.select().from(schema.fields).where(eq(schema.fields.cid, cidNum)),
     db.select().from(schema.contents)
@@ -87,10 +88,16 @@ if (cidNum > 0) {
     db.select({ value: schema.options.value }).from(schema.options)
       .where(and(eq(schema.options.name, 'editorSize'), eq(schema.options.user, user!.uid)))
       .limit(1),
+    db.select({ name: schema.options.name, value: schema.options.value }).from(schema.options)
+      .where(and(
+        eq(schema.options.user, user!.uid),
+        inArray(schema.options.name, ['markdown', 'autoSave', 'defaultAllowComment', 'defaultAllowPing', 'defaultAllowFeed']),
+      )),
   ]);
   page = pageRows[0] || null;
   parentPageRows = parentRows;
   editorHeight = normalizeEditorHeight(editorSizeRows[0]?.value, editorHeight);
+  userWritingOptionRows = writingOptionRows;
   if (page) {
     isEdit = true;
     customFields = fieldRows.map(f => ({
@@ -113,19 +120,33 @@ if (cidNum > 0) {
     });
   }
 } else {
-  const [parentRows, editorSizeRows] = await db.batch([
+  const [parentRows, editorSizeRows, writingOptionRows] = await db.batch([
     db.select().from(schema.contents)
       .where(eq(schema.contents.type, 'page'))
       .orderBy(schema.contents.order, schema.contents.cid),
     db.select({ value: schema.options.value }).from(schema.options)
       .where(and(eq(schema.options.name, 'editorSize'), eq(schema.options.user, user!.uid)))
       .limit(1),
+    db.select({ name: schema.options.name, value: schema.options.value }).from(schema.options)
+      .where(and(
+        eq(schema.options.user, user!.uid),
+        inArray(schema.options.name, ['markdown', 'autoSave', 'defaultAllowComment', 'defaultAllowPing', 'defaultAllowFeed']),
+      )),
   ]);
   parentPageRows = parentRows;
   editorHeight = normalizeEditorHeight(editorSizeRows[0]?.value, editorHeight);
+  userWritingOptionRows = writingOptionRows;
 }
 
-const isMarkdown = !page || (page.text && page.text.indexOf('<!--markdown-->') >= 0);
+const userWritingOptions = new Map(userWritingOptionRows.map((option) => [option.name, option.value]));
+const userPreference = (name: string, fallback: number) => Number(userWritingOptions.get(name) ?? fallback) === 1;
+const isMarkdown = page
+  ? (page.text || '').indexOf('<!--markdown-->') >= 0
+  : userPreference('markdown', Number(options.markdown) || 0);
+const autoSave = userPreference('autoSave', Number(options.autoSave) || 0);
+const defaultAllowComment = userPreference('defaultAllowComment', Number(options.defaultAllowComment) || 0);
+const defaultAllowPing = userPreference('defaultAllowPing', Number(options.defaultAllowPing) || 0);
+const defaultAllowFeed = userPreference('defaultAllowFeed', Number(options.defaultAllowFeed) || 0);
 const pagePermalinkPattern = options.pagePattern || '/{slug}.html';
 const allowsSlugEdit = pagePermalinkPattern.includes('{slug}');
 const slugMarker = '__TYPECHO_SLUG__';
@@ -162,7 +183,7 @@ const writePageBottomHtml = await applyFilterSafely(ctx, 'admin:writePage:bottom
   bodyClass="typecho-post-area"
   pluginCtx={ctx}
 >
-  <form action="/api/admin/content" method="post" name="write_page">
+  <form action="/api/admin/content" method="post" name="write_page" data-auto-save={autoSave ? '1' : '0'}>
     <input type="hidden" name="_" value={csrfToken} />
     <div class="col-mb-12 col-tb-9" role="main">
       {isEdit && page.type === 'page_draft' && (
@@ -334,17 +355,17 @@ const writePageBottomHtml = await applyFilterSafely(ctx, 'admin:writePage:bottom
             <ul>
               <li>
                 <input id="allowComment" name="allowComment" type="checkbox" value="1"
-                  checked={page ? page.allowComment === '1' : !!options.defaultAllowComment} />
+                  checked={page ? page.allowComment === '1' : defaultAllowComment} />
                 <label for="allowComment">允许评论</label>
               </li>
               <li>
                 <input id="allowPing" name="allowPing" type="checkbox" value="1"
-                  checked={page ? page.allowPing === '1' : !!options.defaultAllowPing} />
+                  checked={page ? page.allowPing === '1' : defaultAllowPing} />
                 <label for="allowPing">允许被引用</label>
               </li>
               <li>
                 <input id="allowFeed" name="allowFeed" type="checkbox" value="1"
-                  checked={page ? page.allowFeed === '1' : !!options.defaultAllowFeed} />
+                  checked={page ? page.allowFeed === '1' : defaultAllowFeed} />
                 <label for="allowFeed">允许在聚合中出现</label>
               </li>
             </ul>
@@ -508,6 +529,88 @@ const writePageBottomHtml = await applyFilterSafely(ctx, 'admin:writePage:bottom
       });
 
       editor.run();
+
+      // Personal auto-save preference matches the Typecho 1.3 editor flow.
+      (function () {
+        var form = $('form[name="write_page"]'),
+            autoSaveEnabled = form.attr('data-auto-save') === '1',
+            autoSaveMessage = $('<span id="auto-save-message"></span>').prependTo('.submit .left'),
+            changed = false,
+            saving = false,
+            saveTimer = null,
+            lastSaveTime = '';
+
+        function message(text) {
+          autoSaveMessage.text(text);
+        }
+
+        function markChanged() {
+          changed = true;
+          if (!autoSaveEnabled || saving) return;
+          message('尚未保存' + (lastSaveTime ? ' (上次保存时间: ' + lastSaveTime + ')' : ''));
+          if (saveTimer) clearTimeout(saveTimer);
+          saveTimer = setTimeout(saveDraft, 3000);
+        }
+
+        function saveDraft() {
+          if (!changed || saving) return;
+          changed = false;
+          saving = true;
+          message('正在保存');
+          var data = new FormData(form.get(0));
+          data.set('autosave', '1');
+          data.set('status', 'draft');
+          $.ajax({
+            url: form.attr('action'),
+            type: 'POST',
+            data: data,
+            processData: false,
+            contentType: false,
+            success: function (result) {
+              var savedCid = Number(result && result.cid);
+              if (savedCid > 0) {
+                var cidInput = form.find('input[name="cid"]');
+                if (!cidInput.length) {
+                  cidInput = $('<input type="hidden" name="cid" />').appendTo(form);
+                }
+                cidInput.val(savedCid);
+                form.find('input[name="do"]').val('update');
+                $('#upload-panel').attr('data-cid', savedCid).data('cid', savedCid);
+              }
+              var draftId = Number(result && result.draftId);
+              if (draftId > 0) {
+                var draftInput = form.find('input[name="autosaveDraftId"]');
+                if (!draftInput.length) {
+                  draftInput = $('<input type="hidden" name="autosaveDraftId" />').appendTo(form);
+                }
+                draftInput.val(draftId);
+              }
+              lastSaveTime = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+              message(changed ? '尚未保存 (上次保存时间: ' + lastSaveTime + ')' : '已保存 (' + lastSaveTime + ')');
+            },
+            error: function () {
+              changed = true;
+              message('保存失败, 请重试');
+            },
+            complete: function () {
+              saving = false;
+              if (changed && autoSaveEnabled) {
+                if (saveTimer) clearTimeout(saveTimer);
+                saveTimer = setTimeout(saveDraft, 3000);
+              }
+            }
+          });
+        }
+
+        form.on('input change', 'input, textarea, select', markChanged);
+        form.on('submit', function () {
+          if (saveTimer) clearTimeout(saveTimer);
+          autoSaveEnabled = false;
+        });
+        $(window).on('beforeunload.writePage', function () {
+          if (changed) return '内容已经改变尚未保存, 您确认要离开此页面吗?';
+        });
+      })();
 
       // Keep the Typecho resize handle while storing the preferred height on
       // the current user instead of changing the site-wide editor default.

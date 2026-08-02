@@ -383,4 +383,65 @@ describe('POST /api/admin/content', () => {
     });
     expect(scheduled?.created).toBe(Math.floor(Date.UTC(2026, 7, 2, 1, 30) / 1000));
   });
+
+  it('keeps published content unchanged by autosaving into a linked private draft', async () => {
+    const [published] = await testDb.insert(schema.contents).values({
+      title: 'Published post',
+      slug: 'published-post',
+      text: 'Published body',
+      authorId: 1,
+      type: 'post',
+      status: 'publish',
+    }).returning({ cid: schema.contents.cid });
+    const admin = await testDb.query.users.findFirst();
+    const cookie = await makeAuthCookie(testDb, admin!.uid, TEST_AUTH_CODE, TEST_SECRET);
+    const req = await makeContentRequest({
+      do: 'update',
+      cid: String(published.cid),
+      type: 'post',
+      title: 'Unpublished revision',
+      text: 'Unpublished body',
+      status: 'draft',
+      autosave: '1',
+    }, cookie);
+
+    const res = await POST({ request: req, locals: {} } as any);
+    const data = await res.json() as { cid: number; draftId: number; autosaved: boolean };
+    const publishedAfter = await testDb.query.contents.findFirst({ where: eq(schema.contents.cid, published.cid) });
+    const draft = await testDb.query.contents.findFirst({ where: eq(schema.contents.cid, data.draftId) });
+
+    expect(res.status).toBe(200);
+    expect(data).toMatchObject({ cid: published.cid, autosaved: true });
+    expect(publishedAfter?.text).toBe('Published body');
+    expect(draft).toMatchObject({
+      title: 'Unpublished revision', text: 'Unpublished body', parent: published.cid,
+      type: 'post_draft', status: 'draft', authorId: 1,
+    });
+  });
+
+  it('removes a linked autosave draft after the published content is saved', async () => {
+    const [published] = await testDb.insert(schema.contents).values({
+      title: 'Published post', slug: 'published-cleanup', text: 'Published body', authorId: 1, type: 'post', status: 'publish',
+    }).returning({ cid: schema.contents.cid });
+    const [draft] = await testDb.insert(schema.contents).values({
+      title: 'Autosave', slug: 'autosave-cleanup', text: 'Draft body', authorId: 1,
+      parent: published.cid, type: 'post_draft', status: 'draft',
+    }).returning({ cid: schema.contents.cid });
+    const admin = await testDb.query.users.findFirst();
+    const cookie = await makeAuthCookie(testDb, admin!.uid, TEST_AUTH_CODE, TEST_SECRET);
+    const req = await makeContentRequest({
+      do: 'update',
+      cid: String(published.cid),
+      autosaveDraftId: String(draft.cid),
+      type: 'post',
+      title: 'Published revision',
+      text: 'Published revision body',
+      status: 'publish',
+      visibility: 'publish',
+    }, cookie);
+
+    const res = await POST({ request: req, locals: {} } as any);
+    expect(res.status).toBe(302);
+    expect(await testDb.query.contents.findFirst({ where: eq(schema.contents.cid, draft.cid) })).toBeUndefined();
+  });
 });

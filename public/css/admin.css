@@ -174,7 +174,7 @@ select { border: 1px solid #CCC; height: 28px; }
 
 .typecho-head-nav #typecho-nav-list > ul .child li.focus a { color: #6DA1BB; font-weight: bold; }
 
-.typecho-head-nav #typecho-nav-list > ul .parent a:hover, .typecho-head-nav #typecho-nav-list > ul.focus .parent a, .typecho-head-nav #typecho-nav-list > ul.root:hover .parent a { background: #202328; }
+.typecho-head-nav #typecho-nav-list > ul .parent a:hover, .typecho-head-nav #typecho-nav-list > ul.focus .parent a, .typecho-head-nav #typecho-nav-list > ul:hover .parent a { background: #202328; }
 
 .typecho-head-nav #typecho-nav-list > ul.focus .parent a { font-weight: bold; }
 
