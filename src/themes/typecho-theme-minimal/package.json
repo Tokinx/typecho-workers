@@ -11,6 +11,7 @@
   ],
   "files": [
     "theme.json",
+    "screenshot.png",
     "normalize.css",
     "grid.css",
     "style.css",

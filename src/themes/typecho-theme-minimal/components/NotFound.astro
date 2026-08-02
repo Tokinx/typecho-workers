@@ -6,6 +6,7 @@
  */
 import Base from '@/layouts/Base.astro';
 import type { ThemeNotFoundProps } from '@/lib/theme-props';
+import { loadMinimalThemeSettings } from '@/lib/minimal-theme';
 
 type Props = ThemeNotFoundProps;
 
@@ -22,6 +23,7 @@ const {
 } = Astro.props;
 
 const isIndex = currentPath === '/';
+const themeSettings = loadMinimalThemeSettings(options);
 ---
 <Base
   title={errorTitle}
@@ -35,8 +37,11 @@ const isIndex = currentPath === '/';
     <div class="container">
       <div class="row">
         <div class="site-name col-mb-12 col-9">
-          <a id="logo" href={urls.siteUrl + '/'}>{options.title}</a>
-          <p class="description">{options.description}</p>
+          {themeSettings.logoUrl ? (
+            <a id="logo" href={urls.siteUrl + '/'}><img src={themeSettings.logoUrl} alt={options.title} /></a>
+          ) : (
+            <><a id="logo" href={urls.siteUrl + '/'}>{options.title}</a><p class="description">{options.description}</p></>
+          )}
         </div>
         <div class="site-search col-3 kit-hidden-tb">
           <form id="search" method="post" action={urls.siteUrl + '/'} role="search">

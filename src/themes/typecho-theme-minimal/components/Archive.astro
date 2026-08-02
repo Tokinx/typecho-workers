@@ -8,6 +8,7 @@
 import Base from '@/layouts/Base.astro';
 import type { ThemeArchiveProps } from '@/lib/theme-props';
 import { formatDate, buildAuthorLink } from '@/lib/content';
+import { loadMinimalThemeSettings, minimalSidebarEnabled } from '@/lib/minimal-theme';
 
 type Props = ThemeArchiveProps;
 
@@ -17,6 +18,7 @@ const {
 } = Astro.props;
 
 const isIndex = currentPath === '/';
+const themeSettings = loadMinimalThemeSettings(options);
 ---
 <Base
   title={archiveTitle}
@@ -30,8 +32,11 @@ const isIndex = currentPath === '/';
     <div class="container">
       <div class="row">
         <div class="site-name col-mb-12 col-9">
-          <a id="logo" href={urls.siteUrl + '/'}>{options.title}</a>
-          <p class="description">{options.description}</p>
+          {themeSettings.logoUrl ? (
+            <a id="logo" href={urls.siteUrl + '/'}><img src={themeSettings.logoUrl} alt={options.title} /></a>
+          ) : (
+            <><a id="logo" href={urls.siteUrl + '/'}>{options.title}</a><p class="description">{options.description}</p></>
+          )}
         </div>
         <div class="site-search col-3 kit-hidden-tb">
           <form id="search" method="post" action={urls.siteUrl + '/'} role="search">
@@ -110,7 +115,7 @@ const isIndex = currentPath === '/';
 
         {sidebarData && (
           <div class="col-mb-12 col-offset-1 col-3 kit-hidden-tb" id="secondary" role="complementary">
-            {sidebarData.recentPosts && sidebarData.recentPosts.length > 0 && (
+            {minimalSidebarEnabled(themeSettings, 'ShowRecentPosts') && sidebarData.recentPosts && sidebarData.recentPosts.length > 0 && (
               <section class="widget">
                 <h3 class="widget-title">最新文章</h3>
                 <ul class="widget-list">
@@ -120,7 +125,7 @@ const isIndex = currentPath === '/';
                 </ul>
               </section>
             )}
-            {sidebarData.recentComments && sidebarData.recentComments.length > 0 && (
+            {minimalSidebarEnabled(themeSettings, 'ShowRecentComments') && sidebarData.recentComments && sidebarData.recentComments.length > 0 && (
               <section class="widget">
                 <h3 class="widget-title">最近回复</h3>
                 <ul class="widget-list">
@@ -130,7 +135,7 @@ const isIndex = currentPath === '/';
                 </ul>
               </section>
             )}
-            {sidebarData.categories && sidebarData.categories.length > 0 && (
+            {minimalSidebarEnabled(themeSettings, 'ShowCategory') && sidebarData.categories && sidebarData.categories.length > 0 && (
               <section class="widget">
                 <h3 class="widget-title">分类</h3>
                 <ul class="widget-list">
@@ -140,7 +145,7 @@ const isIndex = currentPath === '/';
                 </ul>
               </section>
             )}
-            {sidebarData.archives && sidebarData.archives.length > 0 && (
+            {minimalSidebarEnabled(themeSettings, 'ShowArchive') && sidebarData.archives && sidebarData.archives.length > 0 && (
               <section class="widget">
                 <h3 class="widget-title">归档</h3>
                 <ul class="widget-list">

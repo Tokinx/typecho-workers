@@ -5,9 +5,31 @@
   "author": "Typecho Team",
   "authorUrl": "https://typecho.org/",
   "version": "1.0.0",
+  "screenshot": "screenshot.png",
   "stylesheet": "style.css",
   "stylesheets": ["normalize.css", "grid.css"],
   "homepage": "https://github.com/eslizn/typecho-cf",
   "license": "GPL-2.0",
-  "tags": ["minimal", "classic", "typecho"]
+  "tags": ["minimal", "classic", "typecho"],
+  "config": {
+    "logoUrl": {
+      "type": "text",
+      "label": "站点 LOGO 地址",
+      "description": "在这里填入一个图片 URL 地址, 以在网站标题前加上一个 LOGO",
+      "default": ""
+    },
+    "sidebarBlock": {
+      "type": "checkbox",
+      "label": "侧边栏显示",
+      "options": {
+        "ShowRecentPosts": "显示最新文章",
+        "ShowRecentComments": "显示最近回复",
+        "ShowCategory": "显示分类",
+        "ShowArchive": "显示归档",
+        "ShowOther": "显示其它杂项"
+      },
+      "multiline": true,
+      "default": ["ShowRecentPosts", "ShowRecentComments", "ShowCategory", "ShowArchive", "ShowOther"]
+    }
+  }
 }
