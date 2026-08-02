@@ -1,0 +1,23 @@
+{
+  "name": "typecho-plugin-notes",
+  "version": "1.0.0",
+  "description": "Twitter-style notes and topics for Typecho-CF.",
+  "keywords": ["typecho", "plugin", "notes", "microblog", "topic"],
+  "author": "Tokinx",
+  "license": "MIT",
+  "type": "module",
+  "main": "index.ts",
+  "typecho": {
+    "plugin": {
+      "id": "typecho-plugin-notes",
+      "name": "Notes",
+      "description": "扩展 note 内容类型，提供快速发布、笔记时间线和 Topic 管理页面",
+      "adminPage": "notes",
+      "author": "Tokinx",
+      "version": "1.0.0",
+      "homepage": "https://github.com/Tokinx/typecho-cf/tree/master/src/plugins/typecho-plugin-notes",
+      "license": "MIT",
+      "tags": ["note", "microblog", "topic"]
+    }
+  }
+}
