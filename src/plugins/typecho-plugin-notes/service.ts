@@ -101,7 +101,7 @@ interface ListOptions extends ThemeNotesQuery {
   permalinkPattern?: string | null;
 }
 
-const HASH_TOPIC_RE = /(^|[^\p{L}\p{N}_/])#([\p{L}\p{N}][\p{L}\p{N}_-]{0,39})/gu;
+const HASH_TOPIC_RE = /(^|[^\p{L}\p{N}_/])#([\p{L}\p{N}\p{Extended_Pictographic}\p{Regional_Indicator}][\p{L}\p{N}_\p{Extended_Pictographic}\p{Regional_Indicator}\p{Emoji_Modifier}\uFE0F\u200D-]{0,39})/gu;
 const NOTE_REFERENCE_RE = /~\/note\/([1-9]\d*)\b/g;
 
 function clampInteger(value: number | string | null | undefined, fallback: number, minimum: number, maximum: number): number {

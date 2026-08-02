@@ -63,7 +63,7 @@ describe('typecho-plugin-notes', () => {
   });
 
   it('extracts Wing-style Topics and renders safe note reference links', () => {
-    expect(extractTopicNames('记录 #日常 与 #DevOps，再次 #日常；https://example.com/#not-topic')).toEqual(['日常', 'DevOps']);
+    expect(extractTopicNames('记录 #日常 与 #DevOps、#📝日常，再次 #日常；https://example.com/#not-topic')).toEqual(['日常', 'DevOps', '📝日常']);
     expect(extractTopicNames('\\#escaped #有效')).toEqual(['有效']);
     const html = renderNoteContent('查看 ~/note/42，代码 `~/note/99` 不会成为引用');
     expect(html).toContain('data-note-ref="42"');
@@ -71,6 +71,7 @@ describe('typecho-plugin-notes', () => {
     expect(html).not.toContain('data-note-ref="99"');
     expect(renderNoteContent('正文中的 #话题')).toContain('class="note-topic-highlight"');
     expect(renderNoteContent('正文中的 #话题')).toContain('data-note-topic="话题"');
+    expect(renderNoteContent('正文中的 #📝日常')).toContain('data-note-topic="📝日常"');
     expect(renderNoteContent('转义的 \\#话题')).not.toContain('note-topic-highlight');
   });
 
@@ -110,7 +111,7 @@ describe('typecho-plugin-notes', () => {
   it('injects write and manage links immediately after the native post links', () => {
     const footer = collectHooks().get('admin:footer')!;
     const html = footer('', { activeMenu: 'notes', user: { group: 'administrator' } });
-    expect(html).toContain("insertAfter(2,'/admin/write-post','/admin/plugin/notes#notes-composer','撰写笔记',false)");
+    expect(html).toContain("insertAfter(2,'/admin/write-post','/admin/plugin/notes','撰写笔记',false)");
     expect(html).toContain("insertAfter(3,'/admin/manage-posts','/admin/plugin/notes','笔记',true)");
     expect(html).toContain("insertAdjacentElement('afterend',item)");
     expect(footer('unchanged', { activeMenu: 'notes', user: { group: 'editor' } })).toBe('unchanged');
