@@ -26,6 +26,8 @@ const EXTENSION_TO_MIME: Record<string, string> = {
   '.svg': 'image/svg+xml',
   '.bmp': 'image/bmp',
   '.avif': 'image/avif',
+  '.tif': 'image/tiff',
+  '.tiff': 'image/tiff',
   // Documents & archives
   '.pdf': 'application/pdf',
   '.zip': 'application/zip',
@@ -36,6 +38,22 @@ const EXTENSION_TO_MIME: Record<string, string> = {
   '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   '.xls': 'application/vnd.ms-excel',
   '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.ppt': 'application/vnd.ms-powerpoint',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  // Media
+  '.mp3': 'audio/mpeg',
+  '.mp4': 'video/mp4',
+  '.mov': 'video/quicktime',
+  '.wmv': 'video/x-ms-wmv',
+  '.wma': 'audio/x-ms-wma',
+  '.rmvb': 'video/vnd.rn-realvideo',
+  '.rm': 'application/vnd.rn-realmedia',
+  '.avi': 'video/x-msvideo',
+  '.flv': 'video/x-flv',
+  '.ogg': 'video/ogg',
+  '.oga': 'audio/ogg',
+  '.ogv': 'video/ogg',
+  '.wav': 'audio/wav',
 };
 
 /**
@@ -53,7 +71,25 @@ const DANGEROUS_EXTENSIONS = new Set([
 ]);
 
 const ALLOWED_TYPES: Record<string, string[]> = {
-  image: ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml', 'image/bmp', 'image/avif'],
+  image: ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml', 'image/bmp', 'image/avif', 'image/tiff'],
+  media: [
+    'audio/mpeg', 'audio/mp4', 'audio/ogg', 'audio/wav', 'audio/x-wav', 'audio/x-ms-wma',
+    'video/mp4', 'video/quicktime', 'video/x-ms-wmv', 'video/x-msvideo',
+    'video/x-flv', 'video/ogg', 'video/vnd.rn-realvideo', 'application/vnd.rn-realmedia',
+  ],
+  doc: [
+    'application/pdf',
+    'application/zip',
+    'application/x-rar-compressed',
+    'application/x-7z-compressed',
+    'text/plain',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-powerpoint',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  ],
   file: [
     'application/pdf',
     'application/zip',
@@ -64,6 +100,8 @@ const ALLOWED_TYPES: Record<string, string[]> = {
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     'application/vnd.ms-excel',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-powerpoint',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   ],
 };
 
@@ -90,27 +128,38 @@ function getExtension(filename: string): string {
 
 /**
  * Check if a MIME type is allowed.
- * attachmentTypes format: "@image@" means only images, "@image@file@" means images and files.
+ * attachmentTypes accepts Typecho group markers (for example
+ * "@image@,@media@") and custom comma-separated extensions.
  */
-export function isAllowedType(mimeType: string, attachmentTypes: string): boolean {
-  const types = attachmentTypes.split('@').filter(Boolean);
+export function isAllowedType(mimeType: string, attachmentTypes: string, filename?: string): boolean {
+  const types = attachmentTypes.split(/[@,.]+/).filter(Boolean);
   for (const t of types) {
     const allowed = ALLOWED_TYPES[t];
     if (allowed && allowed.includes(mimeType)) {
       return true;
     }
   }
-  return false;
+  return filename ? isAllowedExtension(filename, attachmentTypes) : false;
+}
+
+/** Check a filename against the custom extension values from the settings form. */
+export function isAllowedExtension(filename: string, attachmentTypes: string): boolean {
+  const extension = getExtension(filename).replace(/^\./, '').toLowerCase();
+  if (!extension) return false;
+  return attachmentTypes
+    .split(/[,.]/)
+    .map((value) => value.trim().replace(/^\./, '').toLowerCase())
+    .some((value) => value === extension && !value.startsWith('@'));
 }
 
 /**
  * Generate upload path based on date
  * e.g., /usr/uploads/2024/03/filename.jpg
  */
-export function generateUploadPath(filename: string, date = new Date()): string {
+export function generateUploadPath(filename: string, date = new Date(), allowUnknownExtension = false): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
-  const safeName = sanitizeFilename(filename);
+  const safeName = sanitizeFilename(filename, allowUnknownExtension);
   return `usr/uploads/${year}/${month}/${safeName}`;
 }
 
@@ -130,12 +179,14 @@ export async function uploadToR2(
   attachmentTypes: string
 ): Promise<UploadResult> {
   // Derive MIME type from extension — never trust client-provided file.type
-  const mimeType = getMimeTypeFromExtension(file.name);
-  if (!mimeType) {
+  const customExtensionAllowed = isAllowedExtension(file.name, attachmentTypes);
+  const detectedMimeType = getMimeTypeFromExtension(file.name);
+  if (!detectedMimeType && !customExtensionAllowed) {
     throw new Error(`无法识别的文件扩展名: ${file.name}`);
   }
+  const mimeType = detectedMimeType || 'application/octet-stream';
 
-  if (!isAllowedType(mimeType, attachmentTypes)) {
+  if (!isAllowedType(mimeType, attachmentTypes, file.name)) {
     throw new Error(`不允许上传此类型的文件: ${mimeType}`);
   }
 
@@ -144,7 +195,7 @@ export async function uploadToR2(
     throw new Error('文件大小超出限制 (最大 10MB)');
   }
 
-  const path = generateUploadPath(file.name);
+  const path = generateUploadPath(file.name, new Date(), customExtensionAllowed);
   const arrayBuffer = await file.arrayBuffer();
 
   // SVG XSS protection: force download instead of inline rendering.
@@ -194,7 +245,7 @@ export async function getFromR2(bucket: R2Bucket, path: string): Promise<R2Objec
  * @throws {Error} If the filename is empty, extension-only, has a dangerous extension,
  *                 or has an unrecognized extension.
  */
-function sanitizeFilename(name: string): string {
+function sanitizeFilename(name: string, allowUnknownExtension = false): string {
   const ext = getExtension(name);
   const dotIdx = name.lastIndexOf('.');
   const base = dotIdx >= 0 ? name.substring(0, dotIdx) : name;
@@ -216,7 +267,7 @@ function sanitizeFilename(name: string): string {
   }
 
   // Reject unrecognized extensions (must be in the allowlist)
-  if (!ext || !EXTENSION_TO_MIME[ext]) {
+  if (!ext || (!EXTENSION_TO_MIME[ext] && !allowUnknownExtension)) {
     throw new Error(`无法识别的文件扩展名: ${ext || '(无)'}`);
   }
 

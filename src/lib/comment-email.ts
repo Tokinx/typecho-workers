@@ -42,7 +42,7 @@ export interface NotifyCommentConfig {
 }
 
 export async function notifyOnComment(cfg: NotifyCommentConfig): Promise<void> {
-  if (!cfg.options.commentEmailEnabled) return;
+  if (Number(cfg.options.commentEmailEnabled) !== 1) return;
 
   const url = buildPermalink(cfg.content, cfg.siteUrl, cfg.permalinkPattern, cfg.pagePattern);
   const commentUrl = `${url}#comment-${cfg.comment.coid}`;
@@ -79,7 +79,7 @@ export async function notifyOnComment(cfg: NotifyCommentConfig): Promise<void> {
   }
 
   // Notify parent comment author (reply notification)
-  if (cfg.comment.parent && cfg.options.commentEmailReplyEnabled !== false) {
+  if (cfg.comment.parent && Number(cfg.options.commentEmailReplyEnabled ?? 1) === 1) {
     const parent = await cfg.db.query.comments.findFirst({
       where: eq(schema.comments.coid, cfg.comment.parent),
       columns: { mail: true, author: true },

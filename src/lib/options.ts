@@ -31,6 +31,7 @@ export interface SiteOptions {
   commentDateFormat: string;
   defaultCategory: number;
   allowRegister: number;
+  allowXmlRpc: number;
   defaultAllowComment: number;
   defaultAllowPing: number;
   defaultAllowFeed: number;
@@ -96,6 +97,7 @@ const defaultOptions: Partial<SiteOptions> = {
   commentDateFormat: 'F jS, Y',
   defaultCategory: 1,
   allowRegister: 0,
+  allowXmlRpc: 2,
   defaultAllowComment: 1,
   defaultAllowPing: 1,
   defaultAllowFeed: 1,
@@ -245,7 +247,7 @@ async function loadOptionsFresh(db: Database): Promise<SiteOptions> {
   // Parse numeric values
   const numericKeys = [
     'timezone', 'frontArchive', 'pageSize', 'postsListSize',
-    'commentsListSize', 'defaultCategory', 'allowRegister', 'defaultAllowComment',
+    'commentsListSize', 'defaultCategory', 'allowRegister', 'allowXmlRpc', 'defaultAllowComment',
     'defaultAllowPing', 'defaultAllowFeed', 'feedFullText', 'markdown',
     'commentsRequireMail', 'commentsRequireURL', 'commentsRequireModeration',
     'commentsWhitelist', 'commentsMaxNestingLevels', 'commentsPostTimeout',

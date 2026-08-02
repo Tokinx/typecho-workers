@@ -215,6 +215,7 @@ export const POST: APIRoute = async ({ request }) => {
       commentDateFormat: 'Y-m-d H:i',
       defaultCategory: String(categoryMid),
       allowRegister: '0',
+      allowXmlRpc: '2',
       defaultAllowComment: '1',
       defaultAllowPing: '1',
       defaultAllowFeed: '1',

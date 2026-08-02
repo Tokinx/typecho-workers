@@ -245,6 +245,12 @@ select { border: 1px solid #CCC; height: 28px; }
 
 .typecho-option input.file { width: 100%; margin: .7em 0; }
 
+.typecho-option input.text { width: 100%; }
+
+.typecho-option input.num { width: 60px; }
+
+.typecho-option textarea { width: 100%; height: 100px; }
+
 .front-archive { padding-left: 1.5em; }
 
 .profile-avatar { width: 220px; height: 220px; border-radius: 10px; }
@@ -395,15 +401,9 @@ a.operate-reply { color: #545c30; }
 .typecho-theme-list tbody tr.current td { background-color: #FFF9E8; }
 
 /** 后台配置项 */
-.typecho-page-main .typecho-option input.text { width: 100%; }
+.typecho-option .multiline { display: block; margin: .3em 0; }
 
-.typecho-page-main .typecho-option input.num { width: 40px; }
-
-.typecho-page-main .typecho-option textarea { width: 100%; height: 100px; }
-
-.typecho-page-main .typecho-option .multiline { display: block; margin: .3em 0; }
-
-.typecho-page-main .typecho-option .multiline.hidden { display: none; }
+.typecho-option .multiline.hidden { display: none; }
 
 /** 编辑模板 */
 .typecho-select-theme { height: 25px; line-height: 25px; margin: 15px 0px; }

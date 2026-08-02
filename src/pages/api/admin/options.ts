@@ -12,7 +12,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   // Save each option
   const optionKeys = [
     'title', 'description', 'keywords', 'siteUrl', 'timezone',
-    'allowRegister', 'pageSize', 'postsListSize', 'commentsListSize',
+    'allowRegister', 'allowXmlRpc', 'pageSize', 'postsListSize', 'commentsListSize',
     'defaultAllowComment', 'defaultAllowPing', 'defaultAllowFeed',
     'feedFullText', 'markdown', 'postDateFormat', 'commentDateFormat',
     'commentsRequireMail', 'commentsRequireURL', 'commentsRequireModeration',
@@ -20,11 +20,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
     'commentsUrlNofollow', 'commentsShowUrl', 'commentsMarkdown',
     'commentsPageBreak', 'commentsThreaded', 'commentsPageSize',
     'commentsPageDisplay', 'commentsOrder', 'commentsCheckReferer',
-    'commentsAutoClose', 'commentsPostIntervalEnable',
-    'commentsAntiSpam', 'commentsHTMLTagAllowed', 'commentsAvatar',
-    'commentsAvatarRating', 'commentsShowCommentOnly',
-    'frontPage', 'frontArchive', 'attachmentTypes',
-    'editorSize', 'cacheEnabled',
+      'commentsAutoClose', 'commentsPostIntervalEnable',
+      'commentsAntiSpam', 'commentsHTMLTagAllowed', 'commentsAvatar',
+      'commentsAvatarRating', 'commentsShowCommentOnly',
+    'frontArchive', 'cacheEnabled',
     'loginFailBanEnabled', 'loginFailBanWindowSeconds',
     'loginFailBanMaxFailures', 'loginFailBanSeconds',
     'feedItems', 'robotsTxt',
@@ -41,6 +40,16 @@ export const POST: APIRoute = async ({ request, locals }) => {
       pattern = customPattern?.toString().trim() || '/archives/{cid}/';
     }
     await setOption(auth.db, 'permalinkPattern', pattern);
+  }
+
+  // The reading page uses a radio value plus a page selector, while the
+  // public renderer stores the selected page as `page:<cid>`.
+  const frontPageValue = formData.get('frontPage');
+  if (frontPageValue !== null) {
+    const frontPage = frontPageValue.toString() === 'page'
+      ? `page:${Math.max(0, Number.parseInt(formData.get('frontPagePage')?.toString() || '0', 10) || 0)}`
+      : 'recent';
+    await setOption(auth.db, 'frontPage', frontPage === 'page:0' ? 'recent' : frontPage);
   }
 
   // Handle pagePattern — direct text input, save as-is
@@ -62,6 +71,22 @@ export const POST: APIRoute = async ({ request, locals }) => {
     if (value !== null) {
       await setOption(auth.db, key, value.toString());
     }
+  }
+
+  // Typecho's discussion form uses `commentsRequireUrl`; the application
+  // option keeps its historical uppercase `URL` spelling.
+  const commentsRequireUrlValue = formData.get('commentsRequireUrl');
+  if (commentsRequireUrlValue !== null) {
+    await setOption(auth.db, 'commentsRequireURL', commentsRequireUrlValue.toString());
+  }
+
+  const nestingLevelsValue = formData.get('commentsMaxNestingLevels');
+  if (nestingLevelsValue !== null) {
+    const parsedNestingLevels = Number.parseInt(nestingLevelsValue.toString(), 10);
+    const nestingLevels = Number.isFinite(parsedNestingLevels)
+      ? Math.min(7, Math.max(2, parsedNestingLevels))
+      : 5;
+    await setOption(auth.db, 'commentsMaxNestingLevels', String(nestingLevels));
   }
 
   // Handle commentsPostTimeout: form sends days, store as seconds (Typecho convention)
@@ -89,6 +114,22 @@ export const POST: APIRoute = async ({ request, locals }) => {
   // clearing checkboxes from other settings pages (each page submits to this same endpoint)
   const refererPath = referer.split('?')[0];
 
+  // Typecho stores upload groups and custom extensions as one comma-separated
+  // option. Keep custom extension values readable by the upload validator.
+  if (refererPath.startsWith('/admin/options-general')) {
+    const selectedTypeValues = formData.getAll('attachmentTypes[]');
+    const selectedValues = selectedTypeValues.length > 0 ? selectedTypeValues : formData.getAll('attachmentTypes');
+    const selectedTypes = selectedValues
+      .map((value) => value.toString())
+      .filter((value) => ['@image@', '@media@', '@doc@'].includes(value));
+    const customTypes = formData.get('attachmentTypesOther')?.toString() || '';
+    const customExtensions = customTypes.split(/[,.]/)
+      .map((value) => value.trim().replace(/^\./, '').toLowerCase())
+      .filter((value) => selectedValues.some((selected) => selected.toString() === '@other@'))
+      .filter((value) => /^[a-z0-9][a-z0-9_-]{0,15}$/.test(value));
+    await setOption(auth.db, 'attachmentTypes', [...selectedTypes, ...customExtensions].join(','));
+  }
+
   const checkboxFieldsByPage: Record<string, string[]> = {
     '/admin/options-general': [
       'allowRegister', 'cacheEnabled',
@@ -99,9 +140,11 @@ export const POST: APIRoute = async ({ request, locals }) => {
       'commentsRequireMail', 'commentsRequireURL', 'commentsCheckReferer', 'commentsAntiSpam',
       'commentsRequireModeration', 'commentsWhitelist', 'commentsAutoClose',
       'commentsThreaded', 'commentsPageBreak', 'commentsPostIntervalEnable',
+      'mailEnabled',
+      'commentEmailEnabled', 'commentEmailReplyEnabled',
     ],
     '/admin/options-reading': [
-      'feedFullText', 'markdown',
+      'feedFullText',
     ],
   };
 
@@ -111,7 +154,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
   
   if (pageCheckboxes) {
     for (const key of pageCheckboxes[1]) {
-      if (!formData.has(key)) {
+      const legacyAliasPresent = key === 'commentsRequireURL' && formData.has('commentsRequireUrl');
+      if (!formData.has(key) && !legacyAliasPresent) {
         await setOption(auth.db, key, '0');
       }
     }

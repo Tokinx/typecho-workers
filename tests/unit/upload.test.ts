@@ -8,6 +8,7 @@ import { describe, it, expect } from 'vitest';
 import {
   getMimeTypeFromExtension,
   isAllowedType,
+  isAllowedExtension,
   generateUploadPath,
 } from '@/lib/upload';
 
@@ -96,6 +97,11 @@ describe('isAllowedType()', () => {
     expect(isAllowedType('application/pdf', '@file@')).toBe(true);
   });
 
+  it('allows media and document groups from the Typecho settings form', () => {
+    expect(isAllowedType('audio/mpeg', '@media@')).toBe(true);
+    expect(isAllowedType('application/pdf', '@doc@')).toBe(true);
+  });
+
   it('rejects application/pdf when only @image@ is allowed', () => {
     expect(isAllowedType('application/pdf', '@image@')).toBe(false);
   });
@@ -111,6 +117,11 @@ describe('isAllowedType()', () => {
 
   it('rejects text/html always', () => {
     expect(isAllowedType('text/html', '@image@file@')).toBe(false);
+  });
+
+  it('supports custom extensions configured in the basic settings', () => {
+    expect(isAllowedExtension('notes.md', '@image@,md,csv')).toBe(true);
+    expect(isAllowedExtension('notes.html', '@image@,md,csv')).toBe(false);
   });
 });
 

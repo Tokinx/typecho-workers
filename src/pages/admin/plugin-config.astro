@@ -187,22 +187,24 @@ function selectedAttr(actual: unknown, expected: unknown): true | undefined {
 
     <form method="post" action={`/admin/plugin-config?id=${pluginId}`}>
       <input type="hidden" name="_" value={csrfToken} />
-      <ul class="typecho-option">
-        {Object.entries(configDef).map(([key, field]: [string, PluginConfigField]) => {
+      {Object.entries(configDef).map(([key, field]: [string, PluginConfigField], fieldIndex) => {
           const value = configValues[key] ?? field.default ?? '';
 
           if (field.type === 'hidden') {
             return (
-              <input type="hidden" name={key} value={String(value)} />
+              <ul class="typecho-option" id={`typecho-option-item-${key}-${fieldIndex}`} style="display:none">
+                <li><input type="hidden" id={`cfg-${key}`} name={key} value={String(value)} /></li>
+              </ul>
             );
           }
 
           const isBoolCheckbox = field.type === 'checkbox' && !field.options;
 
           return (
-            <li>
+            <ul class="typecho-option" id={`typecho-option-item-${key}-${fieldIndex}`}>
+              <li>
               {!isBoolCheckbox && (
-                <label for={`cfg-${key}`} class="typecho-label">{field.label}</label>
+                <label class="typecho-label" for={`cfg-${key}`}>{field.label}</label>
               )}
 
               {field.type === 'text' && (
@@ -306,7 +308,7 @@ function selectedAttr(actual: unknown, expected: unknown): true | undefined {
                               data-show-when-field={itemField.showWhen?.field}
                               data-show-when-value={showWhenValue}
                             >
-                              <label for={inputId} class="typecho-label">{itemField.label}</label>
+                              <label class="typecho-label" for={inputId}>{itemField.label}</label>
 
                               {itemField.type === 'text' && (
                                 <p><input type="text" id={inputId} name={inputName} class="text w-100" value={String(itemValue)} disabled={!visible} /></p>
@@ -362,7 +364,7 @@ function selectedAttr(actual: unknown, expected: unknown): true | undefined {
                             data-show-when-field={itemField.showWhen?.field}
                             data-show-when-value={showWhenValue}
                           >
-                            <label for={inputId} class="typecho-label">{itemField.label}</label>
+                            <label class="typecho-label" for={inputId}>{itemField.label}</label>
                             {itemField.type === 'text' && (
                               <p><input type="text" id={inputId} name={inputName} class="text w-100" value={String(itemValue)} disabled={!visible} /></p>
                             )}
@@ -398,12 +400,12 @@ function selectedAttr(actual: unknown, expected: unknown): true | undefined {
               {field.description && (
                 <p class="description" set:html={field.description}></p>
               )}
-            </li>
+              </li>
+            </ul>
           );
         })}
-      </ul>
 
-      <ul class="typecho-option typecho-option-submit">
+      <ul class="typecho-option typecho-option-submit" id="typecho-option-item-submit">
         <li>
           <button type="submit" class="btn primary">保存设置</button>
           <a href="/admin/plugins" class="btn" style="margin-left: 10px;">返回插件列表</a>

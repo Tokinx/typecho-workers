@@ -31,60 +31,64 @@ const currentCategoryPattern = (options.categoryPattern as string) || '/category
   <div class="col-mb-12 col-tb-8 col-tb-offset-2" role="form">
     <form method="post" action="/api/admin/options">
       <input type="hidden" name="_" value={csrfToken} />
-      <ul class="typecho-option">
+      <ul class="typecho-option" id="typecho-option-item-permalinkPattern-0">
         <li>
           <label class="typecho-label">自定义文章路径</label>
           <div>
             {postPatterns.map((p) => (
-              <p>
-                <input type="radio" name="permalinkPattern" value={p.value}
+              <span class="multiline">
+                <input name="permalinkPattern" type="radio" value={p.value}
                   id={`post-pattern-${p.value}`}
                   checked={currentPostPattern === p.value} />
                 <label for={`post-pattern-${p.value}`}>
                   {p.label}: <code>{p.example}</code>
                 </label>
-              </p>
+              </span>
             ))}
-            <p>
-              <input type="radio" name="permalinkPattern" value="custom"
+            <span class="multiline">
+              <input name="permalinkPattern" type="radio" value="custom"
                 id="post-pattern-custom"
                 checked={isCustomPost} />
               <label for="post-pattern-custom">自定义:</label>
-              <input type="text" name="customPattern" class="text mono"
-                value={isCustomPost ? currentPostPattern : ''} style="width: 300px;" />
-            </p>
+              <input type="text" class="w-50 text-s mono" name="customPattern"
+                value={isCustomPost ? currentPostPattern : ''} />
+            </span>
           </div>
           <p class="description">
             可用变量: <code>{'{cid}'}</code> 文章 ID, <code>{'{slug}'}</code> 缩略名,
             <code>{'{category}'}</code> 分类, <code>{'{year}'}</code> 年,
-            <code>{'{month}'}</code> 月, <code>{'{day}'}</code> 日
+            <code>{'{month}'}</code> 月, <code>{'{day}'}</code> 日<br>
+            选择一种合适的文章静态路径风格, 使得你的网站链接更加友好.<br>
+            一旦你选择了某种链接风格请不要轻易修改它.
           </p>
         </li>
       </ul>
 
-      <ul class="typecho-option">
+      <ul class="typecho-option" id="typecho-option-item-pagePattern-1">
         <li>
-          <label class="typecho-label" for="pagePattern">独立页面路径</label>
-          <input type="text" name="pagePattern" id="pagePattern" class="text mono"
-            value={currentPagePattern} style="width: 300px;" />
+          <label class="typecho-label" for="pagePattern-0-1">独立页面路径</label>
+          <input id="pagePattern-0-1" name="pagePattern" type="text" class="mono w-60"
+            value={currentPagePattern} />
           <p class="description">
-            可用变量: <code>{'{slug}'}</code> 缩略名, <code>{'{cid}'}</code> 页面 ID
+            可用变量: <code>{'{slug}'}</code> 缩略名, <code>{'{cid}'}</code> 页面 ID<br>
+            请在路径中至少包含上述的一项参数.
           </p>
         </li>
       </ul>
 
-      <ul class="typecho-option">
+      <ul class="typecho-option" id="typecho-option-item-categoryPattern-2">
         <li>
-          <label class="typecho-label" for="categoryPattern">分类路径</label>
-          <input type="text" name="categoryPattern" id="categoryPattern" class="text mono"
-            value={currentCategoryPattern} style="width: 300px;" />
+          <label class="typecho-label" for="categoryPattern-0-2">分类路径</label>
+          <input id="categoryPattern-0-2" name="categoryPattern" type="text" class="mono w-60"
+            value={currentCategoryPattern} />
           <p class="description">
-            可用变量: <code>{'{slug}'}</code> 分类缩略名, <code>{'{mid}'}</code> 分类 ID
+            可用变量: <code>{'{slug}'}</code> 分类缩略名, <code>{'{mid}'}</code> 分类 ID<br>
+            请在路径中至少包含上述的一项参数.
           </p>
         </li>
       </ul>
 
-      <ul class="typecho-option typecho-option-submit">
+      <ul class="typecho-option typecho-option-submit" id="typecho-option-item-submit-3">
         <li>
           <button type="submit" class="btn primary">保存设置</button>
         </li>

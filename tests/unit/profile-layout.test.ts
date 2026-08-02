@@ -36,7 +36,7 @@ describe('Typecho 1.3 personal settings layout', () => {
       expect(source).toContain(`id="typecho-option-item-${id}"`);
     }
 
-    const optionBlocks = [...source.matchAll(/<ul id="typecho-option-item-[^"]+" class="typecho-option[^\"]*"[^>]*>([\s\S]*?)<\/ul>/g)];
+    const optionBlocks = [...source.matchAll(/<ul class="typecho-option[^\"]*" id="typecho-option-item-[^"]+"[^>]*>([\s\S]*?)<\/ul>/g)];
     expect(optionBlocks).toHaveLength(15);
     for (const [, block] of optionBlocks) {
       expect(block.match(/<li>/g)).toHaveLength(1);

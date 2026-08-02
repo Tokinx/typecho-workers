@@ -32,7 +32,7 @@ const TEST_AUTH_CODE = 'adminauthcode123';
 
 async function makeAdminRequest(
   db: TestDatabase,
-  formFields: Record<string, string>,
+  formFields: Record<string, string | string[]>,
   referer = 'https://example.com/admin/options-general',
 ): Promise<Request> {
   const admin = await db.query.users.findFirst();
@@ -40,7 +40,10 @@ async function makeAdminRequest(
   const [uid, hash] = token.split(':');
   const cookieHeader = `__typecho_uid=${uid}; __typecho_authCode=${hash}`;
 
-  const body = new URLSearchParams(formFields);
+  const body = new URLSearchParams();
+  for (const [key, value] of Object.entries(formFields)) {
+    for (const item of Array.isArray(value) ? value : [value]) body.append(key, item);
+  }
   return new Request('https://example.com/api/admin/options', {
     method: 'POST',
     headers: {
@@ -121,6 +124,71 @@ describe('POST /api/admin/options', () => {
     const res = await POST({ request: req, locals: {} } as any);
     expect(res.status).toBe(302);
     expect(await getOption(testDb, 'siteUrl')).toBe('https://myblog.com');
+  });
+
+  it('saves the Typecho XMLRPC mode', async () => {
+    const req = await makeAdminRequest(testDb, { allowXmlRpc: '1' });
+    await POST({ request: req, locals: {} } as any);
+    expect(await getOption(testDb, 'allowXmlRpc')).toBe('1');
+  });
+
+  it('serializes upload groups and custom extensions from the basic page', async () => {
+    const req = await makeAdminRequest(testDb, {
+      'attachmentTypes[]': ['@image@', '@other@'],
+      'attachmentTypesOther': 'md, csv',
+    });
+    await POST({ request: req, locals: {} } as any);
+    expect(await getOption(testDb, 'attachmentTypes')).toBe('@image@,md,csv');
+  });
+
+  it('stores a selected static page as the reading page front page', async () => {
+    const req = await makeAdminRequest(
+      testDb,
+      { frontPage: 'page', frontPagePage: '12' },
+      'https://example.com/admin/options-reading',
+    );
+    await POST({ request: req, locals: {} } as any);
+    expect(await getOption(testDb, 'frontPage')).toBe('page:12');
+  });
+
+  it('saves mail delivery and comment notification switches independently', async () => {
+    const mailOnly = await makeAdminRequest(
+      testDb,
+      { mailEnabled: '1', mailFrom: 'blog@example.com', mailFromName: 'Blog' },
+      'https://example.com/admin/options-discussion',
+    );
+    await POST({ request: mailOnly, locals: {} } as any);
+    expect(await getOption(testDb, 'mailEnabled')).toBe('1');
+    expect(await getOption(testDb, 'commentEmailEnabled')).toBe('0');
+
+    const notificationOnly = await makeAdminRequest(
+      testDb,
+      { commentEmailEnabled: '1' },
+      'https://example.com/admin/options-discussion',
+    );
+    await POST({ request: notificationOnly, locals: {} } as any);
+    expect(await getOption(testDb, 'mailEnabled')).toBe('0');
+    expect(await getOption(testDb, 'commentEmailEnabled')).toBe('1');
+  });
+
+  it('maps Typecho commentsRequireUrl to the application option key', async () => {
+    const req = await makeAdminRequest(
+      testDb,
+      { commentsRequireUrl: '1' },
+      'https://example.com/admin/options-discussion',
+    );
+    await POST({ request: req, locals: {} } as any);
+    expect(await getOption(testDb, 'commentsRequireURL')).toBe('1');
+  });
+
+  it('clamps comment reply nesting levels to Typecho bounds', async () => {
+    const req = await makeAdminRequest(
+      testDb,
+      { commentsMaxNestingLevels: '99' },
+      'https://example.com/admin/options-discussion',
+    );
+    await POST({ request: req, locals: {} } as any);
+    expect(await getOption(testDb, 'commentsMaxNestingLevels')).toBe('7');
   });
 
   // -- Unit conversions --

@@ -12,96 +12,138 @@ if (!hasPermission(ctx.user!.group || 'visitor', 'administrator')) {
 }
 
 const { options, urls, user, csrfToken } = ctx;
+
+const timezoneOptions = [
+  ['0', '格林威治(子午线)标准时间 (GMT)'],
+  ['3600', '中欧标准时间 阿姆斯特丹,荷兰,法国 (GMT +1)'],
+  ['7200', '东欧标准时间 布加勒斯特,塞浦路斯,希腊 (GMT +2)'],
+  ['10800', '莫斯科时间 伊拉克,埃塞俄比亚,马达加斯加 (GMT +3)'],
+  ['14400', '第比利斯时间 阿曼,毛里塔尼亚,留尼汪岛 (GMT +4)'],
+  ['18000', '新德里时间 巴基斯坦,马尔代夫 (GMT +5)'],
+  ['21600', '科伦坡时间 孟加拉 (GMT +6)'],
+  ['25200', '曼谷雅加达 柬埔寨,苏门答腊,老挝 (GMT +7)'],
+  ['28800', '北京时间 香港,新加坡,越南 (GMT +8)'],
+  ['32400', '东京平壤时间 西伊里安,摩鹿加群岛 (GMT +9)'],
+  ['36000', '悉尼关岛时间 塔斯马尼亚岛,新几内亚 (GMT +10)'],
+  ['39600', '所罗门群岛 库页岛 (GMT +11)'],
+  ['43200', '惠灵顿时间 新西兰,斐济群岛 (GMT +12)'],
+  ['-3600', '佛德尔群岛 亚速尔群岛,葡属几内亚 (GMT -1)'],
+  ['-7200', '大西洋中部时间 格陵兰 (GMT -2)'],
+  ['-10800', '布宜诺斯艾利斯 乌拉圭,法属圭亚那 (GMT -3)'],
+  ['-14400', '智利巴西 委内瑞拉,玻利维亚 (GMT -4)'],
+  ['-18000', '纽约渥太华 古巴,哥伦比亚,牙买加 (GMT -5)'],
+  ['-21600', '墨西哥城时间 洪都拉斯,危地马拉,哥斯达黎加 (GMT -6)'],
+  ['-25200', '美国丹佛时间 (GMT -7)'],
+  ['-28800', '美国旧金山时间 (GMT -8)'],
+  ['-32400', '阿拉斯加时间 (GMT -9)'],
+  ['-36000', '夏威夷群岛 (GMT -10)'],
+  ['-39600', '东萨摩亚群岛 (GMT -11)'],
+  ['-43200', '艾尼威托克岛 (GMT -12)'],
+] as const;
+
+const rawAttachmentTypes = options.attachmentTypes == null ? '@image@' : String(options.attachmentTypes);
+// Older installs used the compact `@image@file@` form. Normalize it for
+// display while preserving the Typecho-compatible group values on save.
+const normalizedAttachmentTypes = rawAttachmentTypes
+  .replace(/@image@file@/g, '@image@,@file@')
+  .replace(/@file@/g, '@doc@');
+const attachmentTokens = normalizedAttachmentTypes
+  .split(/[,.]/)
+  .map((value) => value.trim())
+  .filter(Boolean);
+const attachmentSet = new Set(attachmentTokens);
+const attachmentOther = attachmentTokens
+  .filter((value) => !['@image@', '@media@', '@doc@', '@other@'].includes(value))
+  .join(', ');
+const attachmentChecked = (value: string) => attachmentSet.has(value)
+  || normalizedAttachmentTypes.includes(value);
 ---
 <Admin title="基本设置" options={options} urls={urls} user={user} activeMenu="options" pluginCtx={ctx}>
   <div class="col-mb-12 col-tb-8 col-tb-offset-2" role="form">
     <form method="post" action="/api/admin/options">
       <input type="hidden" name="_" value={csrfToken} />
-      <ul class="typecho-option">
+      <ul class="typecho-option" id="typecho-option-item-title-0">
         <li>
-          <label for="title" class="typecho-label">站点名称</label>
-          <p><input type="text" id="title" name="title" class="text w-100" value={options.title} /></p>
-          <p class="description">站点的名称将显示在网页的标题处</p>
+          <label class="typecho-label" for="title-0-1">站点名称</label>
+          <input id="title-0-1" name="title" type="text" class="w-100" value={options.title} />
+          <p class="description">站点的名称将显示在网页的标题处.</p>
         </li>
+      </ul>
+      <ul class="typecho-option" id="typecho-option-item-siteUrl-1">
         <li>
-          <label for="description" class="typecho-label">站点描述</label>
-          <p><input type="text" id="description" name="description" class="text w-100" value={options.description} /></p>
-          <p class="description">站点的描述将显示在网页代码的头部</p>
+          <label class="typecho-label" for="siteUrl-0-2">站点地址</label>
+          <input id="siteUrl-0-2" name="siteUrl" type="url" class="w-100 mono" value={options.siteUrl} />
+          <p class="description">站点地址主要用于生成内容的永久链接.</p>
         </li>
+      </ul>
+      <ul class="typecho-option" id="typecho-option-item-description-2">
         <li>
-          <label for="keywords" class="typecho-label">关键词</label>
-          <p><input type="text" id="keywords" name="keywords" class="text w-100" value={options.keywords} placeholder="多个关键词用逗号分隔" /></p>
-          <p class="description">请以半角逗号 "," 分割多个关键字</p>
+          <label class="typecho-label" for="description-0-3">站点描述</label>
+          <input id="description-0-3" name="description" type="text" class="text" value={options.description} />
+          <p class="description">站点描述将显示在网页代码的头部.</p>
         </li>
+      </ul>
+      <ul class="typecho-option" id="typecho-option-item-keywords-3">
         <li>
-          <label for="siteUrl" class="typecho-label">站点地址</label>
-          <p><input type="url" id="siteUrl" name="siteUrl" class="text w-100" value={options.siteUrl} /></p>
-          <p class="description">站点地址将作为你的博客的URL标识, 请包含 <code>http://</code> 或 <code>https://</code> 前缀</p>
+          <label class="typecho-label" for="keywords-0-4">关键词</label>
+          <input id="keywords-0-4" name="keywords" type="text" class="text" value={options.keywords} placeholder="多个关键词用逗号分隔" />
+          <p class="description">请以半角逗号 "," 分割多个关键字.</p>
         </li>
+      </ul>
+      <ul class="typecho-option" id="typecho-option-item-allowRegister-4">
         <li>
-          <label class="typecho-label">时区</label>
-          <p>
-            <select name="timezone" id="timezone">
-              <option value="28800" selected={options.timezone === 28800}>UTC+8 (中国标准时间)</option>
-              <option value="0" selected={options.timezone === 0}>UTC</option>
-              <option value="-18000" selected={options.timezone === -18000}>UTC-5 (美国东部)</option>
-              <option value="32400" selected={options.timezone === 32400}>UTC+9 (日本/韩国)</option>
-              <option value="3600" selected={options.timezone === 3600}>UTC+1 (中欧)</option>
-            </select>
-          </p>
+          <label class="typecho-label">是否允许注册</label>
+          <span><input type="radio" name="allowRegister" value="0" id="allowRegister-0" checked={!options.allowRegister} /><label for="allowRegister-0">不允许</label></span>
+          <span><input type="radio" name="allowRegister" value="1" id="allowRegister-1" checked={!!options.allowRegister} /><label for="allowRegister-1">允许</label></span>
+          <p class="description">允许访问者注册到你的网站, 默认的注册用户不享有任何写入权限.</p>
         </li>
+      </ul>
+      <ul class="typecho-option" id="typecho-option-item-allowXmlRpc-5">
+        <li>
+          <label class="typecho-label">XMLRPC 接口</label>
+          <span><input type="radio" name="allowXmlRpc" value="0" id="allowXmlRpc-0" checked={Number(options.allowXmlRpc ?? 2) === 0} /><label for="allowXmlRpc-0">关闭</label></span>
+          <span><input type="radio" name="allowXmlRpc" value="1" id="allowXmlRpc-1" checked={Number(options.allowXmlRpc ?? 2) === 1} /><label for="allowXmlRpc-1">仅关闭 Pingback 接口</label></span>
+          <span><input type="radio" name="allowXmlRpc" value="2" id="allowXmlRpc-2" checked={Number(options.allowXmlRpc ?? 2) === 2} /><label for="allowXmlRpc-2">打开</label></span>
+        </li>
+      </ul>
+      <ul class="typecho-option" id="typecho-option-item-timezone-6">
+        <li>
+          <label class="typecho-label" for="timezone-0-7">时区</label>
+          <select id="timezone-0-7" name="timezone">
+            {timezoneOptions.map(([value, label]) => (
+              <option value={value} selected={Number(options.timezone) === Number(value)}>{label}</option>
+            ))}
+          </select>
+        </li>
+      </ul>
+      <ul class="typecho-option" id="typecho-option-item-attachmentTypes-7">
+        <li>
+          <label class="typecho-label">允许上传的文件类型</label>
+          <span class="multiline"><input type="checkbox" id="attachmentTypes-image" name="attachmentTypes[]" value="@image@" checked={attachmentChecked('@image@')} /><label for="attachmentTypes-image">图片文件 <code>(gif jpg jpeg png tiff bmp webp avif)</code></label></span>
+          <span class="multiline"><input type="checkbox" id="attachmentTypes-media" name="attachmentTypes[]" value="@media@" checked={attachmentChecked('@media@')} /><label for="attachmentTypes-media">多媒体文件 <code>(mp3 mp4 mov wmv wma rmvb rm avi flv ogg oga ogv)</code></label></span>
+          <span class="multiline"><input type="checkbox" id="attachmentTypes-doc" name="attachmentTypes[]" value="@doc@" checked={attachmentChecked('@doc@')} /><label for="attachmentTypes-doc">常用档案文件 <code>(txt doc docx xls xlsx ppt pptx zip rar pdf)</code></label></span>
+          <span class="multiline"><input type="checkbox" id="attachmentTypes-other" name="attachmentTypes[]" value="@other@" checked={attachmentOther.length > 0 || attachmentSet.has('@other@')} /><label for="attachmentTypes-other">其他格式 <input type="text" class="w-50 text-s mono" name="attachmentTypesOther" value={attachmentOther} /></label></span>
+          <p class="description">用逗号 "," 将后缀名隔开, 例如: <code>cpp, h, mak</code></p>
+        </li>
+      </ul>
+      <ul class="typecho-option" id="typecho-option-item-cacheEnabled-8">
         <li>
           <label class="typecho-label">
-            <input type="checkbox" name="allowRegister" value="1" checked={!!options.allowRegister} />
-            允许注册
-          </label>
-          <p class="description">是否允许访客注册到你的博客</p>
-        </li>
-        <li>
-          <label for="attachmentTypes" class="typecho-label">允许上传的文件类型</label>
-          <p><input type="text" id="attachmentTypes" name="attachmentTypes" class="text w-100"
-            value={options.attachmentTypes || '@image@'} /></p>
-          <p class="description">使用逗号分隔, 如: <code>@image@</code> 代表所有图片类型, 支持 <code>jpg,png,gif,webp,svg,zip,pdf,mp3,mp4</code> 等扩展名. <code>@image@</code> 等同于 jpg,jpeg,png,gif,webp,bmp,tiff</p>
-        </li>
-        <li>
-          <label class="typecho-label">
-            <input type="checkbox" name="cacheEnabled" value="1" checked={options.cacheEnabled !== 0} />
+            <input type="checkbox" id="cacheEnabled-0-8" name="cacheEnabled" value="1" checked={options.cacheEnabled !== 0} />
             启用页面缓存
           </label>
-          <p class="description">启用后，未登录用户访问的页面将在边缘节点缓存 5 分钟，可大幅减少数据库查询。管理员操作（发布、编辑、评论等）会自动清除相关缓存</p>
+          <p class="description">启用后，未登录用户访问的页面将在边缘节点缓存 5 分钟，可大幅减少数据库查询。管理员操作会自动清除相关缓存</p>
         </li>
       </ul>
-
-      <ul class="typecho-option">
+      <ul class="typecho-option" id="typecho-option-item-robotsTxt-9">
         <li>
-          <label class="typecho-label">邮件设置</label>
-          <ul>
-            <li>
-              <input type="checkbox" id="mailEnabled" name="mailEnabled" value="1" checked={!!options.mailEnabled && options.mailEnabled !== 0} />
-              <label for="mailEnabled">启用邮件发送</label>
-              <p class="description">需要安装邮件适配器插件才能实际发送（密码重置、评论通知依赖此开关）</p>
-            </li>
-            <li>
-              <label for="mailFrom" class="typecho-label">发件邮箱</label>
-              <p><input type="email" id="mailFrom" name="mailFrom" class="text w-100" value={options.mailFrom || ''} /></p>
-            </li>
-            <li>
-              <label for="mailFromName" class="typecho-label">发件人名称</label>
-              <p><input type="text" id="mailFromName" name="mailFromName" class="text w-100" value={options.mailFromName || ''} /></p>
-            </li>
-          </ul>
-        </li>
-      </ul>
-
-      <ul class="typecho-option">
-        <li>
-          <label for="robotsTxt" class="typecho-label">robots.txt 内容</label>
-          <p><textarea id="robotsTxt" name="robotsTxt" class="w-100" rows="5">{options.robotsTxt || ''}</textarea></p>
+          <label class="typecho-label" for="robotsTxt-0-10">robots.txt 内容</label>
+          <textarea id="robotsTxt-0-10" name="robotsTxt" rows="5">{options.robotsTxt || ''}</textarea>
           <p class="description">留空使用默认规则（Allow / Disallow /admin/ /api/ Sitemap）</p>
         </li>
       </ul>
 
-      <ul class="typecho-option typecho-option-submit">
+      <ul class="typecho-option typecho-option-submit" id="typecho-option-item-submit-10">
         <li>
           <button type="submit" class="btn primary">保存设置</button>
         </li>
