@@ -72,8 +72,24 @@ Themes without a `components/` directory are CSS-only themes — the system auto
 | `name` | Yes | Display name |
 | `stylesheet` | Yes | Main CSS filename (copied to `public/themes/{id}/` at build time) |
 | `stylesheets` | No | Additional CSS files (loaded in order, before `stylesheet`) |
+| `pageTemplates` | No | Selectable page templates, keyed by stored value with a label and Astro component path |
 
 > **Config priority**: `theme.json` > `package.json` `typecho.theme` field > auto-inferred.
+
+### Page templates
+
+The page editor presents these declarations in the Typecho 1.3-style select control. Components must live under the theme's `components/` directory; the selected component is used for both public rendering and admin preview.
+
+```json
+{
+  "pageTemplates": {
+    "landing": {
+      "name": "Landing page",
+      "component": "components/PageLanding.astro"
+    }
+  }
+}
+```
 
 ---
 

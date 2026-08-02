@@ -4,7 +4,8 @@ import { createContext, requireAuth } from '@/lib/context';
 import { hasPermission } from '@/lib/auth';
 import { eq, and } from 'drizzle-orm';
 import { schema } from '@/db';
-import { buildPermalink } from '@/lib/content';
+import { formatDate } from '@/lib/content';
+import { renderPermalinkPattern } from '@/lib/permalink-pattern';
 import { applyFilterSafely } from '@/lib/plugin';
 
 const ctx = await createContext(Astro.locals, Astro.request);
@@ -19,6 +20,14 @@ const cid = Astro.url.searchParams.get('cid');
 type ContentRow = typeof schema.contents.$inferSelect;
 type MetaRow = typeof schema.metas.$inferSelect;
 interface PostAttachmentItem { cid: number; title: string | null; url: string; size: number; isImage: boolean; }
+const MIN_EDITOR_HEIGHT = 100;
+const MAX_EDITOR_HEIGHT = 2_000;
+function normalizeEditorHeight(value: string | number | null | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= MIN_EDITOR_HEIGHT && parsed <= MAX_EDITOR_HEIGHT
+    ? parsed
+    : fallback;
+}
 let post: ContentRow | null = null;
 let isEdit = false;
 let postCategories: number[] = [];
@@ -26,10 +35,11 @@ let postTags: string[] = [];
 let customFields: { name: string; type: string; value: string }[] = [];
 let categories: MetaRow[] = [];
 let attachments: PostAttachmentItem[] = [];
+let editorHeight = normalizeEditorHeight(options.editorSize, 350);
 
 const cidNum = cid ? parseInt(cid, 10) : 0;
 if (cidNum > 0) {
-  const [postRows, rels, tagRows, fieldRows, categoryRows, attachmentRows] = await db.batch([
+  const [postRows, rels, tagRows, fieldRows, categoryRows, attachmentRows, editorSizeRows] = await db.batch([
     db.select().from(schema.contents).where(eq(schema.contents.cid, cidNum)).limit(1),
     db.select({ mid: schema.relationships.mid }).from(schema.relationships)
       .where(eq(schema.relationships.cid, cidNum)),
@@ -43,9 +53,13 @@ if (cidNum > 0) {
     db.select().from(schema.contents)
       .where(and(eq(schema.contents.type, 'attachment'), eq(schema.contents.parent, cidNum)))
       .orderBy(schema.contents.created),
+    db.select({ value: schema.options.value }).from(schema.options)
+      .where(and(eq(schema.options.name, 'editorSize'), eq(schema.options.user, user!.uid)))
+      .limit(1),
   ]);
   post = postRows[0] || null;
   categories = categoryRows;
+  editorHeight = normalizeEditorHeight(editorSizeRows[0]?.value, editorHeight);
   if (post) {
     isEdit = true;
     postCategories = rels.map(r => r.mid);
@@ -70,15 +84,46 @@ if (cidNum > 0) {
     });
   }
 } else {
-  categories = await db.select().from(schema.metas)
-    .where(eq(schema.metas.type, 'category'))
-    .orderBy(schema.metas.order);
+  const [categoryRows, editorSizeRows] = await db.batch([
+    db.select().from(schema.metas)
+      .where(eq(schema.metas.type, 'category'))
+      .orderBy(schema.metas.order),
+    db.select({ value: schema.options.value }).from(schema.options)
+      .where(and(eq(schema.options.name, 'editorSize'), eq(schema.options.user, user!.uid)))
+      .limit(1),
+  ]);
+  categories = categoryRows;
+  const defaultCategory = Number(options.defaultCategory);
+  if (categories.some(category => category.mid === defaultCategory)) {
+    postCategories = [defaultCategory];
+  }
+  editorHeight = normalizeEditorHeight(editorSizeRows[0]?.value, editorHeight);
 }
 
 const isMarkdown = !post || (post.text && post.text.indexOf('<!--markdown-->') >= 0);
-
-// Build preview URL using permalink pattern
-const previewUrl = isEdit && post ? buildPermalink(post, urls.siteUrl, options.permalinkPattern) : '';
+const postPermalinkPattern = options.permalinkPattern || '/archives/{cid}/';
+const allowsSlugEdit = postPermalinkPattern.includes('{slug}');
+const slugMarker = '__TYPECHO_SLUG__';
+const permalinkDate = new Date((post?.created || Math.floor(Date.now() / 1000)) * 1000);
+const permalinkPath = renderPermalinkPattern(postPermalinkPattern, 'post', {
+  cid: post?.cid || '{cid}',
+  slug: slugMarker,
+  category: categories.find(category => postCategories.includes(category.mid))?.slug || '{category}',
+  year: post ? permalinkDate.getFullYear() : '{year}',
+  month: post ? String(permalinkDate.getMonth() + 1).padStart(2, '0') : '{month}',
+  day: post ? String(permalinkDate.getDate()).padStart(2, '0') : '{day}',
+}) || postPermalinkPattern;
+const permalinkDisplay = (() => {
+  const siteUrl = urls.siteUrl.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '').replace(/\/+$/, '');
+  const path = permalinkPath.startsWith('/') ? permalinkPath : `/${permalinkPath}`;
+  return siteUrl ? `${siteUrl}${path}` : path.replace(/^\/+/, '');
+})();
+const slugMarkerIndex = permalinkDisplay.indexOf(slugMarker);
+const slugPrefix = slugMarkerIndex >= 0 ? permalinkDisplay.slice(0, slugMarkerIndex) : permalinkDisplay;
+const slugSuffix = slugMarkerIndex >= 0 ? permalinkDisplay.slice(slugMarkerIndex + slugMarker.length) : '';
+const scheduleDate = post?.created
+  ? formatDate(post.created, 'Y-m-d H:i', Number(options.timezone) || 0)
+  : '';
 const writePostBottomHtml = await applyFilterSafely(ctx, 'admin:writePost:bottom', '', { options, post, user, isEdit });
 
 ---
@@ -105,30 +150,86 @@ const writePostBottomHtml = await applyFilterSafely(ctx, 'admin:writePost:bottom
       </p>
 
       <p class="mono url-slug">
-        <label for="slug" class="sr-only">网址缩略名</label>
-        <span id="preview-url">{isEdit ? previewUrl : ''}</span>
-        <input type="text" id="slug" name="slug" autocomplete="off"
-          value={post?.slug || ''} class="mono" placeholder={isEdit ? String(post?.cid) : '留空则使用文章ID'} style="display:none" />
-        <a href="#" id="edit-slug-btn" class="i-edit" title="编辑缩略名" style="margin-left:4px;"></a>
+        {allowsSlugEdit ? (
+          <>
+            <label for="slug" class="sr-only">网址缩略名</label>
+            <span>{slugPrefix}</span>
+            <input type="text" id="slug" name="slug" autocomplete="off"
+              value={post?.slug || ''} class="mono" placeholder={isEdit ? String(post?.cid) : ''} />
+            <span>{slugSuffix}</span>
+          </>
+        ) : <span>{permalinkDisplay}</span>}
       </p>
 
       <p>
         <label for="text" class="sr-only">文章内容</label>
-        <textarea style={`height: ${options.editorSize || 350}px`} autocomplete="off"
+        <textarea style={`height: ${editorHeight}px`} autocomplete="off"
           id="text" name="text" class="w-100 mono">{post?.text ? post.text.replace(/^<!--markdown-->/, '') : ''}</textarea>
       </p>
+
+      <details id="custom-field" class="typecho-post-option" open={customFields.length > 0}>
+        <summary>自定义字段</summary>
+        <ul class="fields mono">
+          {customFields.map((f) => (
+            <li class="field">
+              <div class="field-name">
+                <label for={`fieldname-${f.name}`} class="sr-only">字段名称</label>
+                <input type="text" id={`fieldname-${f.name}`} name="fieldNames[]" value={f.name}
+                  pattern="^[_a-zA-Z][_a-zA-Z0-9]*$" class="text-s w-100" />
+                <label for={`fieldtype-${f.name}`} class="sr-only">字段类型</label>
+                <select id={`fieldtype-${f.name}`} name={`fieldTypes[${f.name}]`} class="field-type-select">
+                  <option value="str" selected={f.type === 'str'}>字符</option>
+                  <option value="int" selected={f.type === 'int'}>整数</option>
+                  <option value="float" selected={f.type === 'float'}>小数</option>
+                </select>
+              </div>
+              <div class="field-value">
+                <label for={`fieldvalue-${f.name}`} class="sr-only">字段值</label>
+                <textarea id={`fieldvalue-${f.name}`} name={`fieldValues[${f.name}]`} class="text-s w-100 mono" rows="2">{f.value}</textarea>
+                <button type="button" class="btn btn-xs remove-field">删除</button>
+              </div>
+            </li>
+          ))}
+          {customFields.length === 0 && (
+            <li class="field">
+              <div class="field-name">
+                <label for="fieldname-new" class="sr-only">字段名称</label>
+                <input type="text" id="fieldname-new" name="fieldNames[]" value=""
+                  placeholder="字段名称" pattern="^[_a-zA-Z][_a-zA-Z0-9]*$" class="text-s w-100" />
+                <label for="fieldtype-new" class="sr-only">字段类型</label>
+                <select id="fieldtype-new" name="fieldTypes[newfield_0]" class="field-type-select">
+                  <option value="str">字符</option>
+                  <option value="int">整数</option>
+                  <option value="float">小数</option>
+                </select>
+              </div>
+              <div class="field-value">
+                <label for="fieldvalue-new" class="sr-only">字段值</label>
+                <textarea id="fieldvalue-new" name="fieldValues[newfield_0]" class="text-s w-100 mono" rows="2" placeholder="字段值"></textarea>
+                <button type="button" class="btn btn-xs remove-field">删除</button>
+              </div>
+            </li>
+          )}
+        </ul>
+        <div class="add">
+          <button type="button" id="add-field-btn" class="btn btn-xs">+添加字段</button>
+          <div class="description kit-hidden-mb">
+            自定义字段可以扩展你的模板功能, 使用方法参见 <a href="https://docs.typecho.org/help/custom-fields">帮助文档</a>
+          </div>
+        </div>
+      </details>
 
       {writePostBottomHtml && <Fragment set:html={writePostBottomHtml} />}
 
       <p class="submit clearfix">
         <span class="left">
-          <button type="button" id="btn-cancel-preview" class="btn">取消预览</button>
+          <button type="button" id="btn-cancel-preview" class="btn"><i class="i-caret-left"></i> 取消预览</button>
         </span>
         <span class="right">
           <input type="hidden" name="do" value={isEdit ? 'update' : 'create'} />
           <input type="hidden" name="type" value="post" />
           {isEdit && <input type="hidden" name="cid" value={String(post.cid)} />}
-          <button type="button" id="btn-preview" class="btn">预览文章</button>
+          <button type="button" id="btn-preview" class="btn"><i class="i-exlink"></i> 预览文章</button>
           <button type="submit" name="status" value="draft" id="btn-save" class="btn">保存草稿</button>
           <button type="submit" name="status" value="publish" class="btn primary" id="btn-submit">发布文章</button>
           {isMarkdown && <input type="hidden" name="markdown" value="1" />}
@@ -143,6 +244,14 @@ const writePostBottomHtml = await applyFilterSafely(ctx, 'admin:writePost:bottom
       </ul>
 
       <div id="tab-advance" class="tab-content">
+        <section class="typecho-post-option" role="application">
+          <label for="date" class="typecho-label">发布日期</label>
+          <p>
+            <input class="typecho-date w-100" type="text" name="date" id="date" autocomplete="off"
+              data-timezone={String((Number(options.timezone) || 0) / 60)} value={scheduleDate} />
+          </p>
+        </section>
+
         <section class="typecho-post-option category-option">
           <label class="typecho-label">分类</label>
           <ul>
@@ -164,18 +273,8 @@ const writePostBottomHtml = await applyFilterSafely(ctx, 'admin:writePost:bottom
           </div></p>
         </section>
 
-        <section class="typecho-post-option">
-          <label for="schedule-date" class="typecho-label">发布时间</label>
-          <p style="display:flex;gap:6px">
-            <input type="datetime-local" id="schedule-date" name="date" value={post?.created ? new Date(post.created * 1000).toISOString().slice(0, 16) : ''} class="text" style="flex:1" />
-            <button type="button" class="btn btn-xs" onclick="var d=new Date();this.form.date.value=d.toISOString().slice(0,16)">现在</button>
-            <button type="button" class="btn btn-xs" onclick="this.form.date.value=''">清除</button>
-          </p>
-          <small class="typecho-option-hint">留空立即发布；填写未来时间自动定时发布</small>
-        </section>
-
-        <button type="button" id="advance-panel-btn" class="btn btn-xs">高级选项 <i class="i-caret-down"></i></button>
-        <div id="advance-panel">
+        <details id="advance-panel">
+          <summary class="btn btn-xs">高级选项 <i class="i-caret-down"></i></summary>
           {isEditor && (
             <section class="typecho-post-option visibility-option">
               <label for="visibility" class="typecho-label">公开度</label>
@@ -216,42 +315,13 @@ const writePostBottomHtml = await applyFilterSafely(ctx, 'admin:writePost:bottom
               </li>
             </ul>
           </section>
-        </div>
 
-        <div id="custom-field" class:list={[{ fold: customFields.length === 0 }]}>
-          <label class="typecho-label">
-            <a href="#custom-field-toggle" id="custom-field-toggle">自定义字段</a>
-          </label>
-          <table id="custom-fields-table">
-            <thead>
-              <tr>
-                <th>字段名称</th>
-                <th>类型</th>
-                <th>字段值</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {customFields.map((f) => (
-                <tr>
-                  <td><input type="text" name="fieldNames[]" value={f.name} pattern="^[_a-zA-Z][_a-zA-Z0-9]*$" class="text w-100" /></td>
-                  <td>
-                    <select name={`fieldTypes[${f.name}]`} class="field-type-select w-100">
-                      <option value="str" selected={f.type === 'str'}>字符</option>
-                      <option value="int" selected={f.type === 'int'}>整数</option>
-                      <option value="float" selected={f.type === 'float'}>小数</option>
-                    </select>
-                  </td>
-                  <td><textarea name={`fieldValues[${f.name}]`} class="text w-100 mono" rows="2">{f.value}</textarea></td>
-                  <td><button type="button" class="btn btn-xs remove-field">删除</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div class="description">
-            <button type="button" id="add-field-btn" class="btn btn-xs">增加字段</button>
-          </div>
-        </div>
+          <section class="typecho-post-option">
+            <label for="trackback" class="typecho-label">引用通告</label>
+            <p><textarea id="trackback" class="w-100 mono" name="trackback" rows="2"></textarea></p>
+            <p class="description">每一行一个引用地址, 用回车隔开</p>
+          </section>
+        </details>
       </div>
 
       <div id="tab-files" class="tab-content hidden">
@@ -282,9 +352,31 @@ const writePostBottomHtml = await applyFilterSafely(ctx, 'admin:writePost:bottom
     <script is:inline src="/vendor/pagedown.js"></script>
     <script is:inline src="/vendor/paste.js"></script>
     <script is:inline src="/vendor/purify.js"></script>
+    <script is:inline src="/vendor/timepicker.js"></script>
     <script is:inline src="/vendor/typecho-tags.js"></script>
     <script is:inline>
     $(document).ready(function () {
+      var dateInput = $('#date');
+      dateInput.mask('9999-99-99 99:99').datetimepicker({
+        currentText: '现在',
+        prevText: '上一月',
+        nextText: '下一月',
+        monthNames: ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'],
+        dayNames: ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'],
+        dayNamesShort: ['周日', '周一', '周二', '周三', '周四', '周五', '周六'],
+        dayNamesMin: ['日', '一', '二', '三', '四', '五', '六'],
+        closeText: '完成',
+        timeOnlyTitle: '选择时间',
+        timeText: '时间',
+        hourText: '时',
+        minuteText: '分',
+        secondText: '秒',
+        dateFormat: 'yy-mm-dd',
+        timezone: Number(dateInput.data('timezone')),
+        hour: (new Date()).getHours(),
+        minute: (new Date()).getMinutes()
+      });
+
       var textarea = $('#text'),
           isFullScreen = false,
           toolbar = $('<div class="editor" id="wmd-button-bar" />').insertBefore(textarea.parent()),
@@ -388,6 +480,50 @@ const writePostBottomHtml = await applyFilterSafely(ctx, 'admin:writePost:bottom
 
       editor.run();
 
+      // Keep the Typecho resize handle while storing the preferred height on
+      // the current user instead of changing the site-wide editor default.
+      (function () {
+        var resizeHandle = $('<span class="resize" role="separator" aria-label="调整编辑器高度" aria-orientation="horizontal" tabindex="0"><i></i></span>').insertAfter(textarea),
+            minHeight = 100,
+            maxHeight = 2000;
+
+        function applyHeight(height) {
+          var nextHeight = Math.max(minHeight, Math.min(maxHeight, Math.round(height)));
+          textarea.height(nextHeight);
+          preview.outerHeight(nextHeight);
+          textarea.trigger('resize');
+          return nextHeight;
+        }
+
+        function persistHeight(height) {
+          $.ajax({
+            url: '/api/admin/editor-size',
+            type: 'POST',
+            data: { size: height },
+            headers: { 'X-CSRF-Token': String($('form[name="write_post"] input[name="_"]').val() || '') },
+          });
+        }
+
+        resizeHandle.on('mousedown', function (event) {
+          event.preventDefault();
+          textarea.blur().css('opacity', 0.25);
+          var startY = event.pageY,
+              startHeight = textarea.outerHeight();
+          $(document).on('mousemove.editorResize', function (moveEvent) {
+            applyHeight(startHeight + moveEvent.pageY - startY);
+          }).on('mouseup.editorResize', function () {
+            $(document).off('.editorResize');
+            persistHeight(Math.round(textarea.outerHeight()));
+            textarea.css('opacity', 1);
+            textarea.focus();
+          });
+        }).on('keydown', function (event) {
+          if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+          event.preventDefault();
+          persistHeight(applyHeight(textarea.outerHeight() + (event.key === 'ArrowUp' ? -20 : 20)));
+        });
+      })();
+
       // 编辑预览切换
       var edittab = $('.editor').prepend('<div class="wmd-edittab"><a href="#wmd-editarea" class="active">撰写</a><a href="#wmd-preview">预览</a></div>'),
           editarea = $(textarea.parent()).attr("id", "wmd-editarea");
@@ -414,12 +550,6 @@ const writePostBottomHtml = await applyFilterSafely(ctx, 'admin:writePost:bottom
         $('.wmd-edittab a[href="#wmd-editarea"]').trigger('click');
       });
 
-      // 高级选项面板
-      $('#advance-panel-btn').click(function () {
-        $('#advance-panel').toggle();
-        return false;
-      });
-
       // 公开度切换密码保护
       $('#visibility').change(function () {
         if ($(this).val() == 'password') {
@@ -429,16 +559,10 @@ const writePostBottomHtml = await applyFilterSafely(ctx, 'admin:writePost:bottom
         }
       });
 
-      // 缩略名编辑切换
-      $('#edit-slug-btn').click(function (e) {
-        e.preventDefault();
-        var slugInput = $('#slug');
-        if (slugInput.is(':visible')) {
-          slugInput.hide();
-        } else {
-          slugInput.show().focus();
-        }
-      });
+      // 缩略名仅在永久链接格式使用 {slug} 时存在，并随内容长度调整宽度。
+      $('#slug').on('input', function () {
+        $(this).attr('size', Math.max(5, String($(this).val() || '').length));
+      }).trigger('input');
 
       // ========== 标签自动完成 ==========
       (function () {
@@ -493,39 +617,33 @@ const writePostBottomHtml = await applyFilterSafely(ctx, 'admin:writePost:bottom
 
       // ========== 自定义字段 ==========
       (function () {
-        var fieldIdx = 0;
+        var fieldIdx = $('#custom-field .field').length;
         var customField = $('#custom-field');
-
-        // 折叠/展开
-        $('#custom-field-toggle').click(function (e) {
-          e.preventDefault();
-          customField.toggleClass('fold');
-        });
 
         $('#add-field-btn').click(function () {
           fieldIdx++;
           var name = 'newfield_' + fieldIdx;
-          var row = '<tr>'
-            + '<td><input type="text" name="fieldNames[]" value="" pattern="^[_a-zA-Z][_a-zA-Z0-9]*$" class="text w-100" placeholder="字段名" /></td>'
-            + '<td><select name="fieldTypes[' + name + ']" class="field-type-select"><option value="str">字符</option><option value="int">整数</option><option value="float">小数</option></select></td>'
-            + '<td><textarea name="fieldValues[' + name + ']" class="text w-100 mono" rows="2"></textarea></td>'
-            + '<td><button type="button" class="btn btn-xs remove-field">删除</button></td>'
-            + '</tr>';
-          $('#custom-fields-table tbody').append(row);
-          // 自动展开
-          customField.removeClass('fold');
+          var field = '<li class="field">'
+            + '<div class="field-name"><input type="text" name="fieldNames[]" value="" pattern="^[_a-zA-Z][_a-zA-Z0-9]*$" class="text-s w-100" placeholder="字段名称" />'
+            + '<select name="fieldTypes[' + name + ']" class="field-type-select"><option value="str">字符</option><option value="int">整数</option><option value="float">小数</option></select></div>'
+            + '<div class="field-value"><textarea name="fieldValues[' + name + ']" class="text-s w-100 mono" rows="2" placeholder="字段值"></textarea>'
+            + '<button type="button" class="btn btn-xs remove-field">删除</button></div>'
+            + '</li>';
+          customField.find('.fields').append(field);
+          customField.prop('open', true);
         });
 
         $(document).on('click', '.remove-field', function () {
-          $(this).closest('tr').remove();
+          $(this).closest('.field').remove();
         });
 
-        // Sync field name changes to fieldTypes/fieldValues names
-        $(document).on('change', '#custom-fields-table input[name="fieldNames[]"]', function () {
-          var newName = $(this).val();
-          var row = $(this).closest('tr');
-          row.find('.field-type-select').attr('name', 'fieldTypes[' + newName + ']');
-          row.find('textarea').attr('name', 'fieldValues[' + newName + ']');
+        // Keep the project fieldTypes[name]/fieldValues[name] API contract.
+        $(document).on('input', '#custom-field input[name="fieldNames[]"]', function () {
+          var newName = $.trim(String($(this).val() || ''));
+          if (!newName) return;
+          var field = $(this).closest('.field');
+          field.find('.field-type-select').attr('name', 'fieldTypes[' + newName + ']');
+          field.find('textarea').attr('name', 'fieldValues[' + newName + ']');
         });
       })();
 

@@ -21,7 +21,7 @@ a.balloon-button { display: inline-block; padding: 0 6px; min-width: 12px; heigh
 a.button:hover, a.balloon-button:hover { background-color: #A5CADC; color: #FFF; text-decoration: none; }
 
 /** Forms */
-input[type=text], input[type=password], input[type=email], input[type=url], textarea { background: #FFF; border: 1px solid #D9D9D6; padding: 7px; border-radius: 2px; box-sizing: border-box; }
+input[type=text],input[type=url],input[type=password],input[type=email],input[type=number],textarea { background: #FFF; border: 1px solid #D9D9D6; padding: 7px; border-radius: 2px; box-sizing: border-box; }
 
 input[type=text]:disabled, input[type=text]:read-only, input[type=password]:disabled, input[type=password]:read-only, input[type=email]:disabled, input[type=email]:read-only, input[type=url]:disabled, input[type=url]:read-only, textarea:disabled, textarea:read-only { background: #F3F3F3; }
 
@@ -444,39 +444,47 @@ a.operate-reply { color: #545c30; }
 
 #advance-panel { display: none; }
 
+.typecho-post-area details#advance-panel { display: block; margin-top: 1em; }
+
+.typecho-post-area details#advance-panel > summary { list-style: none; }
+
+.typecho-post-area details#advance-panel > summary::-webkit-details-marker { display: none; }
+
+.typecho-post-area details#advance-panel[open] > summary { margin-bottom: 0.5em; }
+
 #custom-field { margin: 1em 0; padding: 10px 15px; background: #FFF; }
 
-#custom-field.fold table, #custom-field.fold .description { display: none; }
+#custom-field summary { font-weight: bold; cursor: pointer; }
 
-#custom-field .description { margin-top: 10px; overflow: hidden; }
+#custom-field summary:hover { color: #467B96; }
 
-#custom-field .description button { float: left; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#custom-field summary::marker { color: #BBB; }
 
-#custom-field p.description { text-align: left; }
+#custom-field .fields { list-style: none; margin: 10px 0 0; padding: 0; }
 
-#custom-field .typecho-label { margin: 0; }
+#custom-field .field { display: flex; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #F0F0EC; }
 
-#custom-field .typecho-label a { display: block; color: #444; }
+#custom-field .field:last-child { margin-bottom: 0; }
 
-#custom-field .typecho-label a:hover { color: #467B96; text-decoration: none; }
+#custom-field .field-name { display: flex; }
 
-#custom-field table { margin-top: 10px; width: 100%; border-collapse: collapse; table-layout: fixed; }
+#custom-field .field-name input[name="fieldNames[]"] { width: 150px; height: 27px; margin-right: 10px; }
 
-#custom-field thead { display: none; }
+#custom-field .field-value { display: flex; flex: 1; margin-left: 10px; }
 
-#custom-field tr { display: block; border-bottom: 1px solid #F0F0EC; padding: 6px 0; }
+#custom-field .field-value textarea[name^="fieldValues["] { flex: 1; margin-right: 10px; resize: none; }
 
-#custom-field td { display: block; padding: 3px 0; font-size: .92857em; border: none; vertical-align: top; width: 100% !important; box-sizing: border-box; }
+#custom-field select { height: 27px; }
 
-#custom-field td label { font-size: 1em; font-weight: normal; }
+#custom-field .add { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
 
-#custom-field td:last-child { text-align: left; padding-top: 4px; }
+#custom-field .add .description { margin-top: 0; }
 
-#custom-field select { height: 27px; width: 100%; box-sizing: border-box; }
-
-#custom-field input.text, #custom-field textarea { width: 100%; box-sizing: border-box; }
-
-#custom-field .btn.remove-field { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 575px) {
+  #custom-field .field { flex-flow: column; }
+  #custom-field .field-value { margin-top: 10px; margin-left: 0; }
+  #custom-field .kit-hidden-mb { display: none; }
+}
 
 .typecho-post-area .is-draft { background: #FFF1A8; }
 
@@ -484,7 +492,7 @@ a.operate-reply { color: #545c30; }
 
 /* ── Tags input component ───────────────────────────────────────────── */
 /* ── Tags input component ───────────────────────────────────────────── */
-.tag-input-area { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; border: 1px solid #D9D9D6; border-radius: 2px; padding: 4px 5px; background: #FFF; cursor: text; box-sizing: border-box; position: relative; }
+.tag-input-area { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; border: 1px solid #D9D9D6; border-radius: 2px; padding: 4px 5px; min-height: 32px; background: #FFF; cursor: text; box-sizing: border-box; position: relative; }
 .tag-input-area:focus-within { border-color: #467B96; }
 .tag-pills { display: flex; flex-wrap: wrap; gap: 3px; }
 .tag-pill { display: inline-flex; align-items: center; background: #467B96; color: #FFF; border-radius: 2px; padding: 2px 22px 2px 7px; font-size: .92857em; position: relative; white-space: nowrap; line-height: 1.4; }

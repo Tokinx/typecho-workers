@@ -37,6 +37,8 @@ export interface ThemeManifest {
   license?: string;
   /** Tags for categorization */
   tags?: string[];
+  /** Named Astro components available to individual pages */
+  pageTemplates?: Record<string, { name: string; component: string }>;
 }
 
 export interface ThemeInfo {

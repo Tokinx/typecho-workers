@@ -27,7 +27,10 @@ const { options } = ctx;
 const activeTheme = options.theme || 'typecho-theme-minimal';
 const templates = themeTemplates[activeTheme] ?? {};
 const defaultTemplates = themeTemplates['typecho-theme-minimal']!;
-let Component = templates.Page ?? defaultTemplates.Page!;
+const customPageTemplate = pageRow?.template
+  ? templates.PageTemplates?.[pageRow.template]?.Component
+  : undefined;
+let Component = customPageTemplate ?? templates.Page ?? defaultTemplates.Page!;
 
 // Prepare data
 const suppliedPassword = Astro.url.searchParams.get('password');

@@ -11,7 +11,12 @@
  */
 import type { AstroIntegration } from 'astro';
 import { readFileSync, existsSync, readdirSync, mkdirSync, cpSync, statSync, realpathSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
+
+interface PageTemplateDefinition {
+  name: string;
+  component: string;
+}
 
 interface DiscoveredTheme {
   id: string;
@@ -22,6 +27,8 @@ interface DiscoveredTheme {
   screenshotFile?: string;
   /** Astro component files found in components/ directory */
   components: Record<string, string>; // e.g. { Index: '/abs/path/Index.astro' }
+  /** Configured page-specific template components */
+  pageTemplates: Record<string, PageTemplateDefinition>;
 }
 
 const TEMPLATE_TYPES = ['Index', 'Post', 'Page', 'Archive', 'NotFound'] as const;
@@ -141,6 +148,7 @@ function buildTheme(packageName: string, packageDir: string, manifest: Record<st
 
   // Scan for Astro template components
   const components = scanThemeComponents(packageDir);
+  const pageTemplates = scanPageTemplates(packageName, packageDir, manifest);
 
   return {
     id,
@@ -150,6 +158,7 @@ function buildTheme(packageName: string, packageDir: string, manifest: Record<st
     cssFile,
     screenshotFile: findScreenshot(packageDir, manifest.screenshot),
     components,
+    pageTemplates,
   };
 }
 
@@ -171,6 +180,48 @@ function scanThemeComponents(packageDir: string): Record<string, string> {
   }
 
   return result;
+}
+
+/**
+ * Read explicitly declared page templates. A declaration is required so
+ * component names remain stable values that can be stored in contents.template.
+ */
+function scanPageTemplates(
+  packageName: string,
+  packageDir: string,
+  manifest: Record<string, any>,
+): Record<string, PageTemplateDefinition> {
+  const configured = manifest.pageTemplates;
+  if (!configured || typeof configured !== 'object' || Array.isArray(configured)) return {};
+
+  const componentsDir = join(packageDir, 'components');
+  const templates: Record<string, PageTemplateDefinition> = {};
+  for (const [id, value] of Object.entries(configured)) {
+    const definition = value as Record<string, unknown>;
+    const name = definition.name;
+    const component = definition.component;
+    const componentPath = typeof component === 'string' ? join(packageDir, component) : '';
+    const relativeComponentPath = componentPath ? relative(componentsDir, componentPath) : '';
+    const isWithinComponents = relativeComponentPath
+      && !relativeComponentPath.startsWith('..')
+      && !relativeComponentPath.includes('\\');
+
+    if (
+      !/^[a-zA-Z0-9_-]+$/.test(id)
+      || typeof name !== 'string'
+      || !name.trim()
+      || typeof component !== 'string'
+      || !component.endsWith('.astro')
+      || !isWithinComponents
+      || !existsSync(componentPath)
+    ) {
+      console.warn(`[theme-loader] Theme ${packageName}: invalid page template "${id}", skipping.`);
+      continue;
+    }
+
+    templates[id] = { name: name.trim(), component: component.replace(/\\/g, '/') };
+  }
+  return templates;
 }
 
 function findScreenshot(packageDir: string, configuredScreenshot?: string): string | undefined {
@@ -246,6 +297,15 @@ function generateVirtualModule(discoveredThemes: DiscoveredTheme[]): string {
         imports.push(`import ${varName} from '${theme.packageName}/components/${type}.astro';`);
         compEntries.push(`${type}: ${varName}`);
       }
+    }
+    const pageTemplateEntries: string[] = [];
+    for (const [templateId, template] of Object.entries(theme.pageTemplates)) {
+      const varName = `${capitalize(theme.id)}PageTemplate${capitalize(templateId)}`;
+      imports.push(`import ${varName} from '${theme.packageName}/${template.component}';`);
+      pageTemplateEntries.push(`${JSON.stringify(templateId)}: { name: ${JSON.stringify(template.name)}, Component: ${varName} }`);
+    }
+    if (pageTemplateEntries.length > 0) {
+      compEntries.push(`PageTemplates: { ${pageTemplateEntries.join(', ')} }`);
     }
     if (compEntries.length > 0) {
       entries.push(`  '${theme.id}': { ${compEntries.join(', ')} }`);

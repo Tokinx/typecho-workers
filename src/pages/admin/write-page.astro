@@ -4,8 +4,10 @@ import { createContext, requireAuth } from '@/lib/context';
 import { hasPermission } from '@/lib/auth';
 import { eq, and } from 'drizzle-orm';
 import { schema } from '@/db';
-import { buildPermalink } from '@/lib/content';
+import { formatDate } from '@/lib/content';
+import { renderPermalinkPattern } from '@/lib/permalink-pattern';
 import { applyFilterSafely } from '@/lib/plugin';
+import { themeTemplates } from 'virtual:theme-templates';
 
 const ctx = await createContext(Astro.locals, Astro.request);
 const authCheck = requireAuth(ctx);
@@ -18,21 +20,77 @@ const { db, options, urls, user, csrfToken } = ctx;
 const cid = Astro.url.searchParams.get('cid');
 type ContentRow = typeof schema.contents.$inferSelect;
 interface AttachmentItem { cid: number; title: string | null; url: string; size: number; isImage: boolean; }
+interface ParentPageOption { cid: number; title: string; depth: number; }
+const MIN_EDITOR_HEIGHT = 100;
+const MAX_EDITOR_HEIGHT = 2_000;
+function normalizeEditorHeight(value: string | number | null | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= MIN_EDITOR_HEIGHT && parsed <= MAX_EDITOR_HEIGHT
+    ? parsed
+    : fallback;
+}
+
+function buildParentPageOptions(rows: ContentRow[], currentCid: number): ParentPageOption[] {
+  const children = new Map<number, ContentRow[]>();
+  for (const row of rows) {
+    const parent = row.parent || 0;
+    const bucket = children.get(parent) || [];
+    bucket.push(row);
+    children.set(parent, bucket);
+  }
+  const sortPages = (pages: ContentRow[]) => pages.sort((a, b) => (a.order || 0) - (b.order || 0) || a.cid - b.cid);
+  for (const pages of children.values()) sortPages(pages);
+
+  const excluded = new Set<number>();
+  const excludeDescendants = (pageCid: number) => {
+    if (excluded.has(pageCid)) return;
+    excluded.add(pageCid);
+    for (const child of children.get(pageCid) || []) excludeDescendants(child.cid);
+  };
+  if (currentCid > 0) excludeDescendants(currentCid);
+
+  const options: ParentPageOption[] = [];
+  const visited = new Set<number>();
+  const appendChildren = (parent: number, depth: number) => {
+    for (const row of children.get(parent) || []) {
+      if (visited.has(row.cid)) continue;
+      visited.add(row.cid);
+      if (!excluded.has(row.cid)) options.push({ cid: row.cid, title: row.title || '无标题', depth });
+      appendChildren(row.cid, depth + 1);
+    }
+  };
+  appendChildren(0, 0);
+  for (const row of rows) {
+    if (!visited.has(row.cid)) appendChildren(row.parent || 0, 0);
+  }
+  return options;
+}
+
 let page: ContentRow | null = null;
 let isEdit = false;
 let customFields: { name: string; type: string; value: string }[] = [];
 let attachments: AttachmentItem[] = [];
+let parentPageRows: ContentRow[] = [];
+let editorHeight = normalizeEditorHeight(options.editorSize, 350);
 
 const cidNum = cid ? parseInt(cid, 10) : 0;
 if (cidNum > 0) {
-  const [pageRows, fieldRows, attachmentRows] = await db.batch([
+  const [pageRows, fieldRows, attachmentRows, parentRows, editorSizeRows] = await db.batch([
     db.select().from(schema.contents).where(eq(schema.contents.cid, cidNum)).limit(1),
     db.select().from(schema.fields).where(eq(schema.fields.cid, cidNum)),
     db.select().from(schema.contents)
       .where(and(eq(schema.contents.type, 'attachment'), eq(schema.contents.parent, cidNum)))
       .orderBy(schema.contents.created),
+    db.select().from(schema.contents)
+      .where(eq(schema.contents.type, 'page'))
+      .orderBy(schema.contents.order, schema.contents.cid),
+    db.select({ value: schema.options.value }).from(schema.options)
+      .where(and(eq(schema.options.name, 'editorSize'), eq(schema.options.user, user!.uid)))
+      .limit(1),
   ]);
   page = pageRows[0] || null;
+  parentPageRows = parentRows;
+  editorHeight = normalizeEditorHeight(editorSizeRows[0]?.value, editorHeight);
   if (page) {
     isEdit = true;
     customFields = fieldRows.map(f => ({
@@ -54,12 +112,44 @@ if (cidNum > 0) {
       };
     });
   }
+} else {
+  const [parentRows, editorSizeRows] = await db.batch([
+    db.select().from(schema.contents)
+      .where(eq(schema.contents.type, 'page'))
+      .orderBy(schema.contents.order, schema.contents.cid),
+    db.select({ value: schema.options.value }).from(schema.options)
+      .where(and(eq(schema.options.name, 'editorSize'), eq(schema.options.user, user!.uid)))
+      .limit(1),
+  ]);
+  parentPageRows = parentRows;
+  editorHeight = normalizeEditorHeight(editorSizeRows[0]?.value, editorHeight);
 }
 
 const isMarkdown = !page || (page.text && page.text.indexOf('<!--markdown-->') >= 0);
-
-// Build preview URL
-const previewUrl = isEdit && page ? buildPermalink(page, urls.siteUrl, options.permalinkPattern, options.pagePattern) : '';
+const pagePermalinkPattern = options.pagePattern || '/{slug}.html';
+const allowsSlugEdit = pagePermalinkPattern.includes('{slug}');
+const slugMarker = '__TYPECHO_SLUG__';
+const permalinkPath = renderPermalinkPattern(pagePermalinkPattern, 'page', {
+  cid: page?.cid || '{cid}',
+  slug: slugMarker,
+}) || pagePermalinkPattern;
+const permalinkDisplay = (() => {
+  const siteUrl = urls.siteUrl.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '').replace(/\/+$/, '');
+  const path = permalinkPath.startsWith('/') ? permalinkPath : `/${permalinkPath}`;
+  return siteUrl ? `${siteUrl}${path}` : path.replace(/^\/+/, '');
+})();
+const slugMarkerIndex = permalinkDisplay.indexOf(slugMarker);
+const slugPrefix = slugMarkerIndex >= 0 ? permalinkDisplay.slice(0, slugMarkerIndex) : permalinkDisplay;
+const slugSuffix = slugMarkerIndex >= 0 ? permalinkDisplay.slice(slugMarkerIndex + slugMarker.length) : '';
+const scheduleDate = page?.created
+  ? formatDate(page.created, 'Y-m-d H:i', Number(options.timezone) || 0)
+  : '';
+const parentPageOptions = buildParentPageOptions(parentPageRows, page?.cid || 0);
+const activeTheme = options.theme || 'typecho-theme-minimal';
+const pageTemplateOptions = Object.entries(themeTemplates[activeTheme]?.PageTemplates ?? {});
+const hasCurrentPageTemplate = !page?.template || pageTemplateOptions.some(([template]) => template === page?.template);
+const writePageOptionHtml = await applyFilterSafely(ctx, 'admin:writePage:option', '', { options, page, user, isEdit });
+const writePageAdvanceOptionHtml = await applyFilterSafely(ctx, 'admin:writePage:advanceOption', '', { options, page, user, isEdit });
 const writePageBottomHtml = await applyFilterSafely(ctx, 'admin:writePage:bottom', '', { options, page, user, isEdit });
 
 ---
@@ -86,30 +176,86 @@ const writePageBottomHtml = await applyFilterSafely(ctx, 'admin:writePage:bottom
       </p>
 
       <p class="mono url-slug">
-        <label for="slug" class="sr-only">网址缩略名</label>
-        <span id="preview-url">{isEdit ? previewUrl : ''}</span>
-        <input type="text" id="slug" name="slug" autocomplete="off"
-          value={page?.slug || ''} class="mono" placeholder={isEdit ? String(page?.cid) : '留空则使用页面ID'} style="display:none" />
-        <a href="#" id="edit-slug-btn" class="i-edit" title="编辑缩略名" style="margin-left:4px;"></a>
+        {allowsSlugEdit ? (
+          <>
+            <label for="slug" class="sr-only">网址缩略名</label>
+            <span>{slugPrefix}</span>
+            <input type="text" id="slug" name="slug" autocomplete="off"
+              value={page?.slug || ''} class="mono" placeholder={isEdit ? String(page?.cid) : ''} />
+            <span>{slugSuffix}</span>
+          </>
+        ) : <span>{permalinkDisplay}</span>}
       </p>
 
       <p>
         <label for="text" class="sr-only">页面内容</label>
-        <textarea style={`height: ${options.editorSize || 350}px`} autocomplete="off"
+        <textarea style={`height: ${editorHeight}px`} autocomplete="off"
           id="text" name="text" class="w-100 mono">{page?.text ? page.text.replace(/^<!--markdown-->/, '') : ''}</textarea>
       </p>
+
+      <details id="custom-field" class="typecho-post-option" open={customFields.length > 0}>
+        <summary>自定义字段</summary>
+        <ul class="fields mono">
+          {customFields.map((f) => (
+            <li class="field">
+              <div class="field-name">
+                <label for={`fieldname-${f.name}`} class="sr-only">字段名称</label>
+                <input type="text" id={`fieldname-${f.name}`} name="fieldNames[]" value={f.name}
+                  pattern="^[_a-zA-Z][_a-zA-Z0-9]*$" class="text-s w-100" />
+                <label for={`fieldtype-${f.name}`} class="sr-only">字段类型</label>
+                <select id={`fieldtype-${f.name}`} name={`fieldTypes[${f.name}]`} class="field-type-select">
+                  <option value="str" selected={f.type === 'str'}>字符</option>
+                  <option value="int" selected={f.type === 'int'}>整数</option>
+                  <option value="float" selected={f.type === 'float'}>小数</option>
+                </select>
+              </div>
+              <div class="field-value">
+                <label for={`fieldvalue-${f.name}`} class="sr-only">字段值</label>
+                <textarea id={`fieldvalue-${f.name}`} name={`fieldValues[${f.name}]`} class="text-s w-100 mono" rows="2">{f.value}</textarea>
+                <button type="button" class="btn btn-xs remove-field">删除</button>
+              </div>
+            </li>
+          ))}
+          {customFields.length === 0 && (
+            <li class="field">
+              <div class="field-name">
+                <label for="fieldname-new" class="sr-only">字段名称</label>
+                <input type="text" id="fieldname-new" name="fieldNames[]" value=""
+                  placeholder="字段名称" pattern="^[_a-zA-Z][_a-zA-Z0-9]*$" class="text-s w-100" />
+                <label for="fieldtype-new" class="sr-only">字段类型</label>
+                <select id="fieldtype-new" name="fieldTypes[newfield_0]" class="field-type-select">
+                  <option value="str">字符</option>
+                  <option value="int">整数</option>
+                  <option value="float">小数</option>
+                </select>
+              </div>
+              <div class="field-value">
+                <label for="fieldvalue-new" class="sr-only">字段值</label>
+                <textarea id="fieldvalue-new" name="fieldValues[newfield_0]" class="text-s w-100 mono" rows="2" placeholder="字段值"></textarea>
+                <button type="button" class="btn btn-xs remove-field">删除</button>
+              </div>
+            </li>
+          )}
+        </ul>
+        <div class="add">
+          <button type="button" id="add-field-btn" class="btn btn-xs">+添加字段</button>
+          <div class="description kit-hidden-mb">
+            自定义字段可以扩展你的模板功能, 使用方法参见 <a href="https://docs.typecho.org/help/custom-fields">帮助文档</a>
+          </div>
+        </div>
+      </details>
 
       {writePageBottomHtml && <Fragment set:html={writePageBottomHtml} />}
 
       <p class="submit clearfix">
         <span class="left">
-          <button type="button" id="btn-cancel-preview" class="btn">取消预览</button>
+          <button type="button" id="btn-cancel-preview" class="btn"><i class="i-caret-left"></i> 取消预览</button>
         </span>
         <span class="right">
           <input type="hidden" name="do" value={isEdit ? 'update' : 'create'} />
           <input type="hidden" name="type" value="page" />
           {isEdit && <input type="hidden" name="cid" value={String(page.cid)} />}
-          <button type="button" id="btn-preview" class="btn">预览页面</button>
+          <button type="button" id="btn-preview" class="btn"><i class="i-exlink"></i> 预览页面</button>
           <button type="submit" name="status" value="draft" id="btn-save" class="btn">保存草稿</button>
           <button type="submit" name="status" value="publish" class="btn primary" id="btn-submit">发布页面</button>
           {isMarkdown && <input type="hidden" name="markdown" value="1" />}
@@ -124,14 +270,55 @@ const writePageBottomHtml = await applyFilterSafely(ctx, 'admin:writePage:bottom
       </ul>
 
       <div id="tab-advance" class="tab-content">
+        <section class="typecho-post-option" role="application">
+          <label for="date" class="typecho-label">发布日期</label>
+          <p>
+            <input class="typecho-date w-100" type="text" name="date" id="date" autocomplete="off"
+              data-timezone={String((Number(options.timezone) || 0) / 60)} value={scheduleDate} />
+          </p>
+        </section>
+
         <section class="typecho-post-option">
           <label for="order" class="typecho-label">页面顺序</label>
-          <p><input type="text" id="order" name="order" value={String(page?.order || 0)} class="w-100" /></p>
+          <p><input type="number" id="order" name="order" value={String(page?.order || 0)} class="w-100" /></p>
           <p class="description">为你的自定义页面设定一个序列值以后, 能够使得它们按此值从小到大排列</p>
         </section>
 
-        <button type="button" id="advance-panel-btn" class="btn btn-xs">高级选项 <i class="i-caret-down"></i></button>
-        <div id="advance-panel">
+        <section class="typecho-post-option">
+          <label for="template" class="typecho-label">自定义模板</label>
+          <p>
+            <select name="template" id="template">
+              <option value="" selected={!page?.template}>不选择</option>
+              {pageTemplateOptions.map(([template, definition]) => (
+                <option value={template} selected={page?.template === template}>{definition.name}</option>
+              ))}
+              {page?.template && !hasCurrentPageTemplate && (
+                <option value={page.template} selected>当前模板不可用: {page.template}</option>
+              )}
+            </select>
+          </p>
+          <p class="description">如果你为此页面选择了一个自定义模板, 系统将按照你选择的模板文件展现它</p>
+        </section>
+
+        <section class="typecho-post-option">
+          <label for="parent" class="typecho-label">父级页面</label>
+          <p>
+            <select name="parent" id="parent">
+              <option value="0" selected={!page?.parent}>不选择</option>
+              {parentPageOptions.map((parent) => (
+                <option value={String(parent.cid)} selected={page?.parent === parent.cid}>
+                  {'\u00a0\u00a0\u00a0\u00a0'.repeat(parent.depth)}{parent.title}
+                </option>
+              ))}
+            </select>
+          </p>
+          <p class="description">如果你设定了父级页面, 此页面将作为子页面呈现</p>
+        </section>
+
+        {writePageOptionHtml && <Fragment set:html={writePageOptionHtml} />}
+
+        <details id="advance-panel">
+          <summary class="btn btn-xs">高级选项 <i class="i-caret-down"></i></summary>
           <section class="typecho-post-option visibility-option">
             <label for="visibility" class="typecho-label">公开度</label>
             <p>
@@ -142,71 +329,28 @@ const writePageBottomHtml = await applyFilterSafely(ctx, 'admin:writePage:bottom
             </p>
           </section>
 
-          <section class="typecho-post-option">
-            <label for="template" class="typecho-label">自定义模板</label>
-            <p>
-              <input type="text" id="template" name="template" class="text w-100"
-                value={page?.template || ''} placeholder="留空使用默认模板" />
-            </p>
-            <p class="description">如果你为页面指定了自定义模板, 系统将按此模板来渲染页面</p>
-          </section>
-
           <section class="typecho-post-option allow-option">
             <label class="typecho-label">权限控制</label>
             <ul>
               <li>
                 <input id="allowComment" name="allowComment" type="checkbox" value="1"
-                  checked={page ? page.allowComment === '1' : true} />
+                  checked={page ? page.allowComment === '1' : !!options.defaultAllowComment} />
                 <label for="allowComment">允许评论</label>
               </li>
               <li>
                 <input id="allowPing" name="allowPing" type="checkbox" value="1"
-                  checked={page ? page.allowPing === '1' : true} />
+                  checked={page ? page.allowPing === '1' : !!options.defaultAllowPing} />
                 <label for="allowPing">允许被引用</label>
               </li>
               <li>
                 <input id="allowFeed" name="allowFeed" type="checkbox" value="1"
-                  checked={page ? page.allowFeed === '1' : true} />
+                  checked={page ? page.allowFeed === '1' : !!options.defaultAllowFeed} />
                 <label for="allowFeed">允许在聚合中出现</label>
               </li>
             </ul>
           </section>
-        </div>
-
-        <div id="custom-field" class:list={[{ fold: customFields.length === 0 }]}>
-          <label class="typecho-label">
-            <a href="#custom-field-toggle" id="custom-field-toggle">自定义字段</a>
-          </label>
-          <table id="custom-fields-table">
-            <thead>
-              <tr>
-                <th>字段名称</th>
-                <th>类型</th>
-                <th>字段值</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {customFields.map((f) => (
-                <tr>
-                  <td><input type="text" name="fieldNames[]" value={f.name} pattern="^[_a-zA-Z][_a-zA-Z0-9]*$" class="text w-100" /></td>
-                  <td>
-                    <select name={`fieldTypes[${f.name}]`} class="field-type-select w-100">
-                      <option value="str" selected={f.type === 'str'}>字符</option>
-                      <option value="int" selected={f.type === 'int'}>整数</option>
-                      <option value="float" selected={f.type === 'float'}>小数</option>
-                    </select>
-                  </td>
-                  <td><textarea name={`fieldValues[${f.name}]`} class="text w-100 mono" rows="2">{f.value}</textarea></td>
-                  <td><button type="button" class="btn btn-xs remove-field">删除</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div class="description">
-            <button type="button" id="add-field-btn" class="btn btn-xs">增加字段</button>
-          </div>
-        </div>
+          {writePageAdvanceOptionHtml && <Fragment set:html={writePageAdvanceOptionHtml} />}
+        </details>
       </div>
 
       <div id="tab-files" class="tab-content hidden">
@@ -237,9 +381,31 @@ const writePageBottomHtml = await applyFilterSafely(ctx, 'admin:writePage:bottom
     <script is:inline src="/vendor/pagedown.js"></script>
     <script is:inline src="/vendor/paste.js"></script>
     <script is:inline src="/vendor/purify.js"></script>
+    <script is:inline src="/vendor/timepicker.js"></script>
     <script is:inline src="/vendor/typecho-tags.js"></script>
     <script is:inline>
     $(document).ready(function () {
+      var dateInput = $('#date');
+      dateInput.mask('9999-99-99 99:99').datetimepicker({
+        currentText: '现在',
+        prevText: '上一月',
+        nextText: '下一月',
+        monthNames: ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'],
+        dayNames: ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'],
+        dayNamesShort: ['周日', '周一', '周二', '周三', '周四', '周五', '周六'],
+        dayNamesMin: ['日', '一', '二', '三', '四', '五', '六'],
+        closeText: '完成',
+        timeOnlyTitle: '选择时间',
+        timeText: '时间',
+        hourText: '时',
+        minuteText: '分',
+        secondText: '秒',
+        dateFormat: 'yy-mm-dd',
+        timezone: Number(dateInput.data('timezone')),
+        hour: (new Date()).getHours(),
+        minute: (new Date()).getMinutes()
+      });
+
       var textarea = $('#text'),
           isFullScreen = false,
           toolbar = $('<div class="editor" id="wmd-button-bar" />').insertBefore(textarea.parent()),
@@ -343,6 +509,50 @@ const writePageBottomHtml = await applyFilterSafely(ctx, 'admin:writePage:bottom
 
       editor.run();
 
+      // Keep the Typecho resize handle while storing the preferred height on
+      // the current user instead of changing the site-wide editor default.
+      (function () {
+        var resizeHandle = $('<span class="resize" role="separator" aria-label="调整编辑器高度" aria-orientation="horizontal" tabindex="0"><i></i></span>').insertAfter(textarea),
+            minHeight = 100,
+            maxHeight = 2000;
+
+        function applyHeight(height) {
+          var nextHeight = Math.max(minHeight, Math.min(maxHeight, Math.round(height)));
+          textarea.height(nextHeight);
+          preview.outerHeight(nextHeight);
+          textarea.trigger('resize');
+          return nextHeight;
+        }
+
+        function persistHeight(height) {
+          $.ajax({
+            url: '/api/admin/editor-size',
+            type: 'POST',
+            data: { size: height },
+            headers: { 'X-CSRF-Token': String($('form[name="write_page"] input[name="_"]').val() || '') },
+          });
+        }
+
+        resizeHandle.on('mousedown', function (event) {
+          event.preventDefault();
+          textarea.blur().css('opacity', 0.25);
+          var startY = event.pageY,
+              startHeight = textarea.outerHeight();
+          $(document).on('mousemove.editorResize', function (moveEvent) {
+            applyHeight(startHeight + moveEvent.pageY - startY);
+          }).on('mouseup.editorResize', function () {
+            $(document).off('.editorResize');
+            persistHeight(Math.round(textarea.outerHeight()));
+            textarea.css('opacity', 1);
+            textarea.focus();
+          });
+        }).on('keydown', function (event) {
+          if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+          event.preventDefault();
+          persistHeight(applyHeight(textarea.outerHeight() + (event.key === 'ArrowUp' ? -20 : 20)));
+        });
+      })();
+
       // 编辑预览切换
       var edittab = $('.editor').prepend('<div class="wmd-edittab"><a href="#wmd-editarea" class="active">撰写</a><a href="#wmd-preview">预览</a></div>'),
           editarea = $(textarea.parent()).attr("id", "wmd-editarea");
@@ -369,57 +579,40 @@ const writePageBottomHtml = await applyFilterSafely(ctx, 'admin:writePage:bottom
         $('.wmd-edittab a[href="#wmd-editarea"]').trigger('click');
       });
 
-      // 高级选项面板
-      $('#advance-panel-btn').click(function () {
-        $('#advance-panel').toggle();
-        return false;
-      });
-
-      // 缩略名编辑切换
-      $('#edit-slug-btn').click(function (e) {
-        e.preventDefault();
-        var slugInput = $('#slug');
-        if (slugInput.is(':visible')) {
-          slugInput.hide();
-        } else {
-          slugInput.show().focus();
-        }
-      });
+      // 缩略名仅在永久链接格式使用 {slug} 时存在，并随内容长度调整宽度。
+      $('#slug').on('input', function () {
+        $(this).attr('size', Math.max(5, String($(this).val() || '').length));
+      }).trigger('input');
 
       // ========== 自定义字段 ==========
       (function () {
-        var fieldIdx = 0;
+        var fieldIdx = $('#custom-field .field').length;
         var customField = $('#custom-field');
-
-        // 折叠/展开
-        $('#custom-field-toggle').click(function (e) {
-          e.preventDefault();
-          customField.toggleClass('fold');
-        });
 
         $('#add-field-btn').click(function () {
           fieldIdx++;
           var name = 'newfield_' + fieldIdx;
-          var row = '<tr>'
-            + '<td><input type="text" name="fieldNames[]" value="" pattern="^[_a-zA-Z][_a-zA-Z0-9]*$" class="text w-100" placeholder="字段名" /></td>'
-            + '<td><select name="fieldTypes[' + name + ']" class="field-type-select"><option value="str">字符</option><option value="int">整数</option><option value="float">小数</option></select></td>'
-            + '<td><textarea name="fieldValues[' + name + ']" class="text w-100 mono" rows="2"></textarea></td>'
-            + '<td><button type="button" class="btn btn-xs remove-field">删除</button></td>'
-            + '</tr>';
-          $('#custom-fields-table tbody').append(row);
-          // 自动展开
-          customField.removeClass('fold');
+          var field = '<li class="field">'
+            + '<div class="field-name"><input type="text" name="fieldNames[]" value="" pattern="^[_a-zA-Z][_a-zA-Z0-9]*$" class="text-s w-100" placeholder="字段名称" />'
+            + '<select name="fieldTypes[' + name + ']" class="field-type-select"><option value="str">字符</option><option value="int">整数</option><option value="float">小数</option></select></div>'
+            + '<div class="field-value"><textarea name="fieldValues[' + name + ']" class="text-s w-100 mono" rows="2" placeholder="字段值"></textarea>'
+            + '<button type="button" class="btn btn-xs remove-field">删除</button></div>'
+            + '</li>';
+          customField.find('.fields').append(field);
+          customField.prop('open', true);
         });
 
         $(document).on('click', '.remove-field', function () {
-          $(this).closest('tr').remove();
+          $(this).closest('.field').remove();
         });
 
-        $(document).on('change', '#custom-fields-table input[name="fieldNames[]"]', function () {
-          var newName = $(this).val();
-          var row = $(this).closest('tr');
-          row.find('.field-type-select').attr('name', 'fieldTypes[' + newName + ']');
-          row.find('textarea').attr('name', 'fieldValues[' + newName + ']');
+        // Keep the project fieldTypes[name]/fieldValues[name] API contract.
+        $(document).on('input', '#custom-field input[name="fieldNames[]"]', function () {
+          var newName = $.trim(String($(this).val() || ''));
+          if (!newName) return;
+          var field = $(this).closest('.field');
+          field.find('.field-type-select').attr('name', 'fieldTypes[' + newName + ']');
+          field.find('textarea').attr('name', 'fieldValues[' + newName + ']');
         });
       })();
 

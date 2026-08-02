@@ -3,10 +3,11 @@ import { schema } from '@/db';
 import { type SiteOptions } from '@/lib/options';
 import { canManageResource } from '@/lib/auth';
 import { isAdminActionResponse, requireAdminAction } from '@/lib/admin-auth';
-import { generateSlug } from '@/lib/content';
+import { buildPermalink, generateSlug } from '@/lib/content';
 import { applyFilter, doHook } from '@/lib/plugin';
 import { bumpCacheVersion } from '@/lib/cache';
 import { jsonError, jsonOk } from '@/lib/http';
+import { parseTrackbackUrls, sendTrackbacks, TrackbackInputError } from '@/lib/trackback';
 import { eq, and, sql } from 'drizzle-orm';
 
 // Typecho convention: visibility dropdown maps to db status column.
@@ -21,6 +22,33 @@ const VISIBILITY_TO_STATUS: Record<string, string> = {
 
 const CUSTOM_FIELD_NAME_RE = /^[_a-zA-Z][_a-zA-Z0-9]*$/;
 const CUSTOM_FIELD_TYPES = new Set(['str', 'int', 'float']);
+
+/** Parse the Typecho editor's YYYY-MM-DD HH:mm value in the configured site timezone. */
+export function parseEditorDate(value: string, timezoneOffsetSeconds: number): number | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/.exec(value);
+  if (!match) return null;
+
+  const [, yearText, monthText, dayText, hourText, minuteText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const localTime = new Date(Date.UTC(year, month - 1, day, hour, minute));
+
+  if (
+    localTime.getUTCFullYear() !== year ||
+    localTime.getUTCMonth() !== month - 1 ||
+    localTime.getUTCDate() !== day ||
+    hour > 23 ||
+    minute > 59
+  ) {
+    return null;
+  }
+
+  const timestamp = Math.floor(localTime.getTime() / 1000) - timezoneOffsetSeconds;
+  return Number.isSafeInteger(timestamp) && timestamp > 0 ? timestamp : null;
+}
 
 function validateCustomFields(formData: FormData): string | null {
   const fieldNames = formData.getAll('fieldNames[]').map(value => value.toString().trim()).filter(Boolean);
@@ -63,6 +91,15 @@ function buildCustomFieldStatements(db: any, cid: number, formData: FormData): a
 
 function parseTagNames(tags: string): string[] {
   return [...new Set(tags.split(',').map((t) => t.trim()).filter(Boolean))];
+}
+
+function trackbackExcerpt(text: string): string {
+  return text
+    .replace(/^<!--markdown-->/, '')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 255);
 }
 
 async function attachTags(db: any, cid: number, tags: string) {
@@ -116,6 +153,43 @@ async function resolveUniqueContentSlug(db: any, desiredSlug: string, cid: numbe
   }
 }
 
+type PageParentValidation = { parent: number } | { error: string };
+
+/** Ensure a page parent exists and cannot make the page hierarchy cyclic. */
+async function validatePageParent(db: any, rawValue: string, currentCid: number): Promise<PageParentValidation> {
+  if (!/^\d+$/.test(rawValue)) return { error: '父级页面无效' };
+
+  const parent = Number(rawValue);
+  if (!Number.isSafeInteger(parent) || parent < 0) return { error: '父级页面无效' };
+  if (parent === 0) return { parent: 0 };
+  if (currentCid > 0 && parent === currentCid) return { error: '页面不能设为自己的父级页面' };
+
+  const pages = await db.select({
+    cid: schema.contents.cid,
+    parent: schema.contents.parent,
+  }).from(schema.contents).where(eq(schema.contents.type, 'page'));
+  const pagesByCid = new Map<number, { cid: number; parent: number | null }>(
+    pages.map((page: { cid: number; parent: number | null }) => [page.cid, page] as const),
+  );
+
+  if (!pagesByCid.has(parent)) return { error: '父级页面不存在' };
+
+  let ancestor = parent;
+  const visited = new Set<number>();
+  while (ancestor > 0) {
+    if (!visited.add(ancestor)) return { error: '父级页面层级无效' };
+    if (currentCid > 0 && ancestor === currentCid) return { error: '父级页面不能是当前页面的子页面' };
+
+    const page = pagesByCid.get(ancestor);
+    if (!page) return { error: '父级页面层级无效' };
+    const nextParent = Number(page.parent) || 0;
+    if (!Number.isSafeInteger(nextParent) || nextParent < 0) return { error: '父级页面层级无效' };
+    ancestor = nextParent;
+  }
+
+  return { parent };
+}
+
 async function purgeContentAndRelatedCache(
   db: any,
   _options: SiteOptions,
@@ -164,7 +238,12 @@ export const POST: APIRoute = async ({ request, locals }) => {
   if (isMarkdown && !text.startsWith('<!--markdown-->')) {
     text = '<!--markdown-->' + text;
   }
-  // Slug: use provided value, otherwise leave empty and fill with cid after insert (Typecho convention)
+  // The editor only sends a slug when the active content URL pattern exposes it.
+  const permalinkPattern = type === 'page'
+    ? options.pagePattern || '/{slug}.html'
+    : options.permalinkPattern || '';
+  const canEditSlug = permalinkPattern.includes('{slug}');
+  const hasSubmittedSlug = formData.has('slug');
   const slugInput = formData.get('slug')?.toString()?.trim() || '';
   const submitAction = formData.get('status')?.toString() || 'publish'; // 'draft' or 'publish' from submit button
   const isDraft = submitAction === 'draft';
@@ -177,6 +256,16 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const categoryIds = [...new Set(formData.getAll('category[]').map((v) => parseInt(v.toString(), 10)).filter(Boolean))];
   const template = formData.get('template')?.toString()?.trim() || null;
   const order = parseInt(formData.get('order')?.toString() || '0', 10) || 0;
+  let submittedPageParent: number | undefined;
+  if (type === 'page' && formData.has('parent') && (action === 'create' || action === 'update')) {
+    const parentResult = await validatePageParent(
+      db,
+      formData.get('parent')?.toString()?.trim() || '',
+      cid,
+    );
+    if ('error' in parentResult) return new Response(parentResult.error, { status: 400 });
+    submittedPageParent = parentResult.parent;
+  }
 
   const now = Math.floor(Date.now() / 1000);
 
@@ -187,9 +276,34 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const scheduleDate = formData.get('date')?.toString()?.trim();
   let created = now;
   if (scheduleDate) {
-    const parsed = Math.floor(new Date(scheduleDate).getTime() / 1000);
-    if (Number.isFinite(parsed) && parsed > 0) created = Math.max(parsed, 1);
+    const parsed = parseEditorDate(scheduleDate, Number(options.timezone) || 0);
+    if (parsed !== null) created = parsed;
   }
+
+  let trackbackUrls: string[];
+  try {
+    trackbackUrls = parseTrackbackUrls(formData.get('trackback')?.toString() || '');
+  } catch (error) {
+    const message = error instanceof TrackbackInputError ? error.message : '引用通告地址无效';
+    return new Response(message, { status: 400 });
+  }
+
+  const sendSubmittedTrackbacks = async (publishedCid: number, publishedSlug: string) => {
+    if (!options.siteUrl || type !== 'post' || isDraft || status !== 'publish' || created > now || trackbackUrls.length === 0) {
+      return;
+    }
+
+    await sendTrackbacks(trackbackUrls, {
+      blogName: `${options.title || 'Typecho'} » ${title}`,
+      permalink: buildPermalink({
+        cid: publishedCid,
+        slug: publishedSlug,
+        type: 'post',
+        created,
+      }, options.siteUrl, options.permalinkPattern),
+      excerpt: trackbackExcerpt(text),
+    });
+  };
 
   // ── Autosave: only allowed for draft-mode content ──
   const isAutosave = formData.get('autosave') === '1';
@@ -231,7 +345,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     // cid for titles that have no URL-safe characters.
     let contentData: Record<string, unknown> = {
       title,
-      slug: slugInput || `temp-${Date.now().toString(36)}`,
+      slug: canEditSlug && hasSubmittedSlug && slugInput ? slugInput : `temp-${Date.now().toString(36)}`,
       created,
       modified: now,
       text,
@@ -244,6 +358,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       allowComment,
       allowPing,
       allowFeed,
+      ...(type === 'page' ? { parent: submittedPageParent ?? 0 } : {}),
     };
 
     // Apply post:write or page:write filter
@@ -255,7 +370,11 @@ export const POST: APIRoute = async ({ request, locals }) => {
     const newCid = result[0]?.cid;
     if (!newCid) return new Response('创建失败', { status: 500 });
 
-    const finalSlug = await resolveUniqueContentSlug(db, slugInput || generateSlug(title) || String(newCid), newCid);
+    const finalSlug = await resolveUniqueContentSlug(
+      db,
+      canEditSlug && hasSubmittedSlug && slugInput ? slugInput : generateSlug(title) || String(newCid),
+      newCid,
+    );
     const createStatements: any[] = [
       db.update(schema.contents).set({ slug: finalSlug }).where(eq(schema.contents.cid, newCid)),
       ...buildCustomFieldStatements(db, newCid, formData),
@@ -284,6 +403,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
     }
     await doHook(pluginCtx, type === 'page' ? 'page:finishSave' : 'post:finishSave', finishData);
 
+    await sendSubmittedTrackbacks(newCid, finalSlug);
+
     await purgeContentAndRelatedCache(db, options, newCid, finishData as typeof schema.contents.$inferSelect);
 
     const editUrl = type === 'page' ? `/admin/write-page?cid=${newCid}` : `/admin/write-post?cid=${newCid}`;
@@ -304,7 +425,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
       return new Response('Forbidden', { status: 403 });
     }
 
-    const finalSlug = await resolveUniqueContentSlug(db, slugInput || String(cid), cid);
+    const finalSlug = canEditSlug && hasSubmittedSlug
+      ? await resolveUniqueContentSlug(db, slugInput || String(cid), cid)
+      : existing.slug || String(cid);
 
     // Update categories: remove old, add new. Snapshot old category/tag
     // slugs first so we can purge their archive pages after the writes —
@@ -332,6 +455,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
         allowComment,
         allowPing,
         allowFeed,
+        ...(type === 'page' ? { parent: submittedPageParent ?? existing.parent ?? 0 } : {}),
       }).where(eq(schema.contents.cid, cid)),
       ...buildCustomFieldStatements(db, cid, formData),
       db.delete(schema.relationships).where(eq(schema.relationships.cid, cid)),
@@ -362,6 +486,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
     if (tags) {
       await attachTags(db, cid, tags);
     }
+
+    await sendSubmittedTrackbacks(cid, finalSlug);
 
     await purgeContentAndRelatedCache(db, options, cid, {
       ...existing,

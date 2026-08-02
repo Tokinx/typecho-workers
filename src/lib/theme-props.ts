@@ -184,10 +184,17 @@ export interface ThemeNotFoundProps extends ThemeBaseProps {
 
 // ─── Theme template component map ───────────────────────────────────────
 
+/** A named template that can be assigned to an individual page. */
+export interface ThemePageTemplate {
+  name: string;
+  Component: (_props: ThemePageProps) => any;
+}
+
 export interface ThemeTemplateMap {
   Index?: (_props: ThemeIndexProps) => any;
   Post?: (_props: ThemePostProps) => any;
   Page?: (_props: ThemePageProps) => any;
   Archive?: (_props: ThemeArchiveProps) => any;
   NotFound?: (_props: ThemeNotFoundProps) => any;
+  PageTemplates?: Record<string, ThemePageTemplate>;
 }

@@ -30,8 +30,11 @@ const templates = themeTemplates[activeTheme] ?? {};
 const defaults = themeTemplates['typecho-theme-minimal']!;
 
 const isPage = row.type === 'page' || row.type === 'page_draft';
+const customPageTemplate = isPage && row.template
+  ? templates.PageTemplates?.[row.template]?.Component
+  : undefined;
 const Template = isPage
-  ? (templates.Page ?? defaults.Page!)
+  ? (customPageTemplate ?? templates.Page ?? defaults.Page!)
   : (templates.Post ?? defaults.Post!);
 
 const data = await preparePostData(ctx, row, { previewMode: true });

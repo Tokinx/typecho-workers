@@ -72,8 +72,24 @@ typecho-theme-example/
 | `name` | 是 | 显示名称 |
 | `stylesheet` | 是 | 主 CSS 文件名（构建时复制到 `public/themes/{id}/`） |
 | `stylesheets` | 否 | 额外 CSS 文件列表（按顺序加载，在 `stylesheet` 之前） |
+| `pageTemplates` | 否 | 独立页面可选模板，键为保存值，包含显示名与 Astro 组件路径 |
 
 > **配置优先级**：`theme.json` > `package.json` 中 `typecho.theme` 字段 > 自动推导。
+
+### 独立页面模板
+
+页面编辑器会将此配置显示为与 Typecho 1.3.0 一致的选择框。组件路径必须位于主题的 `components/` 目录内，选择后会同时用于前台页面和后台预览。
+
+```json
+{
+  "pageTemplates": {
+    "landing": {
+      "name": "落地页",
+      "component": "components/PageLanding.astro"
+    }
+  }
+}
+```
 
 ---
 

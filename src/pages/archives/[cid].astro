@@ -56,7 +56,9 @@ if (!contentRow) {
     result = await prepareNotFoundData(ctx, Astro.request.url);
     Component = templates.NotFound ?? defaultTemplates.NotFound!;
   } else {
-    Component = templates.Page ?? defaultTemplates.Page!;
+    Component = contentRow.template
+      ? templates.PageTemplates?.[contentRow.template]?.Component ?? templates.Page ?? defaultTemplates.Page!
+      : templates.Page ?? defaultTemplates.Page!;
   }
 } else {
   result = await preparePostData(ctx, cidNum, Astro.request.url, suppliedPassword, contentRow, unapprovedCommentToken);
