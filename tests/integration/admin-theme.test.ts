@@ -18,6 +18,7 @@ vi.mock('@/lib/auth', async () => {
 });
 
 import { POST } from '@/pages/api/admin/theme';
+import { GET as GET_CONFIG, POST as POST_CONFIG } from '@/pages/api/admin/theme-config';
 
 const SECRET = 'test-secret-th';
 const AUTH_CODE = 'authcodetheme';
@@ -74,5 +75,42 @@ describe('POST /api/admin/theme', () => {
     });
     const res = await POST({ request: req, locals: {} } as any);
     expect(res.status).toBe(400);
+  });
+
+  it('reads the active theme appearance settings', async () => {
+    const cookie = await makeAuthCookie(testDb, 1, AUTH_CODE, SECRET);
+    const req = new Request('https://example.com/api/admin/theme-config', {
+      headers: { cookie },
+    });
+    const res = await GET_CONFIG({ request: req, url: new URL(req.url) } as any);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.theme).toBe('typecho-theme-minimal');
+    expect(body.fields.logoUrl.type).toBe('text');
+    expect(body.values.sidebarBlock).toContain('ShowRecentPosts');
+  });
+
+  it('saves only declared active theme appearance settings', async () => {
+    const cookie = await makeAuthCookie(testDb, 1, AUTH_CODE, SECRET);
+    const req = new Request('https://example.com/api/admin/theme-config', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie, origin: 'https://example.com' },
+      body: JSON.stringify({
+        settings: {
+          logoUrl: 'https://example.com/logo.png',
+          sidebarBlock: ['ShowCategory'],
+          unexpected: 'discard me',
+        },
+      }),
+    });
+    const res = await POST_CONFIG({ request: req, locals: {} } as any);
+    expect(res.status).toBe(200);
+    const saved = await testDb.query.options.findFirst({
+      where: (options, { eq }) => eq(options.name, 'theme:typecho-theme-minimal'),
+    });
+    expect(JSON.parse(saved?.value || '{}')).toEqual({
+      logoUrl: 'https://example.com/logo.png',
+      sidebarBlock: ['ShowCategory'],
+    });
   });
 });

@@ -12,6 +12,12 @@
  *     assets/           - Additional assets (optional)
  */
 
+import {
+  getConfigDefaults,
+  parsePluginConfigFormData,
+  type PluginConfigField,
+} from '@/lib/plugin';
+
 export interface ThemeManifest {
   /** Unique theme identifier */
   id: string;
@@ -39,6 +45,8 @@ export interface ThemeManifest {
   tags?: string[];
   /** Named Astro components available to individual pages */
   pageTemplates?: Record<string, { name: string; component: string }>;
+  /** Typecho-style appearance settings rendered on /admin/options-theme */
+  config?: Record<string, PluginConfigField>;
 }
 
 export interface ThemeInfo {
@@ -57,6 +65,28 @@ export interface ThemeInfo {
 }
 
 /** Built-in fallback theme definition (when no themes are discovered) */
+const MINIMAL_THEME_CONFIG: Record<string, PluginConfigField> = {
+  logoUrl: {
+    type: 'text',
+    label: '站点 LOGO 地址',
+    description: '在这里填入一个图片 URL 地址, 以在网站标题前加上一个 LOGO',
+    default: '',
+  },
+  sidebarBlock: {
+    type: 'checkbox',
+    label: '侧边栏显示',
+    options: {
+      ShowRecentPosts: '显示最新文章',
+      ShowRecentComments: '显示最近回复',
+      ShowCategory: '显示分类',
+      ShowArchive: '显示归档',
+      ShowOther: '显示其它杂项',
+    },
+    multiline: true,
+    default: ['ShowRecentPosts', 'ShowRecentComments', 'ShowCategory', 'ShowArchive', 'ShowOther'],
+  },
+};
+
 const FALLBACK_THEME: ThemeManifest = {
   id: 'typecho-theme-minimal',
   name: 'Typecho Minimal',
@@ -64,8 +94,10 @@ const FALLBACK_THEME: ThemeManifest = {
   author: 'Typecho Team',
   authorUrl: 'https://typecho.org/',
   version: '1.0.0',
+  screenshot: 'screenshot.png',
   stylesheet: '/themes/typecho-theme-minimal/style.css',
   license: 'GPL-2.0',
+  config: MINIMAL_THEME_CONFIG,
 };
 
 /**
@@ -106,18 +138,20 @@ export function getAvailableThemes(activeThemeId: string): ThemeInfo[] {
   for (const [id, info] of themeRegistry) {
     themes.push({
       ...info,
+      manifest: normalizeThemeManifest(id, info.manifest),
       isActive: activeThemeId === id,
     });
   }
 
-  // If no themes were discovered, add a fallback
-  if (themes.length === 0) {
+  // Keep the built-in theme available even when a test adapter or a partial
+  // installation does not expose the npm package in the runtime registry.
+  if (!themeRegistry.has(FALLBACK_THEME.id)) {
     themes.push({
       id: 'typecho-theme-minimal',
       packageName: 'built-in',
       manifest: FALLBACK_THEME,
       isDefault: true,
-      isActive: true,
+      isActive: activeThemeId === FALLBACK_THEME.id || themes.length === 0,
       cssPath: '/themes/typecho-theme-minimal/style.css',
     });
   }
@@ -131,13 +165,13 @@ export function getAvailableThemes(activeThemeId: string): ThemeInfo[] {
 export function getActiveTheme(activeThemeId: string): ThemeInfo {
   const theme = themeRegistry.get(activeThemeId);
   if (theme) {
-    return { ...theme, isActive: true };
+    return { ...theme, manifest: normalizeThemeManifest(activeThemeId, theme.manifest), isActive: true };
   }
 
   // Fallback to default theme from registry
   const defaultTheme = themeRegistry.get('typecho-theme-minimal');
   if (defaultTheme) {
-    return { ...defaultTheme, isActive: true };
+    return { ...defaultTheme, manifest: normalizeThemeManifest(defaultTheme.id, defaultTheme.manifest), isActive: true };
   }
 
   // Ultimate fallback if no themes discovered at all
@@ -161,10 +195,11 @@ export function registerTheme(
   cssPath: string,
 ): void {
   const id = manifest.id || packageName;
+  const normalizedManifest = normalizeThemeManifest(id, manifest);
   themeRegistry.set(id, {
     id,
     packageName,
-    manifest: { ...manifest, id },
+    manifest: normalizedManifest,
     isDefault: false,
     isActive: false,
     cssPath,
@@ -196,7 +231,86 @@ export function getThemeStylesheets(activeThemeId: string): string[] {
  * Check if a theme exists
  */
 export function themeExists(themeId: string): boolean {
-  return themeRegistry.has(themeId);
+  return themeRegistry.has(themeId) || themeId === FALLBACK_THEME.id;
+}
+
+/** Check whether a theme exposes appearance settings. */
+export function themeHasConfig(themeId: string): boolean {
+  const theme = getThemeInfo(themeId);
+  return !!theme?.manifest.config && Object.keys(theme.manifest.config).length > 0;
+}
+
+/** Return a theme's manifest configuration definition. */
+export function getThemeConfigDefinition(themeId: string): Record<string, PluginConfigField> | undefined {
+  return getThemeInfo(themeId)?.manifest.config;
+}
+
+/** Return the default values declared by a theme manifest. */
+export function getThemeConfigDefaults(themeId: string): Record<string, any> {
+  return getConfigDefaults(getThemeConfigDefinition(themeId));
+}
+
+/**
+ * Load a theme's settings from the options snapshot. Values are namespaced by
+ * theme id so switching themes cannot leak one theme's settings into another.
+ */
+export function loadThemeConfig(
+  options: Record<string, any>,
+  themeId: string,
+): Record<string, any> {
+  const defaults = getThemeConfigDefaults(themeId);
+  const raw = options?.[`theme:${themeId}`];
+  if (!raw) return { ...defaults };
+
+  try {
+    const saved = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return saved && typeof saved === 'object' ? { ...defaults, ...saved } : { ...defaults };
+  } catch {
+    return { ...defaults };
+  }
+}
+
+/** Parse a theme config form using the same field semantics as plugins. */
+export const parseThemeConfigFormData = parsePluginConfigFormData;
+
+function getThemeInfo(themeId: string): ThemeInfo | undefined {
+  const theme = themeRegistry.get(themeId);
+  if (theme) {
+    return { ...theme, manifest: normalizeThemeManifest(themeId, theme.manifest), isActive: false };
+  }
+  if (themeId === FALLBACK_THEME.id) {
+    return {
+      id: FALLBACK_THEME.id,
+      packageName: 'built-in',
+      manifest: FALLBACK_THEME,
+      isDefault: true,
+      isActive: true,
+      cssPath: '/themes/typecho-theme-minimal/style.css',
+    };
+  }
+  return undefined;
+}
+
+function normalizeThemeManifest(themeId: string, manifest: ThemeManifest): ThemeManifest {
+  if (themeId !== FALLBACK_THEME.id) return { ...manifest, id: themeId };
+
+  // Preserve metadata from an installed default theme, while ensuring a
+  // long-running registry still receives the built-in 1.3-compatible asset
+  // and appearance fields after an application upgrade.
+  return {
+    ...FALLBACK_THEME,
+    ...manifest,
+    id: themeId,
+    config: {
+      ...MINIMAL_THEME_CONFIG,
+      ...manifest.config,
+      sidebarBlock: {
+        ...MINIMAL_THEME_CONFIG.sidebarBlock,
+        ...manifest.config?.sidebarBlock,
+      },
+    },
+    screenshot: manifest.screenshot ?? FALLBACK_THEME.screenshot,
+  };
 }
 
 /**

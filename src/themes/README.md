@@ -73,8 +73,26 @@ typecho-theme-example/
 | `stylesheet` | 是 | 主 CSS 文件名（构建时复制到 `public/themes/{id}/`） |
 | `stylesheets` | 否 | 额外 CSS 文件列表（按顺序加载，在 `stylesheet` 之前） |
 | `pageTemplates` | 否 | 独立页面可选模板，键为保存值，包含显示名与 Astro 组件路径 |
+| `config` | 否 | 外观设置字段定义，显示在后台「设置外观」页面 |
 
 > **配置优先级**：`theme.json` > `package.json` 中 `typecho.theme` 字段 > 自动推导。
+
+### 外观设置
+
+`config` 使用与插件配置相同的 Typecho 字段定义，支持 `text`、`textarea`、`select`、`radio`、`checkbox`、`password` 和 `hidden`。`radio` 和带选项的 `checkbox` 可设置 `"multiline": true`，以使用 Typecho `multiMode()` 一致的纵向选项布局。配置保存在 `theme:{id}` 选项中；切换到其他外观时，旧外观的设置会被删除。主题组件通过 `loadThemeConfig(options, themeId)` 读取设置。
+
+```json
+{
+  "config": {
+    "logoUrl": {
+      "type": "text",
+      "label": "站点 LOGO 地址",
+      "description": "填写图片 URL",
+      "default": ""
+    }
+  }
+}
+```
 
 ### 独立页面模板
 

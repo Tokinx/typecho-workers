@@ -149,14 +149,15 @@ function buildTheme(packageName: string, packageDir: string, manifest: Record<st
   // Scan for Astro template components
   const components = scanThemeComponents(packageDir);
   const pageTemplates = scanPageTemplates(packageName, packageDir, manifest);
+  const screenshotFile = findScreenshot(packageDir, manifest.screenshot);
 
   return {
     id,
     packageName,
     packageDir,
-    manifest: { ...manifest, id },
+    manifest: { ...manifest, id, ...(screenshotFile ? { screenshot: screenshotFile } : {}) },
     cssFile,
-    screenshotFile: findScreenshot(packageDir, manifest.screenshot),
+    screenshotFile,
     components,
     pageTemplates,
   };

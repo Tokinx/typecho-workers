@@ -73,8 +73,13 @@ Themes without a `components/` directory are CSS-only themes — the system auto
 | `stylesheet` | Yes | Main CSS filename (copied to `public/themes/{id}/` at build time) |
 | `stylesheets` | No | Additional CSS files (loaded in order, before `stylesheet`) |
 | `pageTemplates` | No | Selectable page templates, keyed by stored value with a label and Astro component path |
+| `config` | No | Appearance fields rendered on the admin "Set Appearance" page |
 
 > **Config priority**: `theme.json` > `package.json` `typecho.theme` field > auto-inferred.
+
+### Appearance settings
+
+`config` uses the same Typecho field definitions as plugin settings and supports `text`, `textarea`, `select`, `radio`, `checkbox`, `password`, and `hidden`. Set `"multiline": true` on `radio` or option-based `checkbox` fields to use Typecho `multiMode()`-compatible vertical options. Values are stored under `theme:{id}`; switching themes removes the previous theme's settings. Theme components can read them with `loadThemeConfig(options, themeId)`.
 
 ### Page templates
 

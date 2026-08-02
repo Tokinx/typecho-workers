@@ -31,6 +31,8 @@ export interface PluginConfigField {
   default?: unknown;
   /** Options for select / radio / checkbox: { value: label } */
   options?: Record<string, string>;
+  /** Render each radio or multi-value checkbox option on its own line. */
+  multiline?: boolean;
   /** Dynamic option source for select fields */
   optionsSource?: 'r2Bindings';
   /** Conditional visibility inside repeatable config groups */
@@ -633,19 +635,21 @@ export function pluginHasConfig(pluginId: string): boolean {
 }
 
 /**
- * Get default values from plugin's config definition.
- * Returns a flat object { fieldName: defaultValue }.
+ * Resolve the initial values for a Typecho-style configuration definition.
+ * Theme and plugin manifests use the same field contract, so keep this
+ * normalization in one place.
  */
-export function getPluginConfigDefaults(pluginId: string): Record<string, any> {
-  const info = pluginRegistry.get(pluginId);
-  if (!info?.manifest.config) return {};
+export function getConfigDefaults(
+  configDef?: Record<string, PluginConfigField>,
+): Record<string, any> {
+  if (!configDef) return {};
 
   const defaults: Record<string, any> = {};
-  for (const [key, field] of Object.entries(info.manifest.config)) {
+  for (const [key, field] of Object.entries(configDef)) {
     if (field.default !== undefined) {
       defaults[key] = field.default;
     } else if (field.type === 'checkbox') {
-      defaults[key] = [];
+      defaults[key] = field.options ? [] : '0';
     } else if (field.type === 'repeatable') {
       defaults[key] = [];
     } else {
@@ -653,6 +657,15 @@ export function getPluginConfigDefaults(pluginId: string): Record<string, any> {
     }
   }
   return defaults;
+}
+
+/**
+ * Get default values from plugin's config definition.
+ * Returns a flat object { fieldName: defaultValue }.
+ */
+export function getPluginConfigDefaults(pluginId: string): Record<string, any> {
+  const info = pluginRegistry.get(pluginId);
+  return getConfigDefaults(info?.manifest.config);
 }
 
 /**
@@ -666,7 +679,11 @@ export function parsePluginConfigFormData(
   for (const [key, field] of Object.entries(configDef)) {
     if (field.type === 'checkbox') {
       if (field.options) {
-        settings[key] = formData.getAll(key).map(v => v.toString());
+        // Typecho's Checkbox element submits multi-value fields as `name[]`.
+        // Keep accepting the historical unbracketed name for existing plugin
+        // forms that have not yet adopted the Typecho-compatible markup.
+        const values = formData.getAll(`${key}[]`);
+        settings[key] = (values.length > 0 ? values : formData.getAll(key)).map(v => v.toString());
       } else {
         // Boolean toggle: "1" when checked, "0" when unchecked
         settings[key] = formData.has(key) ? '1' : '0';

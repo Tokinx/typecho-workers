@@ -176,7 +176,7 @@ select { border: 1px solid #CCC; height: 28px; }
 
 .typecho-head-nav #typecho-nav-list > ul .parent a:hover, .typecho-head-nav #typecho-nav-list > ul.focus .parent a, .typecho-head-nav #typecho-nav-list > ul:hover .parent a { background: #202328; }
 
-.typecho-head-nav #typecho-nav-list > ul.focus .parent a { font-weight: bold; }
+.typecho-head-nav #typecho-nav-list > ul.focus .parent > a { font-weight: bold; }
 
 .typecho-head-nav #typecho-nav-list > ul.root:hover .child, .typecho-head-nav #typecho-nav-list > ul.root.expanded .child { display: block; }
 
@@ -287,11 +287,13 @@ select { border: 1px solid #CCC; height: 28px; }
 .typecho-login .more-link a { margin: 0 3px; }
 
 /** 标题 */
-.typecho-page-title h2 { margin: 25px 0 10px; font-size: 1.28571em; }
+.typecho-page-title { display: flex; align-items: center; margin: 25px 0 10px; width: 100%; }
 
-.typecho-page-title h2 a { margin-left: 10px; padding: 3px 8px; background: #E9E9E6; font-size: .8em; border-radius: 2px; }
+.typecho-page-title h2 { margin: 0; font-size: 1.28571em; }
 
-.typecho-page-title h2 a:hover { text-decoration: none; }
+.typecho-page-title a { margin-left: 8px; padding: 3px 8px; background: #E9E9E6; font-size: .8em; font-weight: bold; border-radius: 2px; }
+
+.typecho-page-title a:hover { text-decoration: none; }
 
 /** 后台页面主体 */
 /** 主页主体 */
@@ -300,15 +302,15 @@ select { border: 1px solid #CCC; height: 28px; }
 .typecho-dashboard li { margin-bottom: 5px; }
 
 /** 标签页 */
-.typecho-option-tabs { list-style: none; margin: 1em 0 0; padding: 0; font-size: 13px; text-align: center; }
+.typecho-option-tabs { list-style: none; margin: 0; padding: 0; font-size: 13px; display: flex; }
 
-.typecho-option-tabs.fix-tabs { margin-bottom: 1em; }
+.typecho-option-tabs.fix-tabs { margin: 1em 0; }
 
-.typecho-option-tabs a { display: block; margin-right: -1px; border: 1px solid #D9D9D6; padding: 0 15px; height: 26px; line-height: 26px; color: #666; box-sizing: border-box; }
+.typecho-option-tabs a { display: flex; align-items: center; justify-content: center; margin-right: -1px; border: 1px solid #D9D9D6; padding: 0 15px; height: 26px; color: #666; box-sizing: border-box; }
+
+.typecho-option-tabs a > * { margin: 0 3px; }
 
 .typecho-option-tabs a:hover { background-color: #E9E9E6; color: #666; text-decoration: none; }
-
-.typecho-option-tabs li { float: left; }
 
 .typecho-option-tabs li:first-child a { border-radius: 2px 0 0 2px; }
 
@@ -341,8 +343,6 @@ a.operate-reply { color: #545c30; }
 /** 增加表格标题 by 70 */
 .typecho-list-table-title { margin: 1em 0; color: #999; text-align: center; }
 
-.typecho-table-wrap { padding: 30px; background: #FFF; }
-
 .typecho-list-table { width: 100%; border-collapse: separate; border-spacing: 0; background: #FFF; table-layout: fixed; border: 30px solid #FFF; }
 
 .typecho-list-table.deactivate { color: #999; }
@@ -357,13 +357,19 @@ a.operate-reply { color: #545c30; }
 
 .typecho-list-table .status { margin-left: 5px; color: #999; font-size: .92857em; font-style: normal; }
 
-.typecho-list-table tbody tr:hover td { background-color: #F6F6F3; }
+.typecho-list-table tbody tr:hover { background-color: #F6F6F3; }
 
 .typecho-list-table tbody tr.checked td { background-color: #FFF9E8; }
 
 .typecho-list-table tr td .hidden-by-mouse { opacity: 0; }
 
 .typecho-list-table tr:hover td .hidden-by-mouse { opacity: 1; }
+
+@media (max-width: 575px) {
+  .typecho-list-table { border-width: 10px; }
+  .typecho-list-table th { padding: 0 5px 5px; }
+  .typecho-list-table td { padding: 5px; }
+}
 
 .plugin-action-form { display: inline; margin: 0; }
 
@@ -399,6 +405,8 @@ a.operate-reply { color: #545c30; }
 .typecho-theme-list cite { font-style: normal; color: #999; }
 
 .typecho-theme-list tbody tr.current td { background-color: #FFF9E8; }
+
+.typecho-theme-list form { margin: 1em 0; }
 
 /** 后台配置项 */
 .typecho-option .multiline { display: block; margin: .3em 0; }

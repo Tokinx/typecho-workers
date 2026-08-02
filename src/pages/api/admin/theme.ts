@@ -3,9 +3,9 @@
  * POST: Activate a theme
  */
 import type { APIRoute } from 'astro';
-import { setOption } from '@/lib/options';
+import { deleteOption, setOption } from '@/lib/options';
 import { isAdminActionResponse, requireAdminAction } from '@/lib/admin-auth';
-import { themeExists } from '@/lib/theme';
+import { getThemeConfigDefaults, themeExists, themeHasConfig } from '@/lib/theme';
 import { bumpCacheVersion, purgeSiteCache } from '@/lib/cache';
 
 export const POST: APIRoute = async ({ request, locals }) => {
@@ -36,8 +36,16 @@ export const POST: APIRoute = async ({ request, locals }) => {
       });
     }
 
-    // Save to options
+    const previousThemeId = String(auth.options.theme || 'typecho-theme-minimal');
+    if (previousThemeId !== themeId) {
+      // Match Typecho's lifecycle: switching themes removes the old theme's
+      // settings while keeping any settings already saved for the target.
+      await deleteOption(auth.db, `theme:${previousThemeId}`);
+    }
     await setOption(auth.db, 'theme', themeId);
+    if (previousThemeId !== themeId && themeHasConfig(themeId) && !auth.options[`theme:${themeId}`]) {
+      await setOption(auth.db, `theme:${themeId}`, JSON.stringify(getThemeConfigDefaults(themeId)));
+    }
 
     // Theme change affects all pages
     await bumpCacheVersion(auth.db);

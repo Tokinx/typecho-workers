@@ -126,6 +126,7 @@ const adminFooterHtml = await applyFilterSafely(_pluginCtx, 'admin:footer', '', 
       <div class="typecho-page-title">
         <h2>{title}</h2>
       </div>
+      <slot name="before-main" />
       <div class:list={['row', 'typecho-page-main', bodyClass]} role="main">
         <slot />
       </div>

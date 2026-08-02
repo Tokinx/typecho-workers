@@ -1,0 +1,171 @@
+---
+import Admin from '@/layouts/Admin.astro';
+import { createContext, requireAuth } from '@/lib/context';
+import { hasPermission, requireAdminCSRF } from '@/lib/auth';
+import {
+  getActiveTheme,
+  getThemeConfigDefinition,
+  loadThemeConfig,
+  parseThemeConfigFormData,
+  themeHasConfig,
+} from '@/lib/theme';
+import type { PluginConfigField } from '@/lib/plugin';
+
+const ctx = await createContext(Astro.locals, Astro.request);
+const authCheck = requireAuth(ctx);
+if (authCheck) return authCheck;
+
+if (!hasPermission(ctx.user!.group || 'visitor', 'administrator')) {
+  return new Response('Forbidden', { status: 403 });
+}
+
+const { options, urls, user, csrfToken } = ctx;
+const themeId = String(options.theme || 'typecho-theme-minimal');
+const theme = getActiveTheme(themeId);
+const configDef = getThemeConfigDefinition(theme.id);
+
+if (!themeHasConfig(theme.id) || !configDef) {
+  return Astro.redirect('/admin/themes');
+}
+
+const configValues = loadThemeConfig(options, theme.id);
+let message = '';
+let messageType: 'success' | 'error' = 'success';
+
+if (Astro.request.method === 'POST') {
+  const csrfError = await requireAdminCSRF(Astro.request, options.secret as string, user!.authCode!, user!.uid);
+  if (csrfError) return csrfError;
+
+  try {
+    const formData = await Astro.request.formData();
+    const settings = parseThemeConfigFormData(configDef, formData);
+    const sanitized: Record<string, unknown> = {};
+    for (const key of Object.keys(configDef)) {
+      sanitized[key] = settings[key];
+    }
+
+    const { setOption } = await import('@/lib/options');
+    await setOption(ctx.db, `theme:${theme.id}`, JSON.stringify(sanitized));
+    const { bumpCacheVersion, purgeSiteCache } = await import('@/lib/cache');
+    await bumpCacheVersion(ctx.db);
+    await purgeSiteCache(options.siteUrl || '');
+    (options as any)[`theme:${theme.id}`] = JSON.stringify(sanitized);
+    Object.assign(configValues, sanitized);
+    message = '外观设置已经保存';
+  } catch (error) {
+    message = error instanceof Error ? error.message : '保存失败';
+    messageType = 'error';
+  }
+}
+
+function fieldValue(value: unknown): string {
+  return value == null ? '' : String(value);
+}
+
+function optionValue(value: unknown): string {
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  return String(value ?? '');
+}
+
+function selected(actual: unknown, expected: string): true | undefined {
+  return optionValue(actual) === expected ? true : undefined;
+}
+
+function isChecked(value: unknown, expected: string): boolean {
+  return Array.isArray(value) ? value.map(String).includes(expected) : optionValue(value) === expected;
+}
+
+function optionsFor(field: PluginConfigField): Record<string, string> {
+  return field.options || {};
+}
+
+function optionId(key: string, value: string): string {
+  const filtered = value.match(/[_0-9a-z-]+/gi)?.join('-') || '';
+  return `${key}-${filtered}`;
+}
+---
+<Admin title="设置外观" options={options} urls={urls} user={user} activeMenu="themes" pluginCtx={ctx}>
+  <Fragment slot="before-main">
+    <ul class="typecho-option-tabs fix-tabs">
+      <li><a href="/admin/themes">可以使用的外观</a></li>
+      <li class="current"><a href="/admin/options-theme">设置外观</a></li>
+    </ul>
+  </Fragment>
+  <div class="col-mb-12 col-tb-8 col-tb-offset-2" role="form">
+    {message && (
+      <div class={`notice typecho-dismissible ${messageType === 'error' ? 'notice-error' : ''}`}>
+        <p>{message}</p>
+        <button type="button" class="typecho-notice-close" aria-label="关闭提示">&times;</button>
+      </div>
+    )}
+
+    <form method="post" action="/admin/options-theme">
+      <input type="hidden" name="_" value={csrfToken} />
+      {Object.entries(configDef).map(([key, field]: [string, PluginConfigField], index) => {
+        const value = configValues[key] ?? field.default ?? '';
+        const id = `${key}-0-${index + 1}`;
+        const isBoolean = field.type === 'checkbox' && !field.options;
+        const labelFor = field.type === 'checkbox' || field.type === 'radio' ? undefined : id;
+
+        if (field.type === 'hidden') {
+          return (
+            <ul class="typecho-option" id={`typecho-option-item-${key}-${index}`} style="display:none">
+              <li><input type="hidden" id={id} name={key} value={fieldValue(value)} /></li>
+            </ul>
+          );
+        }
+
+        return (
+          <ul class="typecho-option" id={`typecho-option-item-${key}-${index}`}>
+            <li>
+              {!isBoolean && <label class="typecho-label" for={labelFor}>{field.label}</label>}
+
+              {field.type === 'text' && <input id={id} name={key} type="text" class="text" value={fieldValue(value)} />}
+              {field.type === 'password' && <input id={id} name={key} type="password" class="text" value={fieldValue(value)} />}
+              {field.type === 'textarea' && <textarea id={id} name={key}>{fieldValue(value)}</textarea>}
+              {field.type === 'select' && (
+                <select id={id} name={key}>
+                  {Object.entries(optionsFor(field)).map(([option, label]) => (
+                    <option value={option} selected={selected(value, option)}>{label}</option>
+                  ))}
+                </select>
+              )}
+              {field.type === 'radio' && (
+                Object.entries(optionsFor(field)).map(([option, label]) => {
+                  const inputId = optionId(key, option);
+                  return (
+                    <span class:list={{ multiline: field.multiline }}>
+                      <input type="radio" id={inputId} name={key} value={option} checked={optionValue(value) === option} />
+                      <label for={inputId}>{label}</label>
+                    </span>
+                  );
+                })
+              )}
+              {isBoolean && (
+                <label class="typecho-label" for={id}>
+                  <input type="checkbox" id={id} name={key} value="1" checked={value === true || value === '1'} />
+                  {' '}{field.label}
+                </label>
+              )}
+              {field.type === 'checkbox' && field.options && (
+                Object.entries(optionsFor(field)).map(([option, label]) => {
+                  const inputId = optionId(key, option);
+                  return (
+                    <span class:list={{ multiline: field.multiline }}>
+                      <input type="checkbox" id={inputId} name={`${key}[]`} value={option} checked={isChecked(value, option)} />
+                      <label for={inputId}>{label}</label>
+                    </span>
+                  );
+                })
+              )}
+              {field.description && <p class="description" set:html={field.description}></p>}
+            </li>
+          </ul>
+        );
+      })}
+      <ul class="typecho-option typecho-option-submit" id={`typecho-option-item--${Object.keys(configDef).length}`}>
+        <li><button type="submit" class="btn primary">保存设置</button></li>
+      </ul>
+    </form>
+  </div>
+</Admin>

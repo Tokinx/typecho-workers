@@ -2,7 +2,11 @@
 import Admin from '@/layouts/Admin.astro';
 import { createContext, requireAuth } from '@/lib/context';
 import { hasPermission, requireAdminCSRF } from '@/lib/auth';
-import { getAvailableThemes } from '@/lib/theme';
+import {
+  getAvailableThemes,
+  themeExists,
+  themeHasConfig,
+} from '@/lib/theme';
 
 const ctx = await createContext(Astro.locals, Astro.request);
 const authCheck = requireAuth(ctx);
@@ -13,150 +17,118 @@ if (!hasPermission(ctx.user!.group || 'visitor', 'administrator')) {
 }
 
 const { options, urls, user, csrfToken } = ctx;
-
-// Handle theme activation via POST
 let message = '';
-let messageType = '';
+let messageType: 'success' | 'error' = 'success';
 
 if (Astro.request.method === 'POST') {
   const csrfError = await requireAdminCSRF(Astro.request, options.secret as string, user!.authCode!, user!.uid);
   if (csrfError) return csrfError;
+
   try {
     const formData = await Astro.request.formData();
-    const action = formData.get('action') as string;
-    const themeId = formData.get('theme') as string;
+    const action = String(formData.get('action') || '');
+    const themeId = String(formData.get('theme') || '');
 
     if (action === 'activate' && themeId) {
-      const { setOption } = await import('@/lib/options');
-      const { themeExists } = await import('@/lib/theme');
+      if (!themeExists(themeId)) {
+        message = `主题 "${themeId}" 不存在`;
+        messageType = 'error';
+      } else if (themeId !== String(options.theme || 'typecho-theme-minimal')) {
+        const { deleteOption, setOption } = await import('@/lib/options');
+        const previousThemeId = String(options.theme || 'typecho-theme-minimal');
 
-      if (themeExists(themeId)) {
+        // Typecho removes the previous theme's settings when a new theme is
+        // enabled. Settings for an already configured target theme remain.
+        await deleteOption(ctx.db, `theme:${previousThemeId}`);
         await setOption(ctx.db, 'theme', themeId);
-        // Update local options to reflect change
-        (options as any).theme = themeId;
+        if (themeHasConfig(themeId) && !options[`theme:${themeId}`]) {
+          const { getThemeConfigDefaults } = await import('@/lib/theme');
+          await setOption(ctx.db, `theme:${themeId}`, JSON.stringify(getThemeConfigDefaults(themeId)));
+        }
 
-        // Bump cache version so public pages and other isolates see theme changes.
+        (options as any).theme = themeId;
         const { bumpCacheVersion, purgeSiteCache } = await import('@/lib/cache');
         await bumpCacheVersion(ctx.db);
         await purgeSiteCache(options.siteUrl || '');
-
-        message = `主题已切换为 "${themeId}"`;
-        messageType = 'success';
-      } else {
-        message = `主题 "${themeId}" 不存在`;
-        messageType = 'error';
+        message = `外观已切换为 "${themeId}"`;
       }
     }
-  } catch (e) {
+  } catch {
     message = '操作失败';
     messageType = 'error';
   }
 }
 
-const themes = getAvailableThemes(options.theme || 'typecho-theme-minimal');
+const activeThemeId = String(options.theme || 'typecho-theme-minimal');
+const themes = getAvailableThemes(activeThemeId);
+const activeTheme = themes.find((theme) => theme.isActive) || themes[0];
+const canConfigureTheme = !!activeTheme && themeHasConfig(activeTheme.id);
+
+function screenshotUrl(theme: (typeof themes)[number]): string {
+  const configured = theme.manifest.screenshot;
+  if (!configured) return '/img/noscreen.png';
+  const extension = configured.split('.').pop() || 'png';
+  return `/themes/${theme.id}/screenshot.${extension}`;
+}
 ---
 <Admin title="外观" options={options} urls={urls} user={user} activeMenu="themes" pluginCtx={ctx}>
-  <div class="col-mb-12" role="main">
+  <Fragment slot="before-main">
+    <ul class="typecho-option-tabs fix-tabs">
+      <li class="current"><a href="/admin/themes">可以使用的外观</a></li>
+      {canConfigureTheme && <li><a href="/admin/options-theme">设置外观</a></li>}
+    </ul>
+  </Fragment>
+  <div class="col-mb-12">
     {message && (
-      <div class={`typecho-option-tabs notice typecho-dismissible ${messageType === 'error' ? 'notice-error' : 'notice-success'}`}
-        style={`padding: 10px 15px; margin-bottom: 20px; border-radius: 3px; ${messageType === 'error' ? 'background: #ffeaea; color: #c33;' : 'background: #e7f5e7; color: #3a3;'}`}>
+      <div class={`notice typecho-dismissible ${messageType === 'error' ? 'notice-error' : ''}`}>
         <p>{message}</p>
         <button type="button" class="typecho-notice-close" aria-label="关闭提示">&times;</button>
       </div>
     )}
 
-    {themes.length === 0 ? (
-      <div class="typecho-mini-panel" style="text-align: center; padding: 40px 20px;">
-        <h3>暂无主题</h3>
-      </div>
-    ) : (
-      <>
-
-        <div class="typecho-list-operate clearfix">
-          <div class="operate">
-            <span>已发现 {themes.length} 个主题</span>
-          </div>
-        </div>
-
-        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px;">
-        {themes.map((theme) => (
-          <div class="typecho-mini-panel" style={`border: 2px solid ${theme.isActive ? '#467B96' : '#e0e0e0'}; border-radius: 6px; overflow: hidden; position: relative;`}>
-            <div style="height: 180px; background: #f5f5f5; display: flex; align-items: center; justify-content: center; overflow: hidden;">
-              {theme.manifest.screenshot ? (
-                <img
-                  src={theme.isDefault ? '/img/theme-default.png' : `/themes/${theme.id}/screenshot.${(theme.manifest.screenshot || 'png').split('.').pop()}`}
-                  alt={theme.manifest.name}
-                  style="width: 100%; height: 100%; object-fit: cover;"
-                  onerror="this.style.display='none';this.parentElement.querySelector('.theme-fallback').style.display='block'"
-                />
-              ) : null}
-              <div class="theme-fallback" style={`text-align: center; color: #999; ${theme.manifest.screenshot ? 'display:none;' : ''}`}>
-                <div style="font-size: 28px; margin-bottom: 8px; font-weight: bold; color: #467B96;">T</div>
-                <div style="font-size: 13px;">{theme.manifest.name}</div>
-              </div>
-            </div>
-
-            {theme.isActive && (
-              <div style="position: absolute; top: 10px; right: 10px; background: #467B96; color: white; padding: 2px 10px; border-radius: 3px; font-size: 12px;">
-                当前使用
-              </div>
-            )}
-
-            <div style="padding: 15px;">
-              <h3 style="margin: 0 0 5px 0; font-size: 16px;">{theme.manifest.name || theme.id}</h3>
-              {theme.manifest.version && (
-                <span style="font-size: 12px; color: #999;">v{theme.manifest.version}</span>
-              )}
-
-              {theme.manifest.description && (
-                <p class="description" style="margin: 8px 0; font-size: 13px; color: #666; line-height: 1.5;">
-                  {theme.manifest.description}
-                </p>
-              )}
-
-              <div style="font-size: 12px; color: #999; margin-bottom: 12px;">
-                {theme.manifest.author && (
-                  <span>
-                    作者:
-                    {theme.manifest.authorUrl ? (
-                      <a href={theme.manifest.authorUrl} target="_blank" rel="noopener noreferrer">{theme.manifest.author}</a>
-                    ) : (
-                      theme.manifest.author
-                    )}
-                  </span>
-                )}
-                <span style="margin-left: 8px;">· {theme.isDefault ? '内置' : `npm: ${theme.packageName}`}</span>
-              </div>
-
-              <div style="display: flex; gap: 8px; align-items: center;">
-                {theme.isActive ? (
-                  <span class="btn" style="cursor: default; opacity: 0.6;">已启用</span>
-                ) : (
-                  <form method="post" action="/admin/themes" style="display: inline;">
+    <table class="typecho-list-table typecho-theme-list">
+      <colgroup>
+        <col width="35%" />
+        <col />
+      </colgroup>
+      <thead>
+        <tr>
+          <th>截图</th>
+          <th>详情</th>
+        </tr>
+      </thead>
+      <tbody>
+        {themes.length === 0 ? (
+          <tr><td colspan="2"><h6 class="typecho-list-table-title">没有安装外观</h6></td></tr>
+        ) : themes.map((theme) => {
+          const image = screenshotUrl(theme);
+          const authorUrl = theme.manifest.authorUrl || theme.manifest.homepage;
+          return (
+            <tr id={`theme-${theme.id}`} class:list={{ current: theme.isActive }}>
+              <td valign="top">
+                <img src={image} alt={theme.manifest.name || theme.id} />
+              </td>
+              <td valign="top">
+                <h3>{theme.manifest.name || theme.id}</h3>
+                <cite>
+                  {theme.manifest.author && <>作者: {authorUrl ? <a href={authorUrl} target="_blank" rel="noopener noreferrer">{theme.manifest.author}</a> : theme.manifest.author}</>}
+                  {theme.manifest.author && theme.manifest.version && '　'}
+                  {theme.manifest.version && <>版本: {theme.manifest.version}</>}
+                </cite>
+                {theme.manifest.description && <p>{theme.manifest.description}</p>}
+                {!theme.isActive && (
+                  <form method="post" action="/admin/themes">
                     <input type="hidden" name="_" value={csrfToken} />
                     <input type="hidden" name="action" value="activate" />
                     <input type="hidden" name="theme" value={theme.id} />
-                    <button type="submit" class="btn primary">启用</button>
+                    <button type="submit" class="btn btn-xs">启用</button>
                   </form>
                 )}
-
-                {theme.manifest.homepage && (
-                  <a href={theme.manifest.homepage} target="_blank" rel="noopener noreferrer"
-                    class="btn" style="text-decoration: none;">
-                    详情
-                  </a>
-                )}
-
-                <a href={`${urls.siteUrl}/`} target="_blank" rel="noopener noreferrer"
-                  class="btn" style="text-decoration: none;">
-                  预览
-                </a>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-      </>
-    )}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   </div>
 </Admin>
