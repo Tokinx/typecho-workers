@@ -337,13 +337,13 @@ a.operate-reply { color: #545c30; }
 
 .typecho-table-wrap { padding: 30px; background: #FFF; }
 
-.typecho-list-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.typecho-list-table { width: 100%; border-collapse: separate; border-spacing: 0; background: #FFF; table-layout: fixed; border: 30px solid #FFF; }
 
 .typecho-list-table.deactivate { color: #999; }
 
 .typecho-list-table .right { text-align: right; }
 
-.typecho-list-table th { padding: 0 10px 10px; border-bottom: 2px solid #F0F0EC; text-align: left; }
+.typecho-list-table th { padding: 0 10px 10px; border-bottom: 1px solid #F0F0EC; text-align: left; }
 
 .typecho-list-table td { padding: 10px; border-top: 1px solid #F0F0EC; word-break: break-all; }
 
@@ -358,6 +358,12 @@ a.operate-reply { color: #545c30; }
 .typecho-list-table tr td .hidden-by-mouse { opacity: 0; }
 
 .typecho-list-table tr:hover td .hidden-by-mouse { opacity: 1; }
+
+.plugin-action-form { display: inline; margin: 0; }
+
+.plugin-action-link { appearance: none; border: 0; padding: 0; background: transparent; color: #467B96; cursor: pointer; font: inherit; }
+
+.plugin-action-link:hover { color: #499BC3; text-decoration: underline; }
 
 .warning { color: #B94A48; }
 

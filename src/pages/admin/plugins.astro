@@ -2,7 +2,7 @@
 import Admin from '@/layouts/Admin.astro';
 import { createContext, requireAuth } from '@/lib/context';
 import { hasPermission, requireAdminCSRF } from '@/lib/auth';
-import { getAvailablePlugins, getPluginCount, isPluginActive, pluginHasConfig, parseActivatedPlugins } from '@/lib/plugin';
+import { getAvailablePlugins, pluginHasConfig, parseActivatedPlugins } from '@/lib/plugin';
 
 const ctx = await createContext(Astro.locals, Astro.request);
 const authCheck = requireAuth(ctx);
@@ -27,10 +27,10 @@ if (Astro.request.method === 'POST') {
     const pluginId = formData.get('plugin') as string;
 
     if (pluginId && (action === 'activate' || action === 'deactivate')) {
-      const { pluginExists, serializeActivatedPlugins, setActivatedPlugins, getPluginConfigDefaults } = await import('@/lib/plugin');
+      const { pluginExists, setActivatedPlugins, getPluginConfigDefaults } = await import('@/lib/plugin');
       const { setOption, deleteOption } = await import('@/lib/options');
 
-      if (!pluginExists(pluginId)) {
+      if (!pluginExists(pluginId) && action !== 'deactivate') {
         message = `插件 "${pluginId}" 不存在`;
         messageType = 'error';
       } else {
@@ -42,7 +42,7 @@ if (Astro.request.method === 'POST') {
           idSet.add(pluginId);
 
           // Save default config values on activation (like PHP Typecho's Edit::activate)
-          if (pluginHasConfig(pluginId)) {
+          if (pluginExists(pluginId) && pluginHasConfig(pluginId)) {
             const defaults = getPluginConfigDefaults(pluginId);
             if (Object.keys(defaults).length > 0) {
               // Only save defaults if no config exists yet
@@ -87,10 +87,14 @@ if (Astro.request.method === 'POST') {
 }
 
 const plugins = getAvailablePlugins(ctx);
-const pluginCount = getPluginCount();
+const activePlugins = plugins.filter((plugin) => plugin.isActive);
+const inactivePlugins = plugins.filter((plugin) => !plugin.isActive);
+const availablePluginIds = new Set(plugins.map((plugin) => plugin.id));
+const missingActivePlugins = parseActivatedPlugins(options.activatedPlugins as string | undefined)
+  .filter((pluginId) => !availablePluginIds.has(pluginId));
 ---
 <Admin title="插件管理" options={options} urls={urls} user={user} activeMenu="plugins" pluginCtx={ctx}>
-  <div class="col-mb-12" role="main">
+  <div class="col-mb-12 typecho-list">
     {message && (
       <div class={`typecho-option-tabs notice typecho-dismissible ${messageType === 'error' ? 'notice-error' : 'notice-success'}`}
         style={`padding: 10px 15px; margin-bottom: 20px; border-radius: 3px; ${messageType === 'error' ? 'background: #ffeaea; color: #c33;' : 'background: #e7f5e7; color: #3a3;'}`}>
@@ -99,103 +103,131 @@ const pluginCount = getPluginCount();
       </div>
     )}
 
-    {pluginCount === 0 ? (
-      <div class="typecho-mini-panel" style="text-align: center; padding: 40px 20px;">
-        <h3>暂无插件</h3>
-      </div>
-    ) : (
+    {(activePlugins.length > 0 || missingActivePlugins.length > 0) && (
       <>
-
-        <div class="typecho-list-operate clearfix">
-          <div class="operate">
-            <span>已发现 {pluginCount} 个插件</span>
-          </div>
-        </div>
-
-        <div class="typecho-table-wrap">
-          <table class="typecho-list-table">
-            <colgroup>
-              <col width="30%" />
-              <col width="35%" />
-              <col width="15%" />
-              <col width="20%" />
-            </colgroup>
-            <thead>
-              <tr>
-                <th>插件</th>
-                <th>描述</th>
-                <th>版本</th>
-                <th>操作</th>
+        <h4 class="typecho-list-table-title">启用的插件</h4>
+        <table class="typecho-list-table">
+          <colgroup>
+            <col width="25%" />
+            <col width="45%" />
+            <col width="8%" class="kit-hidden-mb" />
+            <col width="10%" class="kit-hidden-mb" />
+            <col width="" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th>名称</th>
+              <th>描述</th>
+              <th class="kit-hidden-mb">版本</th>
+              <th class="kit-hidden-mb">作者</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {activePlugins.map((plugin) => (
+              <tr id={`plugin-${plugin.id}`}>
+                <td>{plugin.manifest.name || plugin.id}</td>
+                <td>{plugin.manifest.description || '暂无描述'}</td>
+                <td class="kit-hidden-mb">{plugin.manifest.version || '-'}</td>
+                <td class="kit-hidden-mb">
+                  {plugin.manifest.author ? (
+                    plugin.manifest.authorUrl || plugin.manifest.homepage ? (
+                      <a href={plugin.manifest.authorUrl || plugin.manifest.homepage} target="_blank" rel="noopener noreferrer">
+                        {plugin.manifest.author}
+                      </a>
+                    ) : plugin.manifest.author
+                  ) : '-'}
+                </td>
+                <td>
+                  {pluginHasConfig(plugin.id) && (
+                    <>
+                      <a href={`/admin/plugin-config?id=${encodeURIComponent(plugin.id)}`}>设置</a>
+                      {' · '}
+                    </>
+                  )}
+                  <form method="post" action="/admin/plugins" class="plugin-action-form"
+                    onsubmit="return confirm('你确认要禁用此插件吗?');">
+                    <input type="hidden" name="_" value={csrfToken} />
+                    <input type="hidden" name="plugin" value={plugin.id} />
+                    <input type="hidden" name="action" value="deactivate" />
+                    <button type="submit" class="plugin-action-link">禁用</button>
+                  </form>
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {plugins.map((plugin) => (
+            ))}
+            {missingActivePlugins.map((pluginId) => (
+              <tr id={`plugin-${pluginId}`}>
+                <td>{pluginId}</td>
+                <td colspan="3"><span class="warning">此插件文件已经损坏或者被不安全移除, 强烈建议你禁用它</span></td>
+                <td>
+                  <form method="post" action="/admin/plugins" class="plugin-action-form"
+                    onsubmit="return confirm('你确认要禁用此插件吗?');">
+                    <input type="hidden" name="_" value={csrfToken} />
+                    <input type="hidden" name="plugin" value={pluginId} />
+                    <input type="hidden" name="action" value="deactivate" />
+                    <button type="submit" class="plugin-action-link">禁用</button>
+                  </form>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </>
+    )}
+
+    {(inactivePlugins.length > 0 || activePlugins.length === 0) && (
+      <>
+        <h4 class="typecho-list-table-title">禁用的插件</h4>
+        <table class="typecho-list-table deactivate">
+          <colgroup>
+            <col width="25%" />
+            <col width="45%" />
+            <col width="8%" class="kit-hidden-mb" />
+            <col width="10%" class="kit-hidden-mb" />
+            <col width="" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th>名称</th>
+              <th>描述</th>
+              <th class="kit-hidden-mb">版本</th>
+              <th class="kit-hidden-mb">作者</th>
+              <th class="typecho-radius-topright">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {inactivePlugins.length > 0 ? (
+              inactivePlugins.map((plugin) => (
                 <tr id={`plugin-${plugin.id}`}>
-                  <td>
-                    <strong>
-                      {plugin.manifest.homepage ? (
-                        <a href={plugin.manifest.homepage} target="_blank" rel="noopener noreferrer">
-                          {plugin.manifest.name || plugin.id}
+                  <td>{plugin.manifest.name || plugin.id}</td>
+                  <td>{plugin.manifest.description || '暂无描述'}</td>
+                  <td class="kit-hidden-mb">{plugin.manifest.version || '-'}</td>
+                  <td class="kit-hidden-mb">
+                    {plugin.manifest.author ? (
+                      plugin.manifest.authorUrl || plugin.manifest.homepage ? (
+                        <a href={plugin.manifest.authorUrl || plugin.manifest.homepage} target="_blank" rel="noopener noreferrer">
+                          {plugin.manifest.author}
                         </a>
-                      ) : (
-                        plugin.manifest.name || plugin.id
-                      )}
-                    </strong>
-                    {plugin.isActive && (
-                      <span style="margin-left: 8px; background: #467B96; color: white; padding: 1px 8px; border-radius: 3px; font-size: 11px;">
-                        已启用
-                      </span>
-                    )}
-                    <br />
-                    <small style="color: #999;">
-                      {plugin.manifest.author && (
-                        <span>
-                          作者: {plugin.manifest.authorUrl ? (
-                            <a href={plugin.manifest.authorUrl} target="_blank" rel="noopener noreferrer">{plugin.manifest.author}</a>
-                          ) : (
-                            plugin.manifest.author
-                          )}
-                        </span>
-                      )}
-                      {' · '}npm: {plugin.packageName}
-                    </small>
+                      ) : plugin.manifest.author
+                    ) : '-'}
                   </td>
                   <td>
-                    <span class="description">
-                      {plugin.manifest.description || '暂无描述'}
-                    </span>
-                  </td>
-                  <td>
-                    {plugin.manifest.version || '-'}
-                  </td>
-                  <td>
-                    <form method="post" action="/admin/plugins" style="display: inline;">
+                    <form method="post" action="/admin/plugins" class="plugin-action-form">
                       <input type="hidden" name="_" value={csrfToken} />
                       <input type="hidden" name="plugin" value={plugin.id} />
-                      {plugin.isActive ? (
-                        <>
-                          {pluginHasConfig(plugin.id) && (
-                            <>
-                              <a href={`/admin/plugin-config?id=${plugin.id}`}>设置</a>
-                              {' · '}
-                            </>
-                          )}
-                          <input type="hidden" name="action" value="deactivate" />
-                          <button type="submit" class="btn btn-s">禁用</button>
-                        </>
-                      ) : (
-                        <>
-                          <input type="hidden" name="action" value="activate" />
-                          <button type="submit" class="btn btn-s primary">启用</button>
-                        </>
-                      )}
+                      <input type="hidden" name="action" value="activate" />
+                      <button type="submit" class="plugin-action-link">启用</button>
                     </form>
                   </td>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              ))
+            ) : (
+              <tr>
+                <td colspan="5"><h6 class="typecho-list-table-title">没有安装插件</h6></td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </>
     )}
 
