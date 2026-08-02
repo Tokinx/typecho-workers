@@ -4,6 +4,7 @@ import { createContextAlongside } from '@/lib/context';
 import { prepareNotFoundData, preparePageData } from '@/lib/page-data';
 import { and, eq } from 'drizzle-orm';
 import { schema } from '@/db';
+import { getCookieValue } from '@/lib/auth';
 
 const { slug } = Astro.params;
 
@@ -30,7 +31,11 @@ let Component = templates.Page ?? defaultTemplates.Page!;
 
 // Prepare data
 const suppliedPassword = Astro.url.searchParams.get('password');
-let result = await preparePageData(ctx, cleanSlug, Astro.request.url, suppliedPassword, pageRow);
+const unapprovedCommentToken = getCookieValue(
+  Astro.request.headers.get('cookie'),
+  '__typecho_unapproved_comment',
+);
+let result = await preparePageData(ctx, cleanSlug, Astro.request.url, suppliedPassword, pageRow, unapprovedCommentToken);
 if (result instanceof Response) {
   if (result.status !== 404) return result;
   Astro.response.status = 404;

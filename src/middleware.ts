@@ -40,6 +40,46 @@ const BUILT_IN_ROUTES = [
   /^\/feed\//,                  // sub feeds (atom, rss, comments)
 ];
 
+/**
+ * Turn a Typecho `/page/N/` suffix into an Astro route. Category permalinks
+ * may be custom, so stripping the suffix alone is not enough to reach the
+ * built-in `/category/[slug]` route.
+ */
+async function resolvePaginatedPath(
+  path: string,
+  search: string,
+  db: ReturnType<typeof getDb>,
+  categoryPattern?: string,
+): Promise<{ page: number; target: string } | null> {
+  const match = path.match(/^(.*)\/page\/(\d+)\/?$/);
+  if (!match) return null;
+
+  const basePath = match[1] || '';
+  const page = parseInt(match[2], 10);
+  let targetPath = basePath === '' ? '/' : `${basePath}/`;
+
+  if (categoryPattern && categoryPattern !== '/category/{slug}/') {
+    const categoryRegex = compilePermalinkPattern(categoryPattern, 'category');
+    const categoryMatch = categoryRegex ? targetPath.match(categoryRegex) : null;
+    if (categoryMatch?.groups) {
+      let slug = categoryMatch.groups.slug || null;
+      if (!slug && categoryMatch.groups.mid) {
+        const category = await db.query.metas.findFirst({
+          columns: { slug: true },
+          where: and(
+            eq(schema.metas.mid, parseInt(categoryMatch.groups.mid, 10)),
+            eq(schema.metas.type, 'category'),
+          ),
+        });
+        slug = category?.slug || null;
+      }
+      if (slug) targetPath = `/category/${slug}/`;
+    }
+  }
+
+  return { page, target: `${targetPath}${search}` };
+}
+
 export const onRequest = defineMiddleware(async (context, next) => {
   const url = new URL(context.request.url);
   const path = url.pathname;
@@ -57,24 +97,6 @@ export const onRequest = defineMiddleware(async (context, next) => {
     path === '/api/install'
   ) {
     return await applySecurityHeaders(await next(), { request: context.request });
-  }
-
-  // ── Pagination URL Rewriting ──────────────────────────────────────────────
-  // Typecho uses /page/N/ suffix for pagination (e.g. /page/2/, /category/default/page/2/).
-  // We rewrite the request in place via next(payload) rather than
-  // context.rewrite(payload): the latter triggers a fresh rendering phase
-  // that re-executes this whole middleware (options load, plugin chain,
-  // permalink resolution, route:request filter — all doubled on every
-  // paginated URL). next(payload) preserves the existing pipeline.
-  const paginationMatch = path.match(/^(.*)\/page\/(\d+)\/?$/);
-  if (paginationMatch) {
-    const basePath = paginationMatch[1] || '';
-    const pageNum = parseInt(paginationMatch[2], 10);
-    context.locals._page = pageNum;
-    // Preserve `?foo=bar` (search/filter/sort params etc.) — dropping the
-    // query string would break `/search/keyword/page/2/?sort=date` links.
-    const target = (basePath === '' ? '/' : basePath + '/') + url.search;
-    return applySecurityHeaders(await next(target), { request: context.request });
   }
 
   const d1 = env.DB;
@@ -110,6 +132,19 @@ export const onRequest = defineMiddleware(async (context, next) => {
   } catch (err) {
     console.error('[middleware] loadOptions failed:', err);
     return applySecurityHeaders(new Response('Service unavailable', { status: 500 }), { request: context.request });
+  }
+
+  // Resolve custom category patterns only after options are available. Keep
+  // the existing single-pass `next()` flow for paginated requests.
+  const paginated = await resolvePaginatedPath(
+    path,
+    url.search,
+    db,
+    options.categoryPattern as string | undefined,
+  );
+  if (paginated) {
+    context.locals._page = paginated.page;
+    return applySecurityHeaders(await next(paginated.target), { request: context.request });
   }
 
   const activatedIds = parseActivatedPlugins(options.activatedPlugins as string | undefined);

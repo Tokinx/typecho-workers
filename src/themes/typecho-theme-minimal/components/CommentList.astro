@@ -40,6 +40,11 @@ const { comments, commentOptions, gravatarMap, permalink } = Astro.props;
       <time datetime={new Date(node.created * 1000).toISOString()}>
         {formatDate(node.created, commentOptions.dateFormat, commentOptions.timezone)}
       </time>
+      {node.status !== 'approved' && (
+        <em class="comment-awaiting-moderation">
+          {node.status === 'spam' ? '该评论已被标记为垃圾评论' : '评论待审核'}
+        </em>
+      )}
     </div>
     <div class="comment-content" set:html={node.text} />
     {commentOptions.allowComment && (

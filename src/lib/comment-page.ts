@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, or, sql } from 'drizzle-orm';
 import { schema, type Database } from '@/db';
 import type { SiteOptions } from '@/lib/options';
 
@@ -76,6 +76,7 @@ export async function loadCommentPage(
   cid: number,
   options: SiteOptions,
   requestUrl: string,
+  visibleUnapprovedCommentId?: number | null,
 ): Promise<CommentPage> {
   let enabled = !!options.commentsPageBreak;
   const threaded = !!options.commentsThreaded;
@@ -91,12 +92,23 @@ export async function loadCommentPage(
   const parsedPage = rawPage ? Number.parseInt(rawPage, 10) : Number.NaN;
   const requestedPage = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : null;
   const display = options.commentsPageDisplay === 'first' ? 'first' : 'last';
-  const approvedForContent = and(
+  const unapprovedCommentId = Number.isSafeInteger(visibleUnapprovedCommentId) && (visibleUnapprovedCommentId || 0) > 0
+    ? visibleUnapprovedCommentId
+    : null;
+  const visibleForContent = and(
     eq(schema.comments.cid, cid),
-    eq(schema.comments.status, 'approved'),
+    unapprovedCommentId
+      ? or(
+          eq(schema.comments.status, 'approved'),
+          eq(schema.comments.coid, unapprovedCommentId),
+        )
+      : eq(schema.comments.status, 'approved'),
   );
-  const approvedRootForContent = and(
-    approvedForContent,
+  const visibleParentStatus = unapprovedCommentId
+    ? sql`(parent_comment.status = 'approved' OR parent_comment.coid = ${unapprovedCommentId})`
+    : sql`parent_comment.status = 'approved'`;
+  const visibleRootForContent = and(
+    visibleForContent,
     sql`(
       ${schema.comments.parent} = 0
       OR NOT EXISTS (
@@ -104,7 +116,7 @@ export async function loadCommentPage(
         FROM ${schema.comments} AS parent_comment
         WHERE parent_comment.coid = ${schema.comments.parent}
           AND parent_comment.cid = ${cid}
-          AND parent_comment.status = 'approved'
+          AND ${visibleParentStatus}
       )
     )`,
   );
@@ -117,11 +129,11 @@ export async function loadCommentPage(
       db
         .select({ count: sql<number>`count(*)` })
         .from(schema.comments)
-        .where(approvedForContent),
+        .where(visibleForContent),
       db
         .select()
         .from(schema.comments)
-        .where(approvedForContent)
+        .where(visibleForContent)
         .orderBy(orderExpression)
         .limit(COMMENT_UNPAGED_MAX),
     ]);
@@ -147,14 +159,14 @@ export async function loadCommentPage(
     db
       .select({ count: sql<number>`count(*)` })
       .from(schema.comments)
-      .where(approvedForContent),
+      .where(visibleForContent),
   ];
   if (threaded) {
     countStatements.push(
       db
         .select({ count: sql<number>`count(*)` })
         .from(schema.comments)
-        .where(approvedRootForContent),
+        .where(visibleRootForContent),
     );
   }
   const countResults = await db.batch(countStatements as [any, ...any[]]);
@@ -177,7 +189,7 @@ export async function loadCommentPage(
     const rows = await db
       .select()
       .from(schema.comments)
-      .where(approvedForContent)
+      .where(visibleForContent)
       .orderBy(orderExpression)
       .limit(pageSize)
       .offset(offset);
@@ -185,12 +197,18 @@ export async function loadCommentPage(
   }
 
   const orderSql = order === 'DESC' ? sql`DESC` : sql`ASC`;
+  const candidateStatus = unapprovedCommentId
+    ? sql`(candidate.status = 'approved' OR candidate.coid = ${unapprovedCommentId})`
+    : sql`candidate.status = 'approved'`;
+  const childStatus = unapprovedCommentId
+    ? sql`(child.status = 'approved' OR child.coid = ${unapprovedCommentId})`
+    : sql`child.status = 'approved'`;
   const rows = await db.all<CommentRow>(sql`
     WITH RECURSIVE selected_roots(coid) AS (
       SELECT candidate.coid
       FROM ${schema.comments} AS candidate
       WHERE candidate.cid = ${cid}
-        AND candidate.status = 'approved'
+        AND ${candidateStatus}
         AND (
           candidate.parent = 0
           OR NOT EXISTS (
@@ -198,7 +216,7 @@ export async function loadCommentPage(
             FROM ${schema.comments} AS parent_comment
             WHERE parent_comment.coid = candidate.parent
               AND parent_comment.cid = ${cid}
-              AND parent_comment.status = 'approved'
+              AND ${visibleParentStatus}
           )
         )
       ORDER BY candidate.created ${orderSql}
@@ -213,7 +231,7 @@ export async function loadCommentPage(
       FROM ${schema.comments} AS child
       INNER JOIN thread AS parent_comment ON child.parent = parent_comment.coid
       WHERE child.cid = ${cid}
-        AND child.status = 'approved'
+        AND ${childStatus}
     )
     SELECT *
     FROM thread

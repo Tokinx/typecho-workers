@@ -234,7 +234,7 @@ const writePostBottomHtml = await applyFilterSafely(ctx, 'admin:writePost:bottom
             <tbody>
               {customFields.map((f) => (
                 <tr>
-                  <td><input type="text" name="fieldNames[]" value={f.name} class="text w-100" /></td>
+                  <td><input type="text" name="fieldNames[]" value={f.name} pattern="^[_a-zA-Z][_a-zA-Z0-9]*$" class="text w-100" /></td>
                   <td>
                     <select name={`fieldTypes[${f.name}]`} class="field-type-select w-100">
                       <option value="str" selected={f.type === 'str'}>字符</option>
@@ -506,7 +506,7 @@ const writePostBottomHtml = await applyFilterSafely(ctx, 'admin:writePost:bottom
           fieldIdx++;
           var name = 'newfield_' + fieldIdx;
           var row = '<tr>'
-            + '<td><input type="text" name="fieldNames[]" value="" class="text w-100" placeholder="字段名" /></td>'
+            + '<td><input type="text" name="fieldNames[]" value="" pattern="^[_a-zA-Z][_a-zA-Z0-9]*$" class="text w-100" placeholder="字段名" /></td>'
             + '<td><select name="fieldTypes[' + name + ']" class="field-type-select"><option value="str">字符</option><option value="int">整数</option><option value="float">小数</option></select></td>'
             + '<td><textarea name="fieldValues[' + name + ']" class="text w-100 mono" rows="2"></textarea></td>'
             + '<td><button type="button" class="btn btn-xs remove-field">删除</button></td>'

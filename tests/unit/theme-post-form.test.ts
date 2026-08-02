@@ -16,4 +16,14 @@ describe('default post comment form', () => {
     expect(source).toContain('name="_"');
     expect(source).toContain('value={commentOptions.securityToken}');
   });
+
+  it('marks non-approved comments for the submitting viewer', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'src/themes/typecho-theme-minimal/components/CommentList.astro'),
+      'utf-8',
+    );
+
+    expect(source).toContain("node.status !== 'approved'");
+    expect(source).toContain('comment-awaiting-moderation');
+  });
 });

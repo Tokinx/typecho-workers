@@ -203,6 +203,7 @@ interface CommentNode {
   author: string;
   mail: string;
   url: string;
+  status: 'approved' | 'waiting' | 'spam';
   text: string;                  // Rendered HTML
   created: number;
   children: CommentNode[];       // Nested replies

@@ -129,6 +129,36 @@ describe('loadCommentPage', () => {
     expect(first.pagination.totalPages).toBe(2);
   });
 
+  it('shows a non-public comment only when its submitted id is explicitly allowed', async () => {
+    await addComment(1);
+    const [waiting] = await db.insert(schema.comments).values({
+      cid: 1,
+      created: 2,
+      parent: 0,
+      author: 'waiting-user',
+      text: 'waiting comment',
+      status: 'waiting',
+    }).returning();
+
+    const hidden = await loadCommentPage(
+      db as any,
+      1,
+      options({ commentsPageBreak: 0, commentsThreaded: 0 }),
+      'https://example.com/post',
+    );
+    const visible = await loadCommentPage(
+      db as any,
+      1,
+      options({ commentsPageBreak: 0, commentsThreaded: 0 }),
+      'https://example.com/post',
+      waiting.coid,
+    );
+
+    expect(hidden.rows.map(row => row.coid)).not.toContain(waiting.coid);
+    expect(visible.rows.map(row => row.coid)).toContain(waiting.coid);
+    expect(visible.pagination.totalComments).toBe(2);
+  });
+
   it('uses the last page by default and clamps invalid pages', async () => {
     for (let created = 1; created <= 5; created++) await addComment(created);
 

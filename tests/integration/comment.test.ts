@@ -165,7 +165,7 @@ describe('POST /api/comment', () => {
     });
     const res = await POST({ request: req, locals: {} } as any);
     expect(res.status).toBe(302);
-    expect(res.headers.get('location')).toContain('#comments');
+    expect(res.headers.get('location')).toMatch(/#comment-\d+$/);
   });
 
   it('stores comment with correct IP from CF-Connecting-IP', async () => {
@@ -299,6 +299,8 @@ describe('POST /api/comment', () => {
     expect(res.status).toBe(302);
     const comment = await testDb.query.comments.findFirst();
     expect(comment?.status).toBe('waiting');
+    expect(res.headers.get('Set-Cookie')).toContain('__typecho_unapproved_comment=');
+    expect(res.headers.get('Location')).toContain(`#comment-${comment?.coid}`);
   });
 
   it('increments commentsNum on approved comment', async () => {
@@ -495,7 +497,7 @@ describe('POST /api/comment', () => {
     expect(res.status).toBe(302);
     const location = res.headers.get('location') || '';
     expect(location).toContain('/archives/1/');
-    expect(location).toContain('#comments');
+    expect(location).toMatch(/#comment-\d+$/);
   });
 
   // NEW: Per-article rate limiting test

@@ -283,6 +283,49 @@ export async function validateCommentToken(
   return timeSafeEqual(token, expected);
 }
 
+/**
+ * Issue a signed capability for viewing a newly submitted non-public comment.
+ * A comment id alone is predictable and must never grant that access.
+ */
+export async function generateUnapprovedCommentToken(
+  secret: string,
+  cid: number,
+  coid: number,
+): Promise<string> {
+  const payload = `${cid}:${coid}`;
+  return `${payload}:${await sha256(`${secret}&unapproved-comment=${payload}`)}`;
+}
+
+/** Return the comment id only when a viewer capability is valid for this post. */
+export async function validateUnapprovedCommentToken(
+  token: string | null | undefined,
+  secret: string,
+  cid: number,
+): Promise<number | null> {
+  if (!token) return null;
+
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(token);
+  } catch {
+    return null;
+  }
+
+  const [tokenCid, tokenCoid, hash, ...rest] = decoded.split(':');
+  if (rest.length > 0 || !/^\d+$/.test(tokenCid) || !/^\d+$/.test(tokenCoid) || !/^[a-f0-9]{64}$/.test(hash)) {
+    return null;
+  }
+
+  const parsedCid = Number(tokenCid);
+  const coid = Number(tokenCoid);
+  if (!Number.isSafeInteger(parsedCid) || !Number.isSafeInteger(coid) || parsedCid !== cid || coid <= 0) {
+    return null;
+  }
+
+  const expected = await generateUnapprovedCommentToken(secret, cid, coid);
+  return timeSafeEqual(decoded, expected) ? coid : null;
+}
+
 // ---- Utilities ----
 
 /**
@@ -376,6 +419,16 @@ export function generateRandomString(length: number): string {
 const AUTH_COOKIE_NAME = '__typecho_uid';
 const AUTH_CODE_COOKIE_NAME = '__typecho_authCode';
 
+/** Read one cookie without coupling public request features to auth cookies. */
+export function getCookieValue(cookieHeader: string | null, name: string): string | null {
+  if (!cookieHeader) return null;
+  for (const segment of cookieHeader.split(';')) {
+    const [key, ...values] = segment.trim().split('=');
+    if (key === name) return values.join('=') || null;
+  }
+  return null;
+}
+
 /**
  * Decide whether to emit the `Secure` cookie attribute. Production deploys
  * always run on HTTPS via Cloudflare, but `pnpm run dev` exposes the worker
@@ -391,15 +444,8 @@ export function shouldUseSecureCookie(request?: Request): boolean {
 }
 
 export function getAuthCookies(cookieHeader: string | null): { token: string | null; uid: string | null; code: string | null } {
-  if (!cookieHeader) return { token: null, uid: null, code: null };
-  const cookies = Object.fromEntries(
-    cookieHeader.split(';').map((c) => {
-      const [key, ...vals] = c.trim().split('=');
-      return [key, vals.join('=')];
-    })
-  );
-  const uid = cookies[AUTH_COOKIE_NAME] || null;
-  const code = cookies[AUTH_CODE_COOKIE_NAME] || null;
+  const uid = getCookieValue(cookieHeader, AUTH_COOKIE_NAME);
+  const code = getCookieValue(cookieHeader, AUTH_CODE_COOKIE_NAME);
   if (uid && code) {
     return { token: `${uid}:${code}`, uid, code };
   }

@@ -203,6 +203,7 @@ interface CommentNode {
   author: string;
   mail: string;
   url: string;
+  status: 'approved' | 'waiting' | 'spam';
   text: string;                  // 渲染后的 HTML
   created: number;
   children: CommentNode[];       // 嵌套回复

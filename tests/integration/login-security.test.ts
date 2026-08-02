@@ -25,7 +25,7 @@ async function seedSite(secretValue = 'sekret') {
   await testDb.insert(schema.options).values({ name: 'installed', user: 0, value: '1' });
 }
 
-async function seedUser(password: string, opts: { group?: string; iterations?: number } = {}) {
+async function seedUser(password: string, opts: { group?: string; iterations?: number; name?: string; mail?: string } = {}) {
   let hash = await hashPassword(password);
   if (opts.iterations) {
     // Rebuild with explicit iteration count (used to simulate legacy 100k hashes).
@@ -42,8 +42,8 @@ async function seedUser(password: string, opts: { group?: string; iterations?: n
     hash = parts.join('$');
   }
   await testDb.insert(schema.users).values({
-    name: 'alice',
-    mail: 'alice@example.com',
+    name: opts.name || 'alice',
+    mail: opts.mail || 'alice@example.com',
     password: hash,
     group: opts.group || 'administrator',
     authCode: 'auth-1',
@@ -114,6 +114,39 @@ describe('login security', () => {
     expect(success.status).toBe(302);
     expect(success.headers.get('Set-Cookie')).toContain('__typecho_uid=');
     expect(success.headers.get('Retry-After')).toBeNull();
+  });
+
+  it('falls back to email login while preserving a username containing @', async () => {
+    await seedSite();
+    await seedUser('username-password', {
+      name: 'member@example.com',
+      mail: 'member-name@example.net',
+    });
+    await seedUser('email-password', {
+      name: 'another-member',
+      mail: 'another@example.com',
+    });
+
+    const usernameResponse = await POST({
+      request: makeRequest({
+        ip: '7.7.7.1',
+        origin: SITE_URL,
+        body: { name: 'member@example.com', password: 'username-password' },
+      }),
+      locals: {},
+    } as any);
+    const emailResponse = await POST({
+      request: makeRequest({
+        ip: '7.7.7.2',
+        origin: SITE_URL,
+        body: { name: 'another@example.com', password: 'email-password' },
+      }),
+      locals: {},
+    } as any);
+
+    expect(usernameResponse.status).toBe(302);
+    expect(emailResponse.status).toBe(302);
+    expect(emailResponse.headers.get('Set-Cookie')).toContain('__typecho_uid=');
   });
 
   it('rejects cross-origin POSTs (G2-5)', async () => {

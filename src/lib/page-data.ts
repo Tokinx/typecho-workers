@@ -15,7 +15,7 @@ import {
 } from '@/lib/content';
 import { renderCommentText, renderContentExcerpt, renderMarkdownFiltered } from '@/lib/markdown';
 import { paginate } from '@/lib/pagination';
-import { generateCommentToken } from '@/lib/auth';
+import { generateCommentToken, validateUnapprovedCommentToken } from '@/lib/auth';
 import { buildGravatarUrl } from '@/lib/gravatar';
 import { loadCommentPage } from '@/lib/comment-page';
 import type { RequestContext } from '@/lib/context';
@@ -70,6 +70,7 @@ function buildCommentTree(allComments: CommentRow[], options: SiteOptions): Comm
       author: c.author || '匿名',
       mail: c.mail || '',
       url: c.url || '',
+      status: c.status === 'waiting' || c.status === 'spam' ? c.status : 'approved',
       text: renderCommentText(c.text || '', {
         markdown: !!options.commentsMarkdown,
         htmlTagAllowed: options.commentsHTMLTagAllowed,
@@ -360,6 +361,7 @@ export async function preparePostData(
   requestUrl: string,
   suppliedPassword: string | null,
   preloadedRow?: ContentRow | null,
+  unapprovedCommentToken?: string | null,
 ): Promise<ThemePostProps | Response> {
   const { db, options, urls, user, isLoggedIn } = ctx;
 
@@ -376,6 +378,9 @@ export async function preparePostData(
   // Password
   const hasPassword = !!contentRow.password;
   const passwordVerified = hasPassword && suppliedPassword === contentRow.password;
+  const visibleUnapprovedCommentId = options.secret
+    ? await validateUnapprovedCommentToken(unapprovedCommentToken, options.secret as string, cidNum)
+    : null;
 
   // Keep all content-specific reads in one D1 round trip while the common
   // chrome data loads independently.
@@ -418,7 +423,7 @@ export async function preparePostData(
         .orderBy(asc(schema.contents.created))
         .limit(1),
     ]),
-    loadCommentPage(db, cidNum, options, requestUrl),
+    loadCommentPage(db, cidNum, options, requestUrl, visibleUnapprovedCommentId),
   ]);
   const author = authorRows[0] ?? null;
   const allComments = commentPage.rows;
@@ -497,6 +502,7 @@ export async function preparePageData(
   requestUrl: string,
   suppliedPassword: string | null,
   preloadedRow?: ContentRow | null,
+  unapprovedCommentToken?: string | null,
 ): Promise<ThemePageProps | Response> {
   const { db, options, urls, user, isLoggedIn } = ctx;
 
@@ -519,9 +525,12 @@ export async function preparePageData(
 
   const hasPassword = !!pageRow.password;
   const passwordVerified = hasPassword && suppliedPassword === pageRow.password;
+  const visibleUnapprovedCommentId = options.secret
+    ? await validateUnapprovedCommentToken(unapprovedCommentToken, options.secret as string, pageRow.cid)
+    : null;
 
   const [commentPage, common] = await Promise.all([
-    loadCommentPage(db, pageRow.cid, options, requestUrl),
+    loadCommentPage(db, pageRow.cid, options, requestUrl, visibleUnapprovedCommentId),
     loadCommon(ctx, requestUrl),
   ]);
   const allComments = commentPage.rows;

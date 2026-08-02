@@ -105,7 +105,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const ip = getClientIp(request);
   // The lock row and user row are independent. Fetch both in parallel so a
   // normal login pays one D1 latency wave before PBKDF2 verification.
-  const [lockedUntil, user] = await Promise.all([
+  const [lockedUntil, usernameUser] = await Promise.all([
     loginLockedUntil(db, ip, rateConfig),
     db.query.users.findFirst({ where: eq(schema.users.name, name) }),
   ]);
@@ -114,6 +114,13 @@ export const POST: APIRoute = async ({ request, locals }) => {
     const headers = createFlashRedirectHeaders(LOGIN_URL, LOGIN_ERROR_FLASH_COOKIE, `登录失败次数过多，请 ${remaining} 秒后再试`, LOGIN_URL, request);
     headers.set('Retry-After', String(remaining));
     return new Response(null, { status: 302, headers });
+  }
+
+  // Keep Typecho 1.3's lookup order: a username containing "@" wins over
+  // an email address with the same text; email is only a fallback.
+  let user = usernameUser;
+  if (!user && name.includes('@')) {
+    user = await db.query.users.findFirst({ where: eq(schema.users.mail, name) });
   }
 
   const loginContext = await applyFilter(pluginCtx, 'user:login', {}, { request, formData, options });

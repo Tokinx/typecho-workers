@@ -129,6 +129,27 @@ describe('Middleware: no redirect loops when DB is ready', () => {
     });
   }
 
+  it('rewrites paginated custom category permalinks to the built-in route', async () => {
+    await testDb.insert(schema.options).values({ name: 'categoryPattern', user: 0, value: '/topics/{slug}/' });
+    advanceOptionsSnapshotGeneration(testDb as any);
+
+    const request = new Request(`${SITE}/topics/guides/page/2/?sort=latest`);
+    const ctx = {
+      request,
+      url: new URL(request.url),
+      locals: {},
+      redirect: (p: string) => new Response(null, { status: 302, headers: { Location: p } }),
+      rewrite: (p: string) => new Response(null, { status: 302, headers: { Location: p } }),
+    } as any;
+    const next = vi.fn(async () => new Response('category page', { status: 200 }));
+
+    const response = await onRequest(ctx, next) as Response;
+
+    expect(response.status).toBe(200);
+    expect(ctx.locals._page).toBe(2);
+    expect(next).toHaveBeenCalledWith('/category/guides/?sort=latest');
+  });
+
   it('schedules edge cache persistence through the bound ExecutionContext', async () => {
     const waitUntil = vi.fn();
     const putSpy = vi.spyOn(caches.default, 'put');
@@ -281,4 +302,3 @@ describe('Middleware: activated plugin routes (registry imported by middleware)'
     expect(response.status).toBe(404);
   });
 });
-

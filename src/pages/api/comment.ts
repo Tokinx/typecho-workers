@@ -1,7 +1,14 @@
 import type { APIRoute } from 'astro';
 import { getDb, schema } from '@/db';
 import { loadOptions } from '@/lib/options';
-import { getAuthCookies, validateAuthToken, validateCommentToken, timeSafeEqual } from '@/lib/auth';
+import {
+  generateUnapprovedCommentToken,
+  getAuthCookies,
+  shouldUseSecureCookie,
+  timeSafeEqual,
+  validateAuthToken,
+  validateCommentToken,
+} from '@/lib/auth';
 import { setActivatedPlugins, parseActivatedPlugins, applyFilter, doHook, type HookContext } from '@/lib/plugin';
 import { bumpCacheVersion, purgeContentCache } from '@/lib/cache';
 import { getClientIp, getRequestCoreContextFromLocals } from '@/lib/context';
@@ -315,14 +322,20 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   // Redirect back to the post
   // Prevent open redirect: only use referer if it's a relative path or same-origin
-  let redirectUrl = `/archives/${cid}/#comments`;
+  let redirectUrl = `/archives/${cid}/#comment-${newCoid}`;
   const referer = requestReferer;
   if (referer) {
-    redirectUrl = safeCommentRedirectUrl(referer, options.siteUrl || '', request.url, redirectUrl);
+    redirectUrl = safeCommentRedirectUrl(referer, options.siteUrl || '', request.url, redirectUrl, newCoid);
+  }
+  const headers = new Headers({ Location: redirectUrl });
+  if (finalStatus !== 'approved' && options.secret) {
+    const token = await generateUnapprovedCommentToken(options.secret as string, cid, newCoid);
+    const secureFlag = shouldUseSecureCookie(request) ? '; Secure' : '';
+    headers.append('Set-Cookie', `__typecho_unapproved_comment=${encodeURIComponent(token)}; Path=/; HttpOnly${secureFlag}; SameSite=Lax`);
   }
   return new Response(null, {
     status: 302,
-    headers: { Location: redirectUrl },
+    headers,
   });
 };
 
@@ -340,13 +353,14 @@ function safeCommentRedirectUrl(
   siteUrl: string,
   requestUrl: string,
   fallback: string,
+  coid: number,
 ): string {
   try {
     const refUrl = new URL(referer);
     const trustedOrigins = new Set([new URL(requestUrl).origin]);
     if (siteUrl) trustedOrigins.add(new URL(siteUrl).origin);
     if (!trustedOrigins.has(refUrl.origin)) return fallback;
-    return `${refUrl.pathname}${refUrl.search}#comments`;
+    return `${refUrl.pathname}${refUrl.search}#comment-${coid}`;
   } catch {
     return fallback;
   }

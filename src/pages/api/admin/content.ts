@@ -19,6 +19,19 @@ const VISIBILITY_TO_STATUS: Record<string, string> = {
   waiting: 'waiting',
 };
 
+const CUSTOM_FIELD_NAME_RE = /^[_a-zA-Z][_a-zA-Z0-9]*$/;
+const CUSTOM_FIELD_TYPES = new Set(['str', 'int', 'float']);
+
+function validateCustomFields(formData: FormData): string | null {
+  const fieldNames = formData.getAll('fieldNames[]').map(value => value.toString().trim()).filter(Boolean);
+  for (const name of fieldNames) {
+    if (!CUSTOM_FIELD_NAME_RE.test(name)) return `自定义字段名 "${name}" 无效`;
+    const type = formData.get(`fieldTypes[${name}]`)?.toString() || 'str';
+    if (!CUSTOM_FIELD_TYPES.has(type)) return `自定义字段 "${name}" 的类型无效`;
+  }
+  return null;
+}
+
 /**
  * Save custom fields for a content item.
  * Handles the field[name], fieldNames[], fieldTypes[] form pattern from Typecho.
@@ -167,6 +180,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   const now = Math.floor(Date.now() / 1000);
 
+  const customFieldError = validateCustomFields(formData);
+  if (customFieldError) return new Response(customFieldError, { status: 400 });
+
   // ── Schedule: accept optional datetime from the editor ──
   const scheduleDate = formData.get('date')?.toString()?.trim();
   let created = now;
@@ -211,7 +227,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
   }
 
   if (action === 'create') {
-    // Build content data — slug will be backfilled with cid if empty
+    // Typecho 1.3 derives an initial slug from the title, then falls back to
+    // cid for titles that have no URL-safe characters.
     let contentData: Record<string, unknown> = {
       title,
       slug: slugInput || `temp-${Date.now().toString(36)}`,
@@ -238,7 +255,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     const newCid = result[0]?.cid;
     if (!newCid) return new Response('创建失败', { status: 500 });
 
-    const finalSlug = await resolveUniqueContentSlug(db, slugInput || String(newCid), newCid);
+    const finalSlug = await resolveUniqueContentSlug(db, slugInput || generateSlug(title) || String(newCid), newCid);
     const createStatements: any[] = [
       db.update(schema.contents).set({ slug: finalSlug }).where(eq(schema.contents.cid, newCid)),
       ...buildCustomFieldStatements(db, newCid, formData),

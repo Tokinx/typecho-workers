@@ -3,6 +3,7 @@ import { themeTemplates } from 'virtual:theme-templates';
 import { createContextAlongside } from '@/lib/context';
 import { prepareNotFoundData, preparePageData, preparePostData } from '@/lib/page-data';
 import { buildPermalink, getRedirectPathIfDifferent } from '@/lib/content';
+import { getCookieValue } from '@/lib/auth';
 import { eq } from 'drizzle-orm';
 import { schema } from '@/db';
 
@@ -23,6 +24,10 @@ const [ctx, contentRow] = await createContextAlongside(
 const { options } = ctx;
 
 const suppliedPassword = Astro.url.searchParams.get('password');
+const unapprovedCommentToken = getCookieValue(
+  Astro.request.headers.get('cookie'),
+  '__typecho_unapproved_comment',
+);
 let result;
 let Component;
 const activeTheme = options.theme || 'typecho-theme-minimal';
@@ -44,7 +49,7 @@ if (!contentRow) {
   const redirectPath = getRedirectPathIfDifferent(Astro.request.url, pageUrl);
   if (redirectPath) return Astro.redirect(redirectPath);
 
-  result = await preparePageData(ctx, contentRow.slug || String(contentRow.cid), Astro.request.url, suppliedPassword, contentRow);
+  result = await preparePageData(ctx, contentRow.slug || String(contentRow.cid), Astro.request.url, suppliedPassword, contentRow, unapprovedCommentToken);
   if (result instanceof Response) {
     if (result.status !== 404) return result;
     Astro.response.status = 404;
@@ -54,7 +59,7 @@ if (!contentRow) {
     Component = templates.Page ?? defaultTemplates.Page!;
   }
 } else {
-  result = await preparePostData(ctx, cidNum, Astro.request.url, suppliedPassword, contentRow);
+  result = await preparePostData(ctx, cidNum, Astro.request.url, suppliedPassword, contentRow, unapprovedCommentToken);
   if (result instanceof Response) {
     if (result.status !== 404) return result;
     Astro.response.status = 404;

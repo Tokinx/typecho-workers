@@ -19,6 +19,11 @@ describe('normalizeHttpUrl', () => {
     expect(normalizeHttpUrl('data:text/html,<script>alert(1)</script>')).toBeNull();
   });
 
+  it('rejects raw HTML attribute-breaking characters', () => {
+    expect(normalizeHttpUrl('https://example.com/" onclick="alert(1)')).toBeNull();
+    expect(normalizeHttpUrl('https://example.com/<script>')).toBeNull();
+  });
+
   it('returns empty string for empty input', () => {
     expect(normalizeHttpUrl('')).toBe('');
     expect(normalizeHttpUrl('  ')).toBe('');

@@ -123,6 +123,8 @@ export interface CommentNode {
   author: string;
   mail: string;
   url: string;
+  /** Moderation state. Non-approved comments are only shown to their submitter. */
+  status: 'approved' | 'waiting' | 'spam';
   /** Rendered HTML */
   text: string;
   created: number;

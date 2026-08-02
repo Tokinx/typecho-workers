@@ -15,6 +15,8 @@ import {
   validateSecurityToken,
   generateCommentToken,
   validateCommentToken,
+  generateUnapprovedCommentToken,
+  validateUnapprovedCommentToken,
   generateRandomString,
   getAuthCookies,
   setAuthCookieHeaders,
@@ -465,6 +467,20 @@ describe('generateCommentToken() / validateCommentToken()', () => {
     const t1 = await generateCommentToken('secret', 1);
     const t2 = await generateCommentToken('secret', 2);
     expect(t1).not.toBe(t2);
+  });
+});
+
+describe('unapproved comment viewer tokens', () => {
+  it('allows the submitted non-public comment only for its own content', async () => {
+    const token = await generateUnapprovedCommentToken('mysecret', 42, 99);
+    expect(await validateUnapprovedCommentToken(token, 'mysecret', 42)).toBe(99);
+    expect(await validateUnapprovedCommentToken(token, 'mysecret', 43)).toBeNull();
+  });
+
+  it('rejects a forged or malformed token', async () => {
+    const token = await generateUnapprovedCommentToken('mysecret', 42, 99);
+    expect(await validateUnapprovedCommentToken(`${token}0`, 'mysecret', 42)).toBeNull();
+    expect(await validateUnapprovedCommentToken('42:99:not-a-hash', 'mysecret', 42)).toBeNull();
   });
 });
 

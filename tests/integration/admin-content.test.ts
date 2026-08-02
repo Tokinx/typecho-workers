@@ -74,6 +74,43 @@ describe('POST /api/admin/content', () => {
     expect(rels).toHaveLength(1);
   });
 
+  it('derives an initial slug from the title when none is supplied', async () => {
+    const admin = await testDb.query.users.findFirst();
+    const cookie = await makeAuthCookie(testDb, admin!.uid, TEST_AUTH_CODE, TEST_SECRET);
+    const req = await makeContentRequest({
+      do: 'create',
+      type: 'post',
+      title: 'A Readable Post Title',
+      text: 'Body',
+      status: 'publish',
+      visibility: 'publish',
+    }, cookie);
+
+    const res = await POST({ request: req, locals: {} } as any);
+    expect(res.status).toBe(302);
+    const content = await testDb.query.contents.findFirst({ where: eq(schema.contents.title, 'A Readable Post Title') });
+    expect(content?.slug).toBe('a-readable-post-title');
+  });
+
+  it('rejects invalid custom field names before changing content', async () => {
+    const admin = await testDb.query.users.findFirst();
+    const cookie = await makeAuthCookie(testDb, admin!.uid, TEST_AUTH_CODE, TEST_SECRET);
+    const req = await makeContentRequest({
+      do: 'create',
+      type: 'post',
+      title: 'Invalid custom field',
+      text: 'Body',
+      status: 'publish',
+      visibility: 'publish',
+      'fieldNames[]': 'not valid',
+      'fieldTypes[not valid]': 'str',
+    }, cookie);
+
+    const res = await POST({ request: req, locals: {} } as any);
+    expect(res.status).toBe(400);
+    expect(await testDb.query.contents.findFirst({ where: eq(schema.contents.title, 'Invalid custom field') })).toBeUndefined();
+  });
+
   it('deduplicates slug when updating to another content slug', async () => {
     await testDb.insert(schema.contents).values({
       title: 'First',
