@@ -70,9 +70,22 @@ export const POST: APIRoute = async ({ request, locals }) => {
     return new Response('文章不存在', { status: 404 });
   }
 
-  const isPublicContent =
+  const corePublicContent =
     (content.type === 'post' || content.type === 'page') &&
     (content.status === 'publish' || content.status === 'hidden');
+  let isPublicContent: boolean;
+  try {
+    isPublicContent = !!await applyFilter(pluginCtx, 'comment:allowContent', corePublicContent, {
+      content,
+      request,
+      db,
+      options,
+      isLoggedIn: !!authResult,
+    });
+  } catch (error) {
+    console.error('[comment] comment:allowContent filter threw:', error);
+    return new Response('插件处理评论目标时出错，请稍后重试', { status: 503 });
+  }
   if (!isPublicContent) {
     return new Response('评论目标不可用', { status: 403 });
   }

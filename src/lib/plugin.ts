@@ -178,6 +178,7 @@ export const HookPoints = {
   'comment:filter': 'comment:filter',                // Filter: raw comment row data
   'comment:content': 'comment:content',              // Filter: rendered comment content
   'comment:markdown': 'comment:markdown',            // Filter: comment Markdown
+  'comment:allowContent': 'comment:allowContent',    // Filter: custom content type comment eligibility
 
   // --- Content Management ---
   'post:write': 'post:write',                        // Filter: post data before save

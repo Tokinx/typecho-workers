@@ -201,6 +201,7 @@ Config storage: `typecho_options` table, `name = "plugin:<pluginId>"`, value is 
 | `content:excerpt` | Excerpt output | `(excerpt, post)` | Filter post excerpt |
 | `comment:content` | Comment content output | `(html, comment)` | Filter comment HTML |
 | `comment:markdown` | Comment Markdown | `(markdown, comment)` | Filter raw comment text |
+| `comment:allowContent` | Comment target validation | `(allowed, extra)` | Extend comment eligibility for custom content types; verify public visibility before returning `true` |
 | `post:write` | Before post save | `(data, extra)` | Filter post write data |
 | `page:write` | Before page save | `(data, extra)` | Filter page write data |
 | `admin:managePosts:titleActions` | Post list title action area | `(html, extra)` | Append management actions next to each post title |
