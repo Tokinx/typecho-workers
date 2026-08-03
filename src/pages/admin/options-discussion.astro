@@ -130,40 +130,6 @@ const commentsMaxNestingLevels = Math.min(7, Math.max(2, Number(options.comments
         </li>
       </ul>
 
-      <ul class="typecho-option" id="typecho-option-item-mailEnabled-5">
-        <li>
-          <label class="typecho-label"><input type="checkbox" id="mailEnabled-0-6" name="mailEnabled" value="1"
-            checked={Number(options.mailEnabled) === 1} />启用邮件通知</label>
-          <p class="description">启用后，系统才会实际发送邮件。</p>
-        </li>
-      </ul>
-      <ul class="typecho-option" id="typecho-option-item-mailFrom-7" style={Number(options.mailEnabled) !== 1 ? 'display:none' : undefined} data-mail-settings="true">
-        <li>
-          <label class="typecho-label" for="mailFrom-0-8">发件邮箱</label>
-          <input id="mailFrom-0-8" name="mailFrom" type="email" class="text" value={options.mailFrom || ''} />
-        </li>
-      </ul>
-      <ul class="typecho-option" id="typecho-option-item-mailFromName-8" style={Number(options.mailEnabled) !== 1 ? 'display:none' : undefined} data-mail-settings="true">
-        <li>
-          <label class="typecho-label" for="mailFromName-0-9">发件人名称</label>
-          <input id="mailFromName-0-9" name="mailFromName" type="text" class="text" value={options.mailFromName || ''} />
-        </li>
-      </ul>
-      <ul class="typecho-option" id="typecho-option-item-commentEmailEnabled-6">
-        <li>
-          <label class="typecho-label"><input type="checkbox" id="commentEmailEnabled-0-7" name="commentEmailEnabled" value="1"
-            checked={Number(options.commentEmailEnabled) === 1} />有新评论时发送邮件通知</label>
-          <p class="description">通知文章作者和父评论作者。</p>
-        </li>
-      </ul>
-      <ul class="typecho-option" id="typecho-option-item-commentEmailReplyEnabled-9">
-        <li>
-          <label class="typecho-label"><input type="checkbox" id="commentEmailReplyEnabled-0-10" name="commentEmailReplyEnabled" value="1"
-            checked={Number(options.commentEmailReplyEnabled) !== 0} />包含评论回复通知</label>
-          <p class="description">当有人回复评论时，通知被回复者</p>
-        </li>
-      </ul>
-
       <ul class="typecho-option typecho-option-submit" id="typecho-option-item-submit-10">
         <li>
           <button type="submit" class="btn primary">保存设置</button>
@@ -171,17 +137,4 @@ const commentsMaxNestingLevels = Math.min(7, Math.max(2, Number(options.comments
       </ul>
     </form>
   </div>
-  <script is:inline>
-    document.addEventListener('DOMContentLoaded', function () {
-      var toggle = document.getElementById('mailEnabled-0-6');
-      if (!toggle) return;
-      var updateMailSettings = function () {
-        document.querySelectorAll('[data-mail-settings]').forEach(function (element) {
-          element.style.display = toggle.checked ? '' : 'none';
-        });
-      };
-      toggle.addEventListener('change', updateMailSettings);
-      updateMailSettings();
-    });
-  </script>
 </Admin>

@@ -12,7 +12,6 @@ import {
 import { setActivatedPlugins, parseActivatedPlugins, applyFilter, doHook, type HookContext } from '@/lib/plugin';
 import { bumpCacheVersion, purgeContentCache } from '@/lib/cache';
 import { getClientIp, getRequestCoreContextFromLocals } from '@/lib/context';
-import { notifyOnComment } from '@/lib/comment-email';
 import { buildPermalink } from '@/lib/content';
 import { normalizeHttpUrl } from '@/lib/url';
 import { isSameOriginRequest } from '@/lib/admin-auth';
@@ -287,39 +286,17 @@ export const POST: APIRoute = async ({ request, locals }) => {
   commentData.coid = newCoid;
 
   // Trigger feedback:finishComment hook — plugins can act after comment saved
-  await doHook(pluginCtx, 'feedback:finishComment', commentData);
-
-  // Email notification (fire-and-forget via waitUntil)
-  if (finalStatus === 'approved') {
-    const notifyP = notifyOnComment({
-      pluginCtx,
-      db,
-      options,
-      siteUrl: (options.siteUrl as string) || '',
-      permalinkPattern: options.permalinkPattern as string | undefined,
-      pagePattern: options.pagePattern as string | undefined,
-      comment: {
-        coid: newCoid,
-        cid,
-        author: commentData.author as string | null ?? null,
-        mail: commentData.mail as string | null ?? null,
-        text: commentData.text as string | null ?? null,
-        parent: commentData.parent as number,
-        authorId: commentData.authorId as number | null ?? null,
-      },
-      content: {
-        cid: content.cid,
-        title: content.title,
-        slug: content.slug,
-        type: content.type || 'post',
-        created: content.created || 0,
-        authorId: content.authorId,
-      },
-      request,
-    });
-    if (locals.cfContext?.waitUntil) {
-      locals.cfContext.waitUntil(notifyP);
-    }
+  // (e.g. email notifications); fire-and-forget via waitUntil.
+  const finishP = doHook(pluginCtx, 'feedback:finishComment', commentData, {
+    request,
+    options,
+    db,
+    siteUrl: (options.siteUrl as string) || '',
+    permalinkPattern: options.permalinkPattern as string | undefined,
+    pagePattern: options.pagePattern as string | undefined,
+  });
+  if (locals.cfContext?.waitUntil) {
+    locals.cfContext.waitUntil(finishP);
   }
 
   const contentUrl = buildPermalink(

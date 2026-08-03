@@ -4,7 +4,6 @@ import { schema } from '@/db';
 import { isAdminActionResponse, requireAdminAction } from '@/lib/admin-auth';
 import { getModeratableComment, purgeCommentModerationCache } from '@/lib/comment-moderation';
 import { getClientIp } from '@/lib/context';
-import { notifyOnComment } from '@/lib/comment-email';
 import { jsonError, jsonOk } from '@/lib/http';
 import { isValidEmail } from '@/lib/mail';
 import { renderCommentText, stripHtmlTags } from '@/lib/markdown';
@@ -56,7 +55,7 @@ export const GET: APIRoute = async ({ request }) => {
   return jsonOk({ comment: editableComment(comment, auth.options) });
 };
 
-export const POST: APIRoute = async ({ request, locals }) => {
+export const POST: APIRoute = async ({ request }) => {
   const auth = await requireAdminAction(request, 'contributor');
   if (isAdminActionResponse(auth)) return auth;
 
@@ -145,31 +144,17 @@ export const POST: APIRoute = async ({ request, locals }) => {
   if (!replyCoid) return jsonError(500, '回复评论失败');
 
   const savedReply = { ...reply, coid: replyCoid };
-  await doHook(auth.pluginCtx, 'feedback:reply', savedReply, parentComment);
-  await doHook(auth.pluginCtx, 'feedback:finishComment', savedReply);
-  await purgeCommentModerationCache(auth.db, auth.options, cid);
-
-  const notification = notifyOnComment({
-    pluginCtx: auth.pluginCtx,
-    db: auth.db,
-    options: auth.options,
-    siteUrl: auth.options.siteUrl || '',
-    permalinkPattern: auth.options.permalinkPattern,
-    pagePattern: auth.options.pagePattern,
-    comment: savedReply,
-    content: {
-      cid: content.cid,
-      title: content.title,
-      slug: content.slug,
-      type: content.type || 'post',
-      created: content.created || 0,
-      authorId: content.authorId,
-    },
+  const hookExtra = {
     request,
-  });
-  if (locals.cfContext?.waitUntil) {
-    locals.cfContext.waitUntil(notification);
-  }
+    options: auth.options,
+    db: auth.db,
+    siteUrl: (auth.options.siteUrl as string) || '',
+    permalinkPattern: auth.options.permalinkPattern as string | undefined,
+    pagePattern: auth.options.pagePattern as string | undefined,
+  };
+  await doHook(auth.pluginCtx, 'feedback:reply', savedReply, parentComment, hookExtra);
+  await doHook(auth.pluginCtx, 'feedback:finishComment', savedReply, hookExtra);
+  await purgeCommentModerationCache(auth.db, auth.options, cid);
 
   return jsonOk({ comment: editableComment(savedReply, auth.options) });
 };

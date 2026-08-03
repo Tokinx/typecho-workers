@@ -5,9 +5,10 @@
  * No built-in SMTP / API adapter is provided — actual delivery MUST be
  * handled by a plugin that registers a `mail:send` filter hook.
  *
- * Without an email plugin, sendMail() returns { sent: false } and all
- * email-dependent features (password reset, comment notifications) will
- * degrade gracefully.
+ * Enablement and sender-address decisions live inside the adapter plugin
+ * (e.g. typecho-plugin-mailer); without an email plugin, sendMail() returns
+ * { sent: false } and all email-dependent features (password reset,
+ * comment notifications) will degrade gracefully.
  */
 
 import { applyFilterUntil, type HookContext } from '@/lib/plugin';
@@ -50,18 +51,10 @@ export async function sendMail(
   payload: MailPayload,
   ctx: MailContext,
 ): Promise<MailResult> {
-  // Gate: must be explicitly enabled
-  if (!ctx.options.mailEnabled) {
-    return { sent: false, provider: 'disabled', error: 'mailEnabled=0' };
-  }
-
-  const from = ctx.options.mailFrom as string | undefined;
-  if (!from || !isValidEmail(from)) {
-    return { sent: false, provider: 'none', error: 'invalid-from' };
-  }
-
   // Try every registered mail:send handler (filter chain).
   // The first handler that returns `sent: true` wins.
+  // Gate decisions (enabled / sender address) are owned by the adapter
+  // plugin itself, not by global options.
   const result = await applyFilterUntil(
     pluginCtx,
     'mail:send',

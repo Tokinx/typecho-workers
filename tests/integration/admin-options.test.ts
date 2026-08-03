@@ -151,24 +151,17 @@ describe('POST /api/admin/options', () => {
     expect(await getOption(testDb, 'frontPage')).toBe('page:12');
   });
 
-  it('saves mail delivery and comment notification switches independently', async () => {
-    const mailOnly = await makeAdminRequest(
+  it('does not persist mail settings from the discussion page (owned by plugin)', async () => {
+    const req = await makeAdminRequest(
       testDb,
-      { mailEnabled: '1', mailFrom: 'blog@example.com', mailFromName: 'Blog' },
+      { mailEnabled: '1', mailFrom: 'blog@example.com', mailFromName: 'Blog', commentEmailEnabled: '1' },
       'https://example.com/admin/options-discussion',
     );
-    await POST({ request: mailOnly, locals: {} } as any);
-    expect(await getOption(testDb, 'mailEnabled')).toBe('1');
-    expect(await getOption(testDb, 'commentEmailEnabled')).toBe('0');
-
-    const notificationOnly = await makeAdminRequest(
-      testDb,
-      { commentEmailEnabled: '1' },
-      'https://example.com/admin/options-discussion',
-    );
-    await POST({ request: notificationOnly, locals: {} } as any);
-    expect(await getOption(testDb, 'mailEnabled')).toBe('0');
-    expect(await getOption(testDb, 'commentEmailEnabled')).toBe('1');
+    await POST({ request: req, locals: {} } as any);
+    expect(await getOption(testDb, 'mailEnabled')).toBe(null);
+    expect(await getOption(testDb, 'mailFrom')).toBe(null);
+    expect(await getOption(testDb, 'mailFromName')).toBe(null);
+    expect(await getOption(testDb, 'commentEmailEnabled')).toBe(null);
   });
 
   it('maps Typecho commentsRequireUrl to the application option key', async () => {

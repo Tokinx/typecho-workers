@@ -137,9 +137,6 @@ const defaultOptions: Partial<SiteOptions> = {
   loginFailBanMaxFailures: 5,
   loginFailBanSeconds: 900,
   feedItems: 10,
-  mailEnabled: 0,
-  commentEmailEnabled: 0,
-  commentEmailReplyEnabled: 1,
 };
 
 // Site options change rarely. Local writes invalidate this snapshot
@@ -259,8 +256,7 @@ async function loadOptionsFresh(db: Database): Promise<SiteOptions> {
     'gzip', 'cacheEnabled', 'cacheVersion',
     'loginFailBanEnabled', 'loginFailBanWindowSeconds',
     'loginFailBanMaxFailures', 'loginFailBanSeconds',
-    'feedItems', 'mailEnabled', 'commentEmailEnabled',
-    'commentEmailReplyEnabled',
+    'feedItems',
   ];
 
   for (const key of numericKeys) {

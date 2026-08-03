@@ -185,7 +185,7 @@ addHook('feedback:comment', pluginId, async (commentData: { _rejected?: string }
 | `page:finishSave` | 页面保存后 | `(page)` |
 | `page:delete` | 页面删除前 | `(page)` |
 | `page:finishDelete` | 页面删除后 | `(cid)` |
-| `feedback:finishComment` | 评论保存后 | `(comment)` |
+| `feedback:finishComment` | 评论保存后 | `(comment, extra)` |
 | `upload:beforeUpload` | 文件上传前 | `(file)` |
 | `upload:upload` | 文件上传后 | `(file)` |
 | `upload:delete` | 文件删除 | `(path)` |
@@ -208,8 +208,11 @@ addHook('feedback:comment', pluginId, async (commentData: { _rejected?: string }
 | `feed:item` | RSS/Atom 生成 | `(item, post)` | 过滤 feed 条目 |
 | `widget:sidebar` | 侧边栏渲染 | `(sidebarData, context)` | 过滤侧边栏数据 |
 | `plugin:config:beforeSave` | 插件配置保存前 | `(result, extra)` | 校验或规范化插件配置，返回 `{ success, settings?, error? }` |
+| `mail:send` | 邮件发送（适配器） | `(result, { payload, ctx })` | 首个返回 `sent: true` 的 handler 胜出；`ctx.reason` 区分 `password-reset` / `comment` / `comment-reply` / `test` |
 
 `applyFilter` 默认会传播插件异常。业务链路（保存内容、评论、登录、插件配置等）会因此中止并暴露错误。纯展示注入点可由系统使用 `applyFilterSafely` 包裹，单个插件失败时跳过该插件输出并继续渲染。
+
+> 部分 call hook（如 `feedback:finishComment`）在业务数据后追加 `extra` 对象：`{ request, options, db, siteUrl, permalinkPattern, pagePattern }`，供插件读取配置、查询数据库与构造链接。旧插件忽略多余参数，完全向后兼容。
 
 ---
 

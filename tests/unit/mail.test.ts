@@ -12,7 +12,7 @@ function makeCtx(overrides: Partial<Record<string, unknown>> = {}): { ctx: MailC
   return {
     pluginCtx: { activatedPlugins: new Set<string>() },
     ctx: {
-      options: { mailEnabled: true, mailFrom: 'blog@example.com', ...overrides },
+      options: { ...overrides },
       reason: 'test',
     },
   };
@@ -25,27 +25,8 @@ const payload: MailPayload = {
 };
 
 describe('sendMail', () => {
-  it('returns disabled when mailEnabled=0', async () => {
-    const { pluginCtx, ctx } = makeCtx({ mailEnabled: false });
-    const r = await sendMail(pluginCtx, payload, ctx);
-    expect(r.sent).toBe(false);
-    expect(r.error).toContain('mailEnabled');
-  });
-
-  it('returns invalid-from when from is missing', async () => {
-    const { pluginCtx, ctx } = makeCtx({ mailFrom: undefined });
-    const r = await sendMail(pluginCtx, payload, ctx);
-    expect(r.sent).toBe(false);
-    expect(r.error).toContain('from');
-  });
-
-  it('returns invalid-from when from is not an email', async () => {
-    const { pluginCtx, ctx } = makeCtx({ mailFrom: 'not-an-email' });
-    const r = await sendMail(pluginCtx, payload, ctx);
-    expect(r.sent).toBe(false);
-    expect(r.error).toContain('from');
-  });
-
+  // Enablement and sender-address gates are owned by the adapter plugin —
+  // sendMail() itself delegates unconditionally and degrades gracefully.
   it('returns no-adapter when no plugin handles mail:send', async () => {
     const { pluginCtx, ctx } = makeCtx();
     vi.mocked(applyFilterUntil).mockResolvedValue(null);

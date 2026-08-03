@@ -46,7 +46,7 @@ describe('Typecho 1.3 settings option layout', () => {
 
   it('keeps discussion groups as independent Form elements without nested lists', () => {
     const source = readPage('options-discussion');
-    expect(optionBlocks(source)).toHaveLength(11);
+    expect(optionBlocks(source)).toHaveLength(6);
     expect(source).not.toContain('<ul class="typecho-option">');
     expect(source).not.toContain('<ul>\n            <li>');
     expect(source).toContain('typecho-option-item-commentDateFormat-0');
@@ -59,10 +59,14 @@ describe('Typecho 1.3 settings option layout', () => {
     expect(source).toContain('<span class="multiline">将');
     expect(source).toContain('commentsPost-commentsRequireUrl" name="commentsRequireUrl"');
     expect(source).toContain('commentsPost-commentsPostTimeout" name="commentsPostTimeout" class="text num text-s"');
-    expect(source).toContain('name="mailEnabled"');
-    expect(source).toContain('name="commentEmailEnabled"');
-    expect(source).toContain('style={Number(options.mailEnabled) !== 1');
-    expect(source).toContain('data-mail-settings="true"');
+    // Mail settings moved to the typecho-plugin-mailer plugin — the discussion
+    // page no longer carries mail toggles or sender fields.
+    expect(source).not.toContain('name="mailEnabled"');
+    expect(source).not.toContain('name="mailFrom"');
+    expect(source).not.toContain('name="mailFromName"');
+    expect(source).not.toContain('name="commentEmailEnabled"');
+    expect(source).not.toContain('name="commentEmailReplyEnabled"');
+    expect(source).not.toContain('data-mail-settings="true"');
     expect(source).toContain('typecho-option-item-submit-10');
   });
 
