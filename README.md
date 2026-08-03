@@ -87,9 +87,8 @@ pnpm run deploy
 | `pnpm exec tsc --noEmit` | TypeScript 类型检查 |
 | `pnpm run db:generate` | 生成 Drizzle 数据库迁移 |
 | `pnpm run db:studio` | 启动 Drizzle Studio |
-| `pnpm run db:migrate:local` | 迁移 PHP Typecho 数据到本地 |
-| `pnpm run db:migrate:cloudflare` | 迁移 PHP Typecho 数据到 Cloudflare D1 |
-| `pnpm run db:migrate:dry-run` | 预览迁移（不写入） |
+| `pnpm run db:migrate:typecho` | 从 Typecho SQLite 迁移数据 |
+| `pnpm run db:migrate:wordpress` | 从 WordPress WXR XML 迁移数据 |
 | `pnpm run reset-password` | 重置用户密码（本地） |
 | `pnpm run reset-password:cloudflare` | 重置用户密码（Cloudflare） |
 
@@ -101,17 +100,21 @@ pnpm run deploy
 
 ```bash
 # 迁移到 Cloudflare（生产环境）
-pnpm run db:migrate:cloudflare \
+pnpm run db:migrate:typecho -- \
+  --target cloudflare \
   --source /path/to/typecho.db \
   --uploads /path/to/usr/uploads
 
 # 迁移到本地（开发调试）
-pnpm run db:migrate:local \
+pnpm run db:migrate:typecho -- \
+  --target local \
   --source /path/to/typecho.db \
   --uploads /path/to/usr/uploads
 
 # 预览模式（不写入任何数据）
-pnpm run db:migrate:dry-run \
+pnpm run db:migrate:typecho -- \
+  --target local \
+  --dry-run \
   --source /path/to/typecho.db \
   --uploads /path/to/usr/uploads
 ```
@@ -123,6 +126,7 @@ pnpm run db:migrate:dry-run \
 | `--source`, `-s` | 源 SQLite 数据库路径 | （必填） |
 | `--uploads`, `-u` | 源 `usr/uploads/` 目录 | （必填） |
 | `--prefix` | 源表前缀 | `typecho_` |
+| `--target`, `-t` | 迁移目标：`local` 或 `cloudflare` | `local` |
 | `--dry-run`, `-n` | 预览模式 | `false` |
 | `--site-url` | 新站点 URL（用于重写附件 URL） | — |
 | `--d1-name` | D1 数据库名 | `typecho-cf-db` |
@@ -139,6 +143,53 @@ pnpm run reset-password
 # Cloudflare
 pnpm run reset-password:cloudflare
 ```
+
+## 从 WordPress 迁移
+
+### 迁移步骤
+
+```bash
+# 迁移到 Cloudflare（生产环境），并下载正文引用的媒体到 R2
+pnpm run db:migrate:wordpress -- \
+  --target cloudflare \
+  --source WordPress.2026-07-29.xml \
+  --author-id 1 \
+  --site-url https://blog.example.com \
+  --download-media
+
+# 迁移到本地（开发调试）
+pnpm run db:migrate:wordpress -- \
+  --target local \
+  --source WordPress.2026-07-29.xml \
+  --author-id 1
+
+# 预览模式（不写入任何数据）
+pnpm run db:migrate:wordpress -- \
+  --dry-run \
+  --source WordPress.2026-07-29.xml \
+  --author-id 1
+```
+
+### 迁移参数
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--source`, `-s` | WordPress WXR XML 文件 | （必填） |
+| `--target`, `-t` | 迁移目标：`local` 或 `cloudflare` | `local` |
+| `--author-id` | 目标站中接收导入内容的现有用户 ID | `1` |
+| `--site-url` | 新站点 URL；下载媒体时必填 | — |
+| `--download-media` | 下载正文引用的媒体到 R2 并重写 URL | `false` |
+| `--media-concurrency` | 媒体传输并发数（1-16） | `4` |
+| `--max-media-mb` | 单个媒体文件的最大大小（MB） | `50` |
+| `--skip-attachments` | 不创建附件内容记录 | `false` |
+| `--override` | 覆盖现有内容与评论，并保留 WordPress ID | `false` |
+| `--dry-run`, `-n` | 预览模式 | `false` |
+| `--d1-name` | D1 数据库名 | `typecho-db` |
+| `--r2-bucket` | R2 存储桶名 | `typecho-uploads` |
+| `--output-sql` | 同时写出生成的 SQL 文件 | — |
+
+执行前请备份目标 D1。`--override true` 会清空内容（含附件）、评论、字段和关系，
+并以原始 `post_id` / `comment_id` 写入内容和评论；用户、站点设置、分类、标签与 R2 对象会保留。
 
 ---
 

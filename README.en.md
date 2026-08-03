@@ -87,9 +87,8 @@ After deployment, visit your Worker URL — first visit auto-redirects to the in
 | `pnpm exec tsc --noEmit` | TypeScript type check |
 | `pnpm run db:generate` | Generate Drizzle migrations |
 | `pnpm run db:studio` | Launch Drizzle Studio |
-| `pnpm run db:migrate:local` | Migrate PHP Typecho data to local |
-| `pnpm run db:migrate:cloudflare` | Migrate PHP Typecho data to Cloudflare D1 |
-| `pnpm run db:migrate:dry-run` | Preview migration (no writes) |
+| `pnpm run db:migrate:typecho` | Migrate PHP Typecho data; select target and preview mode with options |
+| `pnpm run db:migrate:wordpress` | Migrate WordPress WXR XML data |
 | `pnpm run reset-password` | Reset user password (local) |
 | `pnpm run reset-password:cloudflare` | Reset user password (Cloudflare) |
 
@@ -101,17 +100,21 @@ After deployment, visit your Worker URL — first visit auto-redirects to the in
 
 ```bash
 # Migrate to Cloudflare (production)
-pnpm run db:migrate:cloudflare \
+pnpm run db:migrate:typecho -- \
+  --target cloudflare \
   --source /path/to/typecho.db \
   --uploads /path/to/usr/uploads
 
 # Migrate to local (development)
-pnpm run db:migrate:local \
+pnpm run db:migrate:typecho -- \
+  --target local \
   --source /path/to/typecho.db \
   --uploads /path/to/usr/uploads
 
 # Preview mode (no data written)
-pnpm run db:migrate:dry-run \
+pnpm run db:migrate:typecho -- \
+  --target local \
+  --dry-run \
   --source /path/to/typecho.db \
   --uploads /path/to/usr/uploads
 ```
@@ -123,6 +126,7 @@ pnpm run db:migrate:dry-run \
 | `--source`, `-s` | Source SQLite database path | (required) |
 | `--uploads`, `-u` | Source `usr/uploads/` directory | (required) |
 | `--prefix` | Source table prefix | `typecho_` |
+| `--target`, `-t` | Migration target: `local` or `cloudflare` | `local` |
 | `--dry-run`, `-n` | Preview mode | `false` |
 | `--site-url` | New site URL (for rewriting attachment URLs) | — |
 | `--d1-name` | D1 database name | `typecho-cf-db` |
@@ -139,6 +143,54 @@ pnpm run reset-password
 # Cloudflare
 pnpm run reset-password:cloudflare
 ```
+
+## Migrating from WordPress
+
+### Migration Steps
+
+```bash
+# Migrate to Cloudflare (production) and download referenced media to R2
+pnpm run db:migrate:wordpress -- \
+  --target cloudflare \
+  --source WordPress.2026-07-29.xml \
+  --author-id 1 \
+  --site-url https://blog.example.com \
+  --download-media
+
+# Migrate to local (development)
+pnpm run db:migrate:wordpress -- \
+  --target local \
+  --source WordPress.2026-07-29.xml \
+  --author-id 1
+
+# Preview mode (no data written)
+pnpm run db:migrate:wordpress -- \
+  --dry-run \
+  --source WordPress.2026-07-29.xml \
+  --author-id 1
+```
+
+### Migration Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--source`, `-s` | WordPress WXR XML file | (required) |
+| `--target`, `-t` | Migration target: `local` or `cloudflare` | `local` |
+| `--author-id` | Existing target user ID that owns imported content | `1` |
+| `--site-url` | New site URL; required when downloading media | — |
+| `--download-media` | Download referenced media to R2 and rewrite URLs | `false` |
+| `--media-concurrency` | Concurrent media transfers (1-16) | `4` |
+| `--max-media-mb` | Maximum size per media file in MB | `50` |
+| `--skip-attachments` | Do not create attachment content records | `false` |
+| `--override` | Replace existing content/comments and preserve WordPress IDs | `false` |
+| `--dry-run`, `-n` | Preview mode | `false` |
+| `--d1-name` | D1 database name | `typecho-db` |
+| `--r2-bucket` | R2 bucket name | `typecho-uploads` |
+| `--output-sql` | Also write the generated SQL to a file | — |
+
+Back up the target D1 database first. `--override true` clears content (including
+attachments), comments, fields, and relationships, then writes the original
+`post_id` / `comment_id`; users, site settings, categories, tags, and R2 objects remain.
 
 ---
 
