@@ -192,10 +192,41 @@ const adminFooterHtml = await applyFilterSafely(_pluginCtx, 'admin:footer', '', 
           });
         });
 
+        function selectionScope(input) {
+          return $(input).closest('.typecho-list, form.operate-form');
+        }
+
+        function syncSelectAll(scope) {
+          var checkboxes = $('form.operate-form .typecho-list-table tbody input[type=checkbox]', scope);
+          var allChecked = checkboxes.length > 0 && checkboxes.filter(':checked').length === checkboxes.length;
+          $('.typecho-table-select-all', scope).prop('checked', allChecked);
+        }
+
+        // Typecho 1.3 tableSelectable: rows toggle their checkbox unless the
+        // click targets an interactive control.
+        $('.typecho-list-table tbody').on('click', 'tr', function (event) {
+          var target = $(event.target);
+          if (target.closest('input, textarea, select, a, button, i, label').length) return;
+
+          var checkbox = $(this).find('input[type=checkbox]').first();
+          if (!checkbox.length) return;
+          checkbox.prop('checked', !checkbox.prop('checked')).trigger('change');
+        }).on('change', 'input[type=checkbox]', function () {
+          var checkbox = $(this);
+          checkbox.closest('tr').toggleClass('checked', this.checked);
+          syncSelectAll(selectionScope(this));
+        });
+
+        $('.typecho-list-table tbody input[type=checkbox]').each(function () {
+          $(this).closest('tr').toggleClass('checked', this.checked);
+        });
+
         // 表格全选 - 在 .typecho-list 范围内查找所有 checkbox
-        $('.typecho-table-select-all').click(function () {
-          var scope = $(this).closest('.typecho-list, form.operate-form');
-          $('input[type=checkbox]', scope).prop('checked', this.checked);
+        $('.typecho-table-select-all').on('change', function () {
+          var scope = selectionScope(this);
+          $('form.operate-form .typecho-list-table tbody input[type=checkbox]', scope)
+            .prop('checked', this.checked)
+            .trigger('change');
         });
 
         // 下拉菜单显示/隐藏

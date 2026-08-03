@@ -6,6 +6,7 @@ import { buildGravatarUrl } from '@/lib/gravatar';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { schema } from '@/db';
 import { formatDate } from '@/lib/content';
+import { renderCommentText } from '@/lib/markdown';
 
 const ctx = await createContext(Astro.locals, Astro.request);
 // Comment moderation page exposes commenter mail + IP — gate behind
@@ -15,32 +16,61 @@ const authCheck = requirePermission(ctx, 'contributor');
 if (authCheck) return authCheck;
 
 const { db, options, urls, user, csrfToken } = ctx;
-const isAdmin = hasPermission(user!.group || 'visitor', 'administrator');
 const isEditor = hasPermission(user!.group || 'visitor', 'editor');
 
 const avatarRating = options.commentsAvatarRating || 'G';
 
 const page = parseInt(Astro.url.searchParams.get('page') || '1', 10) || 1;
-const status = Astro.url.searchParams.get('status') || 'approved';
+const requestedStatus = Astro.url.searchParams.get('status') || 'approved';
+const status = ['approved', 'waiting', 'spam'].includes(requestedStatus) ? requestedStatus : 'approved';
 const keywords = Astro.url.searchParams.get('keywords') || '';
-const cid = Astro.url.searchParams.get('cid') || '';
+const requestedCid = Number.parseInt(Astro.url.searchParams.get('cid') || '', 10);
+const cid = Number.isSafeInteger(requestedCid) && requestedCid > 0 ? String(requestedCid) : '';
 const pageSize = 20;
+const requestedScope = Astro.url.searchParams.get('scope');
+const showAllComments = isEditor && !cid && requestedScope === 'all';
+const scopeCondition = showAllComments ? undefined : eq(schema.contents.authorId, user!.uid);
+const cidCondition = cid ? eq(schema.comments.cid, Number(cid)) : undefined;
 
 const conditions: any[] = [eq(schema.comments.status, status)];
-if (!isAdmin) {
-  conditions.push(eq(schema.comments.ownerId, user!.uid));
-}
+if (scopeCondition) conditions.push(scopeCondition);
 if (keywords) {
   conditions.push(sql`${schema.comments.text} LIKE ${'%' + keywords + '%'}`);
 }
-if (cid) {
-  conditions.push(eq(schema.comments.cid, parseInt(cid, 10)));
-}
+if (cidCondition) conditions.push(cidCondition);
 
 const where = and(...conditions);
+const countWhere = (commentStatus: string) => and(
+  eq(schema.comments.status, commentStatus),
+  ...(scopeCondition ? [scopeCondition] : []),
+  ...(cidCondition ? [cidCondition] : []),
+);
 
-const [countResult, commentsList, approvedCount, waitingCount, spamCount] = await db.batch([
-  db.select({ count: sql<number>`count(*)` }).from(schema.comments).where(where),
+function commentsUrl(overrides: {
+  status?: string;
+  page?: number;
+  keywords?: string;
+  scope?: 'all' | 'mine';
+} = {}): string {
+  const params = new URLSearchParams();
+  const nextStatus = overrides.status ?? status;
+  const nextKeywords = overrides.keywords ?? keywords;
+  const nextScope = overrides.scope ?? (showAllComments ? 'all' : 'mine');
+
+  if (nextStatus !== 'approved') params.set('status', nextStatus);
+  if (cid) params.set('cid', cid);
+  if (nextScope === 'all' && !cid) params.set('scope', 'all');
+  if (nextKeywords) params.set('keywords', nextKeywords);
+  if (overrides.page && overrides.page > 1) params.set('page', String(overrides.page));
+
+  const query = params.toString();
+  return `/admin/manage-comments${query ? `?${query}` : ''}`;
+}
+
+const [countResult, commentsList, waitingCount, spamCount] = await db.batch([
+  db.select({ count: sql<number>`count(*)` }).from(schema.comments)
+    .innerJoin(schema.contents, eq(schema.comments.cid, schema.contents.cid))
+    .where(where),
   // G4-4: only fetch a 500-char preview of comment.text — the table only
   // renders the first 200 chars and full bodies make every page render
   // pull megabytes of payload from D1 on busy sites.
@@ -48,35 +78,29 @@ const [countResult, commentsList, approvedCount, waitingCount, spamCount] = awai
     coid: schema.comments.coid,
     cid: schema.comments.cid,
     author: schema.comments.author,
-    authorId: schema.comments.authorId,
-    ownerId: schema.comments.ownerId,
     mail: schema.comments.mail,
     url: schema.comments.url,
     ip: schema.comments.ip,
-    agent: schema.comments.agent,
     text: sql<string>`substr(${schema.comments.text}, 1, 500)`,
     type: schema.comments.type,
     status: schema.comments.status,
-    parent: schema.comments.parent,
     created: schema.comments.created,
     contentTitle: schema.contents.title,
   }).from(schema.comments)
-    .leftJoin(schema.contents, eq(schema.comments.cid, schema.contents.cid))
+    .innerJoin(schema.contents, eq(schema.comments.cid, schema.contents.cid))
     .where(where)
     .orderBy(desc(schema.comments.created))
     .limit(pageSize)
     .offset((page - 1) * pageSize),
   db.select({ count: sql<number>`count(*)` }).from(schema.comments)
-    .where(eq(schema.comments.status, 'approved')),
+    .innerJoin(schema.contents, eq(schema.comments.cid, schema.contents.cid))
+    .where(countWhere('waiting')),
   db.select({ count: sql<number>`count(*)` }).from(schema.comments)
-    .where(eq(schema.comments.status, 'waiting')),
-  db.select({ count: sql<number>`count(*)` }).from(schema.comments)
-    .where(eq(schema.comments.status, 'spam')),
+    .innerJoin(schema.contents, eq(schema.comments.cid, schema.contents.cid))
+    .where(countWhere('spam')),
 ]);
 const totalComments = countResult[0]?.count || 0;
 const totalPages = Math.max(1, Math.ceil(totalComments / pageSize));
-
-const titleMap = new Map(commentsList.map(c => [c.cid, c.contentTitle]));
 
 // Pre-compute Gravatar URLs for all comments
 const avatarMap = new Map<number, string>();
@@ -89,29 +113,42 @@ const avatarEntries = await Promise.all(commentsList.map(async c => [
   }),
 ] as const));
 for (const [coid, avatar] of avatarEntries) avatarMap.set(coid, avatar);
+
+const commentHtml = new Map(commentsList.map(comment => [
+  comment.coid,
+  renderCommentText(comment.text || '', {
+    markdown: !!options.commentsMarkdown,
+    htmlTagAllowed: options.commentsHTMLTagAllowed,
+  }),
+]));
 ---
 <Admin title="管理评论" options={options} urls={urls} user={user} activeMenu="manage-comments" pluginCtx={ctx}>
   <div class="col-mb-12 typecho-list">
-    <div class="clearfix">
+    <div class="typecho-list-operate">
       <ul class="typecho-option-tabs">
         <li class:list={[{ current: status === 'approved' }]}>
-          <a href={`/admin/manage-comments${cid ? '?cid=' + cid : ''}`}>已通过</a>
+          <a href={commentsUrl({ status: 'approved', keywords: '' })}>已通过</a>
         </li>
         <li class:list={[{ current: status === 'waiting' }]}>
-          <a href={`/admin/manage-comments?status=waiting${cid ? '&cid=' + cid : ''}`}>待审核
+          <a href={commentsUrl({ status: 'waiting', keywords: '' })}>待审核
             {(waitingCount[0]?.count || 0) > 0 && <span class="balloon">{waitingCount[0]?.count}</span>}
           </a>
         </li>
         <li class:list={[{ current: status === 'spam' }]}>
-          <a href={`/admin/manage-comments?status=spam${cid ? '&cid=' + cid : ''}`}>垃圾
+          <a href={commentsUrl({ status: 'spam', keywords: '' })}>垃圾
             {(spamCount[0]?.count || 0) > 0 && <span class="balloon">{spamCount[0]?.count}</span>}
           </a>
         </li>
       </ul>
+      {isEditor && !cid && (
+        <ul class="typecho-option-tabs">
+          <li class:list={[{ current: showAllComments }]}><a href={commentsUrl({ scope: 'all' })}>所有</a></li>
+          <li class:list={[{ current: !showAllComments }]}><a href={commentsUrl({ scope: 'mine' })}>我的</a></li>
+        </ul>
+      )}
     </div>
 
-    <div class="typecho-list-operate clearfix">
-      <form method="get">
+    <form method="get" class="typecho-list-operate">
         <div class="operate">
           <label><i class="sr-only">全选</i><input type="checkbox" class="typecho-table-select-all" /></label>
           <div class="btn-group btn-drop">
@@ -132,23 +169,22 @@ for (const [coid, avatar] of avatarEntries) avatarMap.set(coid, avatar);
         </div>
         <div class="search" role="search">
           {keywords && (
-            <a href={`/admin/manage-comments${status !== 'approved' ? '?status=' + status : ''}${cid ? (status !== 'approved' ? '&' : '?') + 'cid=' + cid : ''}`}>&laquo; 取消筛选</a>
+            <a href={commentsUrl({ keywords: '' })}>&laquo; 取消筛选</a>
           )}
           <input type="text" class="text-s" placeholder="请输入关键字" value={keywords} name="keywords" />
           {status !== 'approved' && <input type="hidden" value={status} name="status" />}
           {cid && <input type="hidden" value={cid} name="cid" />}
+          {showAllComments && <input type="hidden" value="all" name="scope" />}
           <button type="submit" class="btn btn-s">筛选</button>
         </div>
-      </form>
-    </div>
+    </form>
 
     <form method="post" name="manage_comments" class="operate-form">
       <input type="hidden" name="_" value={csrfToken} />
-      <div class="typecho-table-wrap">
-        <table class="typecho-list-table">
+      <table class="typecho-list-table">
           <colgroup>
             <col width="3%" class="kit-hidden-mb" />
-            <col width="6%" class="kit-hidden-mb" />
+            <col width="6%" class="kit-hidden" />
             <col width="20%" />
             <col width="71%" />
           </colgroup>
@@ -163,17 +199,20 @@ for (const [coid, avatar] of avatarEntries) avatarMap.set(coid, avatar);
           <tbody>
             {commentsList.length === 0 ? (
               <tr>
-                <td colspan="4"><h6 class="typecho-list-table-title">没有评论</h6></td>
+                <td colspan="4" class="none">没有评论</td>
               </tr>
             ) : (
               commentsList.map((comment) => (
-                <tr id={`comment-${comment.coid}`}>
+                <tr id={`comment-${comment.coid}`} data-comment-id={String(comment.coid)} data-comment-ip={comment.ip || ''}>
                   <td valign="top" class="kit-hidden-mb">
                     <input type="checkbox" value={String(comment.coid)} name="coid[]" />
                   </td>
-                  <td valign="top" class="kit-hidden-mb">
+                  <td valign="top" class="kit-hidden">
                     <div class="comment-avatar">
-                      <img src={avatarMap.get(comment.coid) || ''} alt="" width="40" height="40" style="border-radius:50%;" />
+                      {comment.type === 'comment'
+                        ? <img src={avatarMap.get(comment.coid) || ''} alt="" width="40" height="40" style="border-radius:50%;" />
+                        : '引用'
+                      }
                     </div>
                   </td>
                   <td valign="top" class="comment-head">
@@ -191,11 +230,9 @@ for (const [coid, avatar] of avatarEntries) avatarMap.set(coid, avatar);
                   <td valign="top" class="comment-body">
                     <div class="comment-date">
                       {formatDate(comment.created || 0, 'Y-m-d H:i', options.timezone)} 于
-                      <a href={`/archives/${comment.cid}/`}>{titleMap.get(comment.cid) || `文章 #${comment.cid}`}</a>
+                      <a href={`/archives/${comment.cid}/`}>{comment.contentTitle || `文章 #${comment.cid}`}</a>
                     </div>
-                    <div class="comment-content">
-                      {(comment.text || '').substring(0, 200)}
-                    </div>
+                    <div class="comment-content" set:html={commentHtml.get(comment.coid) || ''}></div>
                     <div class="comment-action hidden-by-mouse">
                       {status === 'approved'
                         ? <span class="weak">通过</span>
@@ -212,6 +249,12 @@ for (const [coid, avatar] of avatarEntries) avatarMap.set(coid, avatar);
                         : <button type="submit" formaction={`/api/admin/comment-action?action=spam&coid=${comment.coid}`} formmethod="post" class="operate-spam">垃圾</button>
                       }
 
+                      <button type="button" class="operate-edit" data-coid={String(comment.coid)}>编辑</button>
+
+                      {comment.status === 'approved' && comment.type === 'comment' && (
+                        <button type="button" class="operate-reply" data-coid={String(comment.coid)}>回复</button>
+                      )}
+
                       <button type="submit" formaction={`/api/admin/comment-action?action=delete&coid=${comment.coid}`} formmethod="post"
                         class="operate-delete"
                         onclick={`return confirm('你确认要删除${(comment.author || '匿名').replace(/'/g, "\\'")}的评论吗?')`}>删除</button>
@@ -221,13 +264,11 @@ for (const [coid, avatar] of avatarEntries) avatarMap.set(coid, avatar);
               ))
             )}
           </tbody>
-        </table>
-      </div>
+      </table>
     </form>
 
-    <div class="typecho-list-operate clearfix">
-      <div class="operate-toolbar">
-        <div class="operate">
+    <form method="get" class="typecho-list-operate">
+      <div class="operate">
           <label><i class="sr-only">全选</i><input type="checkbox" class="typecho-table-select-all" /></label>
           <div class="btn-group btn-drop">
             <button class="btn dropdown-toggle btn-s" type="button"><i class="sr-only">操作</i>选中项 <i class="i-caret-down"></i></button>
@@ -242,12 +283,278 @@ for (const [coid, avatar] of avatarEntries) avatarMap.set(coid, avatar);
 
         {totalPages > 1 && (
           <ul class="typecho-pager">
-            {page > 1 && <li><a href={`/admin/manage-comments?page=${page - 1}&status=${status}${cid ? '&cid=' + cid : ''}`}>&laquo;</a></li>}
+            {page > 1 && <li><a href={commentsUrl({ page: page - 1 })}>&laquo;</a></li>}
             <li class="current"><a href="#">{page} / {totalPages}</a></li>
-            {page < totalPages && <li><a href={`/admin/manage-comments?page=${page + 1}&status=${status}${cid ? '&cid=' + cid : ''}`}>&raquo;</a></li>}
+            {page < totalPages && <li><a href={commentsUrl({ page: page + 1 })}>&raquo;</a></li>}
           </ul>
         )}
-      </div>
-    </div>
+    </form>
   </div>
+
+  <script slot="footer" define:vars={{ csrfToken: csrfToken || '' }}>
+    (function () {
+      var endpoint = '/api/admin/comment-edit';
+      var editRequestId = 0;
+
+      function requestError(response, body) {
+        if (body && typeof body.error === 'string') return body.error;
+        return response.status === 403 ? '你没有权限操作这条评论' : '评论操作失败';
+      }
+
+      async function requestJson(url, init) {
+        var response = await fetch(url, init);
+        var body = null;
+        try {
+          body = await response.json();
+        } catch (_) {
+          // Authorization failures may be plain-text responses from the shared guard.
+        }
+        if (!response.ok) throw new Error(requestError(response, body));
+        return body;
+      }
+
+      async function loadComment(coid) {
+        return requestJson(endpoint + '?coid=' + encodeURIComponent(coid), {
+          credentials: 'same-origin',
+          headers: { Accept: 'application/json' },
+        });
+      }
+
+      async function saveComment(action, coid, values) {
+        var data = new FormData();
+        data.set('action', action);
+        data.set('coid', coid);
+        Object.keys(values).forEach(function (key) {
+          data.set(key, values[key]);
+        });
+        return requestJson(endpoint, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            Accept: 'application/json',
+            'X-CSRF-Token': csrfToken,
+          },
+          body: data,
+        });
+      }
+
+      function makeElement(tag, className, text) {
+        var element = document.createElement(tag);
+        if (className) element.className = className;
+        if (text !== undefined) element.textContent = text;
+        return element;
+      }
+
+      function appendInput(container, labelText, name, value, id, multiline) {
+        var paragraph = makeElement('p');
+        var label = makeElement('label', '', labelText);
+        label.htmlFor = id;
+        var input = document.createElement(multiline ? 'textarea' : 'input');
+        input.id = id;
+        input.name = name;
+        input.className = multiline ? 'w-90 mono' : 'text-s w-100';
+        if (multiline) {
+          input.rows = 6;
+          input.value = value || '';
+        } else {
+          input.type = name === 'mail' ? 'email' : 'text';
+          input.value = value || '';
+        }
+        paragraph.append(label, input);
+        container.appendChild(paragraph);
+        return input;
+      }
+
+      function appendMessage(container, message) {
+        var previous = container.querySelector('.message.error');
+        if (previous) previous.remove();
+        var error = makeElement('p', 'message error', message);
+        container.prepend(error);
+      }
+
+      function appendButtons(container, submitText, onSubmit, onCancel) {
+        var paragraph = makeElement('p');
+        var submit = makeElement('button', 'btn btn-s primary', submitText);
+        submit.type = 'button';
+        submit.addEventListener('click', async function () {
+          submit.disabled = true;
+          try {
+            await onSubmit();
+          } catch (error) {
+            appendMessage(container, error instanceof Error ? error.message : '评论操作失败');
+            submit.disabled = false;
+          }
+        });
+        var cancel = makeElement('button', 'btn btn-s cancel', '取消');
+        cancel.type = 'button';
+        cancel.addEventListener('click', onCancel);
+        paragraph.append(submit, document.createTextNode(' '), cancel);
+        container.appendChild(paragraph);
+      }
+
+      function restoreOriginal(row) {
+        var id = row.getAttribute('data-id');
+        if (!id) return;
+        var original = document.getElementById(id);
+        if (original) original.hidden = false;
+      }
+
+      function clearInlineEditors() {
+        editRequestId += 1;
+        document.querySelectorAll('.comment-edit, .comment-reply').forEach(function (editor) {
+          if (editor.classList.contains('comment-edit')) restoreOriginal(editor);
+          editor.remove();
+        });
+      }
+
+      function updateCommentMeta(row, comment) {
+        var meta = row.querySelector('.comment-meta');
+        if (!meta) return;
+        var author = comment.author || '匿名';
+        var strong = makeElement('strong', 'comment-author');
+        if (comment.url) {
+          var link = makeElement('a', '', author);
+          link.href = comment.url;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          strong.appendChild(link);
+        } else {
+          strong.textContent = author;
+        }
+        meta.replaceChildren(strong);
+
+        if (comment.mail) {
+          var mailLine = makeElement('span');
+          var mailLink = makeElement('a', '', comment.mail);
+          mailLink.href = 'mailto:' + comment.mail;
+          mailLine.appendChild(mailLink);
+          meta.append(document.createElement('br'), mailLine);
+        }
+        var ip = row.getAttribute('data-comment-ip');
+        if (ip) {
+          meta.append(document.createElement('br'), makeElement('span', '', ip));
+        }
+      }
+
+      function updateCommentText(row, comment) {
+        var content = row.querySelector('.comment-content');
+        if (content) content.innerHTML = comment.html || '';
+      }
+
+      function appendReply(row, comment) {
+        var body = row.querySelector('.comment-body');
+        var actions = row.querySelector('.comment-action');
+        if (!body || !actions) return;
+        var reply = makeElement('div', 'comment-reply-content');
+        reply.innerHTML = comment.html || '';
+        body.insertBefore(reply, actions);
+      }
+
+      async function openEdit(button) {
+        var coid = button.getAttribute('data-coid');
+        var row = button.closest('tr[data-comment-id]');
+        if (!coid || !row) return;
+        clearInlineEditors();
+        var requestId = editRequestId;
+        button.disabled = true;
+        button.setAttribute('aria-busy', 'true');
+
+        var loaded;
+        try {
+          loaded = await loadComment(coid);
+        } catch (error) {
+          window.alert(error instanceof Error ? error.message : '获取评论失败');
+          return;
+        } finally {
+          button.disabled = false;
+          button.removeAttribute('aria-busy');
+        }
+        if (requestId !== editRequestId) return;
+
+        var comment = loaded.comment;
+        var edit = document.createElement('tr');
+        edit.className = 'comment-edit';
+        edit.setAttribute('data-id', row.id);
+
+        edit.appendChild(makeElement('td', '', ' '));
+        var info = document.createElement('td');
+        info.colSpan = 2;
+        info.vAlign = 'top';
+        var content = document.createElement('td');
+        content.vAlign = 'top';
+        var prefix = 'comment-' + coid + '-edit';
+        var infoForm = document.createElement('form');
+        infoForm.method = 'post';
+        infoForm.className = 'comment-edit-info';
+        var contentForm = document.createElement('form');
+        contentForm.method = 'post';
+        contentForm.className = 'comment-edit-content';
+        info.appendChild(infoForm);
+        content.appendChild(contentForm);
+        var author = appendInput(infoForm, '用户名', 'author', comment.author, prefix + '-author', false);
+        var mail = appendInput(infoForm, '电子邮箱', 'mail', comment.mail, prefix + '-mail', false);
+        var url = appendInput(infoForm, '个人主页', 'url', comment.url, prefix + '-url', false);
+        var text = appendInput(contentForm, '内容', 'text', comment.text, prefix + '-text', true);
+        appendButtons(contentForm, '提交', async function () {
+          var saved = await saveComment('edit', coid, {
+            author: author.value,
+            mail: mail.value,
+            url: url.value,
+            text: text.value,
+          });
+          updateCommentMeta(row, saved.comment);
+          updateCommentText(row, saved.comment);
+          row.hidden = false;
+          edit.remove();
+        }, function () {
+          row.hidden = false;
+          edit.remove();
+        });
+        edit.append(info, content);
+        row.hidden = true;
+        row.insertAdjacentElement('afterend', edit);
+        text.focus();
+      }
+
+      function openReply(button) {
+        var coid = button.getAttribute('data-coid');
+        var row = button.closest('tr[data-comment-id]');
+        if (!coid || !row) return;
+        clearInlineEditors();
+        var body = row.querySelector('.comment-body');
+        var actions = row.querySelector('.comment-action');
+        if (!body || !actions) return;
+
+        var reply = makeElement('div', 'comment-reply');
+        var text = appendInput(reply, '内容', 'text', '', 'comment-' + coid + '-reply-text', true);
+        text.rows = 3;
+        text.previousElementSibling.className = 'sr-only';
+        appendButtons(reply, '回复', async function () {
+          var saved = await saveComment('reply', coid, { text: text.value });
+          appendReply(row, saved.comment);
+          reply.remove();
+        }, function () {
+          reply.remove();
+        });
+        body.insertBefore(reply, actions);
+        text.focus();
+      }
+
+      document.addEventListener('click', function (event) {
+        var target = event.target;
+        if (!(target instanceof Element)) return;
+        var edit = target.closest('.operate-edit');
+        if (edit) {
+          event.preventDefault();
+          void openEdit(edit);
+          return;
+        }
+        var reply = target.closest('.operate-reply');
+        if (reply) {
+          event.preventDefault();
+          openReply(reply);
+        }
+      });
+    })();
+  </script>
 </Admin>
