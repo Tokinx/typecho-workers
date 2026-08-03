@@ -70,6 +70,15 @@ describe('Typecho 1.3 page editor layout', () => {
     expect(source).toContain("textarea.css('opacity', 1)");
   });
 
+  it('sends the CSRF header with attachment upload and deletion requests', () => {
+    const attachmentSection = source.slice(source.indexOf('// ========== 文件上传 =========='));
+    const csrfHeader = "headers: { 'X-CSRF-Token': String($('form[name=\"write_page\"] input[name=\"_\"]').val() || '') },";
+
+    expect(attachmentSection).toContain("url: '/api/admin/upload'");
+    expect(attachmentSection).toContain("url: '/api/admin/upload?cid=' + attachCid");
+    expect(attachmentSection.match(new RegExp(csrfHeader.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'))).toHaveLength(2);
+  });
+
   it('uses personal writing preferences for defaults and autosave', () => {
     expect(source).toContain("inArray(schema.options.name, ['markdown', 'autoSave'");
     expect(source).toContain("userPreference('markdown'");

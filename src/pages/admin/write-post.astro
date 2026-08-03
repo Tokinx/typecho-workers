@@ -824,6 +824,7 @@ const writePostBottomHtml = await applyFilterSafely(ctx, 'admin:writePost:bottom
                 processData: false,
                 contentType: false,
                 dataType: 'json',
+                headers: { 'X-CSRF-Token': String($('form[name="write_post"] input[name="_"]').val() || '') },
                 success: function (resp) {
                   if ($.isArray(resp) && resp[1]) {
                     fileUploadComplete(uid, resp[1]);
@@ -895,6 +896,7 @@ const writePostBottomHtml = await applyFilterSafely(ctx, 'admin:writePost:bottom
               url: '/api/admin/upload?cid=' + attachCid,
               type: 'DELETE',
               dataType: 'json',
+              headers: { 'X-CSRF-Token': String($('form[name="write_post"] input[name="_"]').val() || '') },
               success: function () {
                 $(el).fadeOut(function () {
                   $(this).remove();

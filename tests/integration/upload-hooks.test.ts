@@ -87,6 +87,17 @@ function buildUploadRequest(cookie: string, csrfToken: string) {
   });
 }
 
+function buildHeaderUploadRequest(cookie: string, csrfToken: string) {
+  const file = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'tiny.png', { type: 'image/png' });
+  const fd = new FormData();
+  fd.set('file', file);
+  return new Request(`${SITE}/api/admin/upload`, {
+    method: 'POST',
+    headers: { cookie, origin: SITE, 'X-CSRF-Token': csrfToken },
+    body: fd,
+  });
+}
+
 describe('upload endpoint (G5-4 + G5-5)', () => {
   beforeEach(async () => {
     await setUp();
@@ -125,6 +136,17 @@ describe('upload endpoint (G5-4 + G5-5)', () => {
     expect(uploadHook).toHaveBeenCalledTimes(1);
   });
 
+  it('accepts the CSRF header used by editor attachment AJAX requests', async () => {
+    const cookie = await adminCookie();
+    const csrfToken = await csrf();
+    const res = await POST({
+      request: buildHeaderUploadRequest(cookie, csrfToken),
+      locals: {},
+    } as any);
+
+    expect(res.status).toBe(200);
+  });
+
   it('upload:beforeUpload can reject the upload', async () => {
     beforeUploadHook.mockImplementationOnce(async () => ({ rejected: 'too big' }));
     const cookie = await adminCookie();
@@ -150,11 +172,11 @@ describe('upload endpoint (G5-4 + G5-5)', () => {
     const cid = info.cid;
 
     const delRes = await DELETE({
-      request: new Request(`${SITE}/api/admin/upload?cid=${cid}&_=${csrfToken}`, {
+      request: new Request(`${SITE}/api/admin/upload?cid=${cid}`, {
         method: 'DELETE',
-        headers: { cookie, origin: SITE },
+        headers: { cookie, origin: SITE, 'X-CSRF-Token': csrfToken },
       }),
-      url: new URL(`${SITE}/api/admin/upload?cid=${cid}&_=${csrfToken}`),
+      url: new URL(`${SITE}/api/admin/upload?cid=${cid}`),
       locals: {},
     } as any);
     expect(delRes.status).toBe(200);
