@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   buildWordPressMigrationDataset,
   buildWordPressMigrationStatements,
@@ -8,7 +8,11 @@ import {
   sqlLiteral,
   type WordPressTargetState,
 } from '../../scripts/wordpress';
-import { parseWordPressMigrationArgs } from '../../scripts/migrate-wordpress';
+import {
+  MEDIA_TRANSFER_RETRY_COUNT,
+  parseWordPressMigrationArgs,
+  transferMediaWithRetries,
+} from '../../scripts/migrate-wordpress';
 
 const WXR = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"
@@ -79,7 +83,7 @@ describe('WordPress WXR migration', () => {
     expect(dataset.contents[3]).toMatchObject({ cid: 44, slug: 'team', type: 'page_draft', status: 'draft', parent: 43, order: 5 });
     expect(dataset.contents[4]).toMatchObject({ cid: 45, slug: 'note-20', type: 'note', status: 'private', allowComment: '0' });
     expect(dataset.contents[5]).toMatchObject({ cid: 46, type: 'attachment', parent: 43 });
-    expect(String(dataset.contents[0].text)).toContain('https://new.example/usr/uploads/wordpress/2024/01/a.jpg');
+    expect(String(dataset.contents[0].text)).toContain('https://new.example/usr/uploads/2024/01/a.jpg');
     expect(dataset.comments.map(comment => comment.coid)).toEqual([201, 202, 203]);
     expect(dataset.comments[1].parent).toBe(201);
     expect(dataset.comments[2]).toMatchObject({ cid: 43, text: 'Page comment', status: 'approved' });
@@ -93,7 +97,7 @@ describe('WordPress WXR migration', () => {
       name: 'wordpress:_wp_old_slug',
       str_value: '["old-one","old-two"]',
     }));
-    expect(dataset.mediaAssets).toEqual([expect.objectContaining({ key: 'usr/uploads/wordpress/2024/01/a.jpg' })]);
+    expect(dataset.mediaAssets).toEqual([expect.objectContaining({ key: 'usr/uploads/2024/01/a.jpg' })]);
   });
 
   it('always imports notes without changing plugin configuration', () => {
@@ -108,6 +112,67 @@ describe('WordPress WXR migration', () => {
     expect(dataset.contents).toContainEqual(expect.objectContaining({ type: 'note' }));
     expect(dataset.imported.notes).toBe(1);
     expect(buildWordPressMigrationStatements(dataset).join('\n')).not.toContain('activatedPlugins');
+  });
+
+  it('retains original URLs for media objects that could not be transferred', () => {
+    const dataset = buildWordPressMigrationDataset(parseWordPressExport(WXR), TARGET, {
+      authorId: 1,
+      includeAttachments: true,
+      siteUrl: 'https://new.example',
+      rewriteMedia: true,
+      skipMediaKeys: new Set(['usr/uploads/2024/01/a.jpg']),
+    });
+
+    const attachment = dataset.contents.find(content => content.type === 'attachment')!;
+    expect(String(dataset.contents[0].text)).toContain('https://old.example/wp-content/uploads/2024/01/a.jpg');
+    expect(dataset.mediaAssets).toEqual([]);
+    expect(dataset.imported.media).toBe(0);
+    expect(JSON.parse(String(attachment.text))).toMatchObject({
+      path: '',
+      url: 'https://old.example/wp-content/uploads/2024/01/a.jpg',
+    });
+  });
+
+  it('retries failed media transfers three times and returns a non-fatal failure', async () => {
+    const transfer = vi.fn().mockRejectedValue(new Error('fetch failed'));
+    const wait = vi.fn().mockResolvedValue(undefined);
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const asset = {
+      sourceUrl: 'https://old.example/wp-content/uploads/2024/01/a.jpg',
+      key: 'usr/uploads/2024/01/a.jpg',
+      targetUrl: 'https://new.example/usr/uploads/2024/01/a.jpg',
+    };
+
+    try {
+      await expect(transferMediaWithRetries(asset, transfer, wait)).resolves.toEqual({
+        sourceUrl: asset.sourceUrl,
+        key: asset.key,
+        attempts: MEDIA_TRANSFER_RETRY_COUNT + 1,
+        error: 'fetch failed',
+      });
+      expect(transfer).toHaveBeenCalledTimes(MEDIA_TRANSFER_RETRY_COUNT + 1);
+      expect(wait).toHaveBeenCalledWith(1_000);
+      expect(wait).toHaveBeenCalledWith(2_000);
+      expect(wait).toHaveBeenCalledWith(4_000);
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it('stops retrying as soon as a media transfer succeeds', async () => {
+    const transfer = vi.fn()
+      .mockRejectedValueOnce(new Error('temporary failure'))
+      .mockResolvedValueOnce(undefined);
+    const wait = vi.fn().mockResolvedValue(undefined);
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      await expect(transferMediaWithRetries({ sourceUrl: 'https://old.example/a.jpg', key: 'a.jpg', targetUrl: 'https://new.example/a.jpg' }, transfer, wait)).resolves.toBeNull();
+      expect(transfer).toHaveBeenCalledTimes(2);
+      expect(wait).toHaveBeenCalledTimes(1);
+    } finally {
+      warning.mockRestore();
+    }
   });
 
   it('preserves WordPress content and comment IDs when overriding', () => {

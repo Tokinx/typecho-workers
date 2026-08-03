@@ -178,7 +178,7 @@ pnpm run db:migrate:wordpress -- \
 | `--target`, `-t` | Migration target: `local` or `cloudflare` | `local` |
 | `--author-id` | Existing target user ID that owns imported content | `1` |
 | `--site-url` | New site URL; required when downloading media | — |
-| `--download-media` | Download referenced media to R2 and rewrite URLs | `false` |
+| `--download-media` | Download referenced media to R2 and rewrite URLs; retry each failure 3 times, then retain its original URL and report it at the end | `false` |
 | `--media-concurrency` | Concurrent media transfers (1-16) | `4` |
 | `--max-media-mb` | Maximum size per media file in MB | `50` |
 | `--skip-attachments` | Do not create attachment content records | `false` |

@@ -20,6 +20,55 @@ import {
 } from './wordpress';
 
 const execFileAsync = promisify(execFile);
+export const MEDIA_TRANSFER_RETRY_COUNT = 3;
+
+export interface MediaTransferFailure {
+  sourceUrl: string;
+  key: string;
+  attempts: number;
+  error: string;
+}
+
+type Delay = (milliseconds: number) => Promise<void>;
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, milliseconds));
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * A failed upload must not abort the content migration. Retrying the complete
+ * transfer covers both a transient source download failure and an R2 API error.
+ */
+export async function transferMediaWithRetries(
+  asset: MediaAsset,
+  transfer: () => Promise<void>,
+  wait: Delay = delay,
+): Promise<MediaTransferFailure | null> {
+  let lastError = '';
+  for (let retry = 0; retry <= MEDIA_TRANSFER_RETRY_COUNT; retry++) {
+    try {
+      await transfer();
+      return null;
+    } catch (error) {
+      lastError = errorMessage(error);
+      if (retry === MEDIA_TRANSFER_RETRY_COUNT) break;
+      const retryNumber = retry + 1;
+      const backoff = 1_000 * 2 ** retry;
+      console.warn(`  Media transfer failed; retry ${retryNumber}/${MEDIA_TRANSFER_RETRY_COUNT} in ${backoff / 1_000}s: ${asset.sourceUrl} (${lastError})`);
+      await wait(backoff);
+    }
+  }
+  return {
+    sourceUrl: asset.sourceUrl,
+    key: asset.key,
+    attempts: MEDIA_TRANSFER_RETRY_COUNT + 1,
+    error: lastError,
+  };
+}
 
 interface CliOptions {
   source: string;
@@ -289,37 +338,48 @@ class WranglerTarget {
   }
 
   private async transferMedia(asset: MediaAsset, tempDir: string, index: number, maxBytes: number): Promise<void> {
+    const tempPath = join(tempDir, `media-${index}`);
     const response = await fetch(asset.sourceUrl, { signal: AbortSignal.timeout(60_000) });
     if (!response.ok || !response.body) throw new Error(`HTTP ${response.status} for ${asset.sourceUrl}`);
     const declaredSize = Number(response.headers.get('content-length') || 0);
     if (declaredSize > maxBytes) throw new Error(`Media exceeds size limit: ${asset.sourceUrl}`);
 
-    const tempPath = join(tempDir, `media-${index}`);
-    let received = 0;
-    const limiter = new Transform({
-      transform(chunk: Buffer, _encoding, callback) {
-        received += chunk.length;
-        callback(received > maxBytes ? new Error(`Media exceeds size limit: ${asset.sourceUrl}`) : null, chunk);
-      },
-    });
-    await pipeline(Readable.fromWeb(response.body as any), limiter, createWriteStream(tempPath));
-    const args = ['r2', 'object', 'put', `${this.r2Bucket}/${asset.key}`, '--file', tempPath, this.locationFlag];
-    const contentType = response.headers.get('content-type')?.split(';')[0]?.trim();
-    if (contentType) args.push('--content-type', contentType);
-    await this.wrangler(args);
-    rmSync(tempPath, { force: true });
+    try {
+      let received = 0;
+      const limiter = new Transform({
+        transform(chunk: Buffer, _encoding, callback) {
+          received += chunk.length;
+          callback(received > maxBytes ? new Error(`Media exceeds size limit: ${asset.sourceUrl}`) : null, chunk);
+        },
+      });
+      await pipeline(Readable.fromWeb(response.body as any), limiter, createWriteStream(tempPath));
+      const args = ['r2', 'object', 'put', `${this.r2Bucket}/${asset.key}`, '--file', tempPath, this.locationFlag];
+      const contentType = response.headers.get('content-type')?.split(';')[0]?.trim();
+      if (contentType) args.push('--content-type', contentType);
+      await this.wrangler(args);
+    } finally {
+      rmSync(tempPath, { force: true });
+    }
   }
 
-  async uploadMedia(assets: MediaAsset[], concurrency: number, maxBytes: number): Promise<void> {
-    if (!assets.length) return;
+  async uploadMedia(assets: MediaAsset[], concurrency: number, maxBytes: number): Promise<MediaTransferFailure[]> {
+    if (!assets.length) return [];
     const tempDir = mkdtempSync(join(tmpdir(), 'typecho-wxr-media-'));
     let cursor = 0;
     let completed = 0;
+    const failures: MediaTransferFailure[] = [];
     const worker = async () => {
       while (true) {
         const index = cursor++;
         if (index >= assets.length) return;
-        await this.transferMedia(assets[index], tempDir, index, maxBytes);
+        const failure = await transferMediaWithRetries(
+          assets[index],
+          () => this.transferMedia(assets[index], tempDir, index, maxBytes),
+        );
+        if (failure) {
+          failures.push(failure);
+          continue;
+        }
         completed++;
         if (completed % 10 === 0 || completed === assets.length) {
           console.log(`  Uploaded media ${completed}/${assets.length}`);
@@ -331,6 +391,7 @@ class WranglerTarget {
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
+    return failures;
   }
 }
 
@@ -364,14 +425,15 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   const targetState = options.override
     ? buildWordPressOverrideTargetState(inspectedTargetState)
     : inspectedTargetState;
-  const dataset = buildWordPressMigrationDataset(source, targetState, {
+  const datasetConfig = {
     authorId: options.authorId,
     includeAttachments: options.includeAttachments,
     siteUrl: options.siteUrl,
     rewriteMedia: options.downloadMedia,
     preserveIds: options.override,
-  });
-  const statements = buildWordPressMigrationStatements(dataset);
+  };
+  let dataset = buildWordPressMigrationDataset(source, targetState, datasetConfig);
+  let statements = buildWordPressMigrationStatements(dataset);
 
   printRecord('Import plan', dataset.imported);
   printRecord('Skipped WordPress types', dataset.skipped);
@@ -381,25 +443,43 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     console.log('Media download is disabled; attachment records will keep their original WordPress URLs.');
   }
 
-  if (options.outputSql) {
-    writeFileSync(options.outputSql, `${statements.join('\n')}\n`, 'utf8');
-    console.log(`SQL written to ${options.outputSql}`);
-  }
   if (options.dryRun) {
+    if (options.outputSql) {
+      writeFileSync(options.outputSql, `${statements.join('\n')}\n`, 'utf8');
+      console.log(`SQL written to ${options.outputSql}`);
+    }
     console.log('Dry run complete. No target resources were read or changed.');
     return;
   }
 
+  let mediaFailures: MediaTransferFailure[] = [];
   if (options.downloadMedia) {
     console.log(`Downloading and uploading ${dataset.mediaAssets.length} media objects...`);
-    await targetWriter!.uploadMedia(dataset.mediaAssets, options.mediaConcurrency, options.maxMediaBytes);
+    mediaFailures = await targetWriter!.uploadMedia(dataset.mediaAssets, options.mediaConcurrency, options.maxMediaBytes);
+    if (mediaFailures.length) {
+      const failedKeys = new Set(mediaFailures.map(failure => failure.key));
+      dataset = buildWordPressMigrationDataset(source, targetState, { ...datasetConfig, skipMediaKeys: failedKeys });
+      statements = buildWordPressMigrationStatements(dataset);
+      console.warn(`Media transfer completed with ${mediaFailures.length} failed object(s). Their original WordPress URLs will be retained:`);
+      for (const failure of mediaFailures) {
+        console.warn(`  - ${failure.sourceUrl} (${failure.error}; ${failure.attempts} attempts)`);
+      }
+    }
+  }
+  if (options.outputSql) {
+    writeFileSync(options.outputSql, `${statements.join('\n')}\n`, 'utf8');
+    console.log(`SQL written to ${options.outputSql}`);
   }
   if (options.override) {
     console.log('Clearing existing content and comments...');
     await targetWriter!.resetForOverride();
   }
   await targetWriter!.executeStatements(statements);
-  console.log('WordPress migration completed successfully.');
+  if (mediaFailures.length) {
+    console.log(`WordPress migration completed with ${mediaFailures.length} skipped media object(s).`);
+  } else {
+    console.log('WordPress migration completed successfully.');
+  }
 }
 
 const entry = process.argv[1] ? pathToFileURL(process.argv[1]).href : '';

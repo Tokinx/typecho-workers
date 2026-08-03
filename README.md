@@ -240,7 +240,7 @@ pnpm run db:migrate:wordpress -- \
 | `--target`, `-t` | 迁移目标：`local` 或 `cloudflare` | `local` |
 | `--author-id` | 目标站中接收导入内容的现有用户 ID | `1` |
 | `--site-url` | 新站点 URL；下载媒体时必填 | — |
-| `--download-media` | 下载正文引用的媒体到 R2 并重写 URL | `false` |
+| `--download-media` | 下载正文引用的媒体到 R2 并重写 URL；每个文件失败后重试 3 次，仍失败时保留原 URL 并在结束时汇总 | `false` |
 | `--media-concurrency` | 媒体传输并发数（1-16） | `4` |
 | `--max-media-mb` | 单个媒体文件的最大大小（MB） | `50` |
 | `--skip-attachments` | 不创建附件内容记录 | `false` |

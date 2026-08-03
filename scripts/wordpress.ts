@@ -90,6 +90,7 @@ export interface WordPressMigrationConfig {
   siteUrl: string;
   rewriteMedia: boolean;
   preserveIds?: boolean;
+  skipMediaKeys?: ReadonlySet<string>;
 }
 
 export type SqlValue = string | number | null;
@@ -375,7 +376,7 @@ function collectMediaUrls(value: string): string[] {
   return value.match(MEDIA_URL_RE) || [];
 }
 
-function buildMediaPlan(items: WordPressItem[], siteUrl: string): {
+function buildMediaPlan(items: WordPressItem[], siteUrl: string, skipMediaKeys: ReadonlySet<string>): {
   assets: MediaAsset[];
   replacements: Map<string, string>;
 } {
@@ -393,7 +394,8 @@ function buildMediaPlan(items: WordPressItem[], siteUrl: string): {
   for (const sourceUrl of urls) {
     const relative = mediaRelativePath(sourceUrl);
     if (!relative) continue;
-    const key = `usr/uploads/wordpress/${relative}`;
+    const key = `usr/uploads/${relative}`;
+    if (skipMediaKeys.has(key)) continue;
     const targetUrl = `${baseUrl}/${key.split('/').map(encodeURIComponent).join('/')}`;
     replacements.set(sourceUrl, targetUrl);
     if (!byKey.has(key)) byKey.set(key, { sourceUrl, key, targetUrl });
@@ -492,7 +494,7 @@ export function buildWordPressMigrationDataset(
     return priority(a) - priority(b) || a.oldId - b.oldId;
   });
 
-  const mediaPlan = buildMediaPlan(selected, config.siteUrl);
+  const mediaPlan = buildMediaPlan(selected, config.siteUrl, config.skipMediaKeys || new Set());
   const replacements = config.rewriteMedia ? mediaPlan.replacements : new Map<string, string>();
   const contentIdByOldId = mapSourceIds(
     selected.map(item => item.oldId),
@@ -517,7 +519,9 @@ export function buildWordPressMigrationDataset(
 
     if (item.postType === 'attachment') {
       const relative = mediaRelativePath(item.attachmentUrl);
-      const key = config.rewriteMedia && relative ? `usr/uploads/wordpress/${relative}` : '';
+      const key = config.rewriteMedia && relative && replacements.has(item.attachmentUrl)
+        ? `usr/uploads/${relative}`
+        : '';
       const targetUrl = config.rewriteMedia
         ? replacements.get(item.attachmentUrl) || item.attachmentUrl
         : item.attachmentUrl;
