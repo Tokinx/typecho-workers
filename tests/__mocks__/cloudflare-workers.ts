@@ -37,6 +37,8 @@ export const caches = {
 export const env = {
   DB: null as any,
   BUCKET: null as any,
+  PBKDF2_ITERATIONS: undefined as string | number | undefined,
+  PASSWORD_PEPPER: undefined as string | undefined,
 };
 
 // Export internal reset for test cleanup

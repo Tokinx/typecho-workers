@@ -1,6 +1,7 @@
 import { eq, and } from 'drizzle-orm';
 import type { Database } from '@/db';
 import { schema } from '@/db';
+import { env } from 'cloudflare:workers';
 
 // Typecho user groups: administrator(0), editor(1), contributor(2), subscriber(3), visitor(4)
 export const UserGroup = {
@@ -59,15 +60,62 @@ export function canManageResource(
  * after the next successful login.
  */
 export const PBKDF2_ITERATIONS = 600_000;
+export const PBKDF2_MIN_ITERATIONS = 50_000;
+
+interface PasswordPepperEnv {
+  PASSWORD_PEPPER?: string;
+}
+
+function readPasswordPepper(): string | null {
+  const values = env as unknown as PasswordPepperEnv;
+  const pepper = typeof values.PASSWORD_PEPPER === 'string'
+    ? values.PASSWORD_PEPPER
+    : '';
+  return pepper || null;
+}
+
+/** Lets login build an equivalent-cost dummy hash without exposing the secret. */
+export function hasPasswordPepper(): boolean {
+  return readPasswordPepper() !== null;
+}
+
+/**
+ * Resolve the deployment's password-hash cost. The default remains the OWASP
+ * recommendation; Workers Free deployments may explicitly lower it to the
+ * guarded minimum to fit the platform's 10ms CPU budget.
+ */
+export function getPbkdf2Iterations(): number {
+  const configured = (env as unknown as { PBKDF2_ITERATIONS?: string | number })
+    .PBKDF2_ITERATIONS;
+  if (configured === undefined || configured === null || configured === '') {
+    return PBKDF2_ITERATIONS;
+  }
+
+  const normalized = typeof configured === 'number' ? configured : configured.trim();
+  if (normalized === '') return PBKDF2_ITERATIONS;
+  const parsed = Number(normalized);
+  if (!Number.isInteger(parsed)) return PBKDF2_ITERATIONS;
+
+  return Math.min(PBKDF2_ITERATIONS, Math.max(PBKDF2_MIN_ITERATIONS, parsed));
+}
 
 /**
  * Hash a password using PBKDF2 with a random salt (Cloudflare Workers compatible).
- * Output format: $PBKDF2$iterations$salt$hash
+ * When PASSWORD_PEPPER is configured, HMAC-SHA256 pre-hashes the password and
+ * the stored format is $PBKDF2P$iterations$salt$hash. The secret Pepper never
+ * enters the database.
  */
 export async function hashPassword(password: string): Promise<string> {
-  const iterations = PBKDF2_ITERATIONS;
+  const iterations = getPbkdf2Iterations();
   const salt = generateSalt(16);
-  const hash = await pbkdf2Hash(password, salt, iterations);
+  const pepper = readPasswordPepper();
+  if (pepper) {
+    const passwordMaterial = await hmacPassword(password, pepper);
+    const hash = await pbkdf2Hash(passwordMaterial, salt, iterations);
+    return `$PBKDF2P$${iterations}$${salt}$${hash}`;
+  }
+
+  const hash = await pbkdf2Hash(new TextEncoder().encode(password), salt, iterations);
   return `$PBKDF2$${iterations}$${salt}$${hash}`;
 }
 
@@ -77,12 +125,24 @@ export async function hashPassword(password: string): Promise<string> {
  * legacy hashes to the new strength without forcing a password reset.
  */
 export function passwordHashNeedsRehash(storedHash: string): boolean {
-  if (!storedHash.startsWith('$PBKDF2$')) return false;
-  const parts = storedHash.split('$');
-  if (parts.length !== 5) return false;
-  const iter = parseInt(parts[2], 10);
-  if (!Number.isFinite(iter)) return false;
-  return iter < PBKDF2_ITERATIONS;
+  const pepper = readPasswordPepper();
+  if (storedHash.startsWith('$PBKDF2P$')) {
+    const parts = storedHash.split('$');
+    if (parts.length !== 5) return false;
+    const iter = parseInt(parts[2], 10);
+    if (!Number.isFinite(iter)) return false;
+    return pepper !== null && iter < getPbkdf2Iterations();
+  }
+
+  if (storedHash.startsWith('$PBKDF2$')) {
+    const parts = storedHash.split('$');
+    if (parts.length !== 5) return false;
+    const iter = parseInt(parts[2], 10);
+    if (!Number.isFinite(iter)) return false;
+    return pepper !== null || iter < getPbkdf2Iterations();
+  }
+
+  return false;
 }
 
 /**
@@ -96,14 +156,32 @@ export async function verifyPassword(
   password: string,
   storedHash: string,
 ): Promise<true | 'wrong_password' | 'needs_reset'> {
+  if (storedHash.startsWith('$PBKDF2P$')) {
+    const parts = storedHash.split('$');
+    if (parts.length !== 5) return 'wrong_password';
+    const iterations = parseInt(parts[2], 10);
+    const salt = parts[3];
+    const hash = parts[4];
+    if (!Number.isInteger(iterations) || iterations <= 0 || !salt || !hash) {
+      return 'wrong_password';
+    }
+    const pepper = readPasswordPepper();
+    if (!pepper) return 'needs_reset';
+    const passwordMaterial = await hmacPassword(password, pepper);
+    const computed = await pbkdf2Hash(passwordMaterial, salt, iterations);
+    return timeSafeEqual(hash, computed) ? true : 'wrong_password';
+  }
+
   if (storedHash.startsWith('$PBKDF2$')) {
     const parts = storedHash.split('$');
     if (parts.length !== 5) return 'wrong_password';
     const iterations = parseInt(parts[2], 10);
     const salt = parts[3];
     const hash = parts[4];
-    if (isNaN(iterations) || !salt || !hash) return 'wrong_password';
-    const computed = await pbkdf2Hash(password, salt, iterations);
+    if (!Number.isInteger(iterations) || iterations <= 0 || !salt || !hash) {
+      return 'wrong_password';
+    }
+    const computed = await pbkdf2Hash(new TextEncoder().encode(password), salt, iterations);
     return timeSafeEqual(hash, computed) ? true : 'wrong_password';
   }
   // Legacy hash formats — password verification not possible, force reset
@@ -356,11 +434,15 @@ async function sha256(message: string): Promise<string> {
 /**
  * Derive a hex-encoded hash using PBKDF2 with SHA-256.
  */
-async function pbkdf2Hash(password: string, salt: string, iterations: number): Promise<string> {
+async function pbkdf2Hash(passwordMaterial: Uint8Array, salt: string, iterations: number): Promise<string> {
   const encoder = new TextEncoder();
+  // TypeScript 7 distinguishes ArrayBuffer from SharedArrayBuffer in Web
+  // Crypto overloads. Copying also ensures callers cannot mutate key bytes
+  // while importKey is consuming them.
+  const passwordBytes = new Uint8Array(passwordMaterial);
   const keyMaterial = await crypto.subtle.importKey(
     'raw',
-    encoder.encode(password),
+    passwordBytes,
     'PBKDF2',
     false,
     ['deriveBits']
@@ -377,6 +459,20 @@ async function pbkdf2Hash(password: string, salt: string, iterations: number): P
   );
   const hashArray = Array.from(new Uint8Array(derivedBits));
   return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** Pre-hash with the deployment secret before the deliberately slow KDF. */
+async function hmacPassword(password: string, pepper: string): Promise<Uint8Array> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(pepper),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(password));
+  return new Uint8Array(signature);
 }
 
 /**

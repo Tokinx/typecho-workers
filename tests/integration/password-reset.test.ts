@@ -9,6 +9,7 @@ import {
   verifyPassword,
 } from '@/lib/auth';
 import { resetSlidingWindow } from '@/lib/login-rate-limit';
+import { env } from 'cloudflare:workers';
 
 let testDb: TestDatabase;
 const { mockSendMail } = vi.hoisted(() => ({
@@ -66,6 +67,8 @@ describe('password reset flow', () => {
     testDb = await createTestDb();
     mockSendMail.mockReset();
     resetSlidingWindow();
+    env.PBKDF2_ITERATIONS = undefined;
+    env.PASSWORD_PEPPER = undefined;
   });
 
   it('stores only a token hash and leaves authCode unchanged after successful delivery', async () => {
@@ -166,5 +169,32 @@ describe('password reset flow', () => {
     } as any);
     expect(second.status).toBe(400);
     expect(await verifyPassword('new-password', (await testDb.query.users.findFirst())?.password || '')).toBe(true);
+  });
+
+  it('recovers an account after PASSWORD_PEPPER is replaced', async () => {
+    env.PBKDF2_ITERATIONS = '50000';
+    env.PASSWORD_PEPPER = 'lost-old-pepper';
+    const user = await seedUser();
+    env.PASSWORD_PEPPER = 'replacement-pepper';
+    expect(await verifyPassword('old-password', user.password || '')).toBe('wrong_password');
+
+    const token = generateResetToken();
+    const tokenHash = await hashResetToken(token);
+    const now = Math.floor(Date.now() / 1000);
+    await testDb.insert(schema.passwordResetRequests).values({
+      email: user.mail!,
+      lastSentAt: now,
+      uid: user.uid,
+      tokenHash,
+      expiresAt: now + 3600,
+    });
+
+    const response = await resetPassword({
+      request: formRequest('/api/users/reset-password', { token, password: 'recovered-password' }),
+    } as any);
+    expect(response.status).toBe(302);
+    const updated = await testDb.query.users.findFirst();
+    expect(updated?.password).toMatch(/^\$PBKDF2P\$50000\$/);
+    expect(await verifyPassword('recovered-password', updated?.password || '')).toBe(true);
   });
 });

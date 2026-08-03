@@ -4,7 +4,8 @@
  * Tests password hashing/verification, permission checks, cookie helpers,
  * and auth token generation/validation.
  */
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
+import { env } from 'cloudflare:workers';
 import {
   hasPermission,
   hashPassword,
@@ -25,8 +26,16 @@ import {
   shouldUseSecureCookie,
   passwordHashNeedsRehash,
   PBKDF2_ITERATIONS,
+  PBKDF2_MIN_ITERATIONS,
+  getPbkdf2Iterations,
+  hasPasswordPepper,
   generateResetToken,
 } from '@/lib/auth';
+
+beforeEach(() => {
+  env.PBKDF2_ITERATIONS = undefined;
+  env.PASSWORD_PEPPER = undefined;
+});
 
 // ---------------------------------------------------------------------------
 // hasPermission
@@ -276,6 +285,59 @@ describe('PBKDF2 password hashing', () => {
     expect(parseInt(parts[2], 10)).toBe(600000);
     expect(parts[3].length).toBeGreaterThan(0); // hex salt
     expect(parts[4]).toMatch(/^[a-f0-9]{64}$/); // SHA-256 hash = 64 hex chars
+  });
+
+  it('embeds the configured Workers Free iteration count', async () => {
+    env.PBKDF2_ITERATIONS = '50000';
+    const hash = await hashPassword('free-plan-password');
+    expect(hash.split('$')[2]).toBe('50000');
+    expect(await verifyPassword('free-plan-password', hash)).toBe(true);
+  });
+
+  it('pre-hashes passwords with an HMAC Pepper when configured', async () => {
+    env.PBKDF2_ITERATIONS = '50000';
+    env.PASSWORD_PEPPER = 'current-pepper-secret';
+
+    const hash = await hashPassword('peppered-password');
+    expect(hash).toMatch(/^\$PBKDF2P\$50000\$[a-f0-9]{32}\$[a-f0-9]{64}$/);
+    expect(hash).not.toContain('current-pepper-secret');
+    expect(hasPasswordPepper()).toBe(true);
+    expect(await verifyPassword('peppered-password', hash)).toBe(true);
+    expect(await verifyPassword('wrong-password', hash)).toBe('wrong_password');
+  });
+
+  it('requires a matching Pepper to verify peppered hashes', async () => {
+    env.PBKDF2_ITERATIONS = '50000';
+    env.PASSWORD_PEPPER = 'original-secret';
+    const hash = await hashPassword('peppered-password');
+
+    env.PASSWORD_PEPPER = undefined;
+    expect(await verifyPassword('peppered-password', hash)).toBe('needs_reset');
+
+    env.PASSWORD_PEPPER = 'different-secret';
+    expect(await verifyPassword('peppered-password', hash)).toBe('wrong_password');
+  });
+
+  it('requires password reset after the Pepper changes', async () => {
+    env.PBKDF2_ITERATIONS = '50000';
+    env.PASSWORD_PEPPER = 'old-secret';
+    const oldHash = await hashPassword('old-password');
+
+    env.PASSWORD_PEPPER = 'new-secret';
+    expect(await verifyPassword('old-password', oldHash)).toBe('wrong_password');
+    const resetHash = await hashPassword('reset-password');
+    expect(resetHash).toContain('$PBKDF2P$50000$');
+    expect(await verifyPassword('reset-password', resetHash)).toBe(true);
+  });
+
+  it('keeps unpeppered PBKDF2 hashes compatible and flags them for upgrade', async () => {
+    env.PBKDF2_ITERATIONS = '50000';
+    const legacyHash = await hashPassword('legacy-password');
+    expect(legacyHash).toContain('$PBKDF2$50000$');
+
+    env.PASSWORD_PEPPER = 'new-pepper-secret';
+    expect(await verifyPassword('legacy-password', legacyHash)).toBe(true);
+    expect(passwordHashNeedsRehash(legacyHash)).toBe(true);
   });
 
   it('verifies legacy 100k-iteration hashes against current 600k default', async () => {
@@ -591,5 +653,23 @@ describe('passwordHashNeedsRehash()', () => {
   it('does not flag legacy formats (those force a reset instead)', () => {
     expect(passwordHashNeedsRehash('$SHA256$abc$def')).toBe(false);
     expect(passwordHashNeedsRehash('$LEGACY$xyz')).toBe(false);
+  });
+
+  it('uses the explicit Workers Free cost without downgrading stronger hashes', () => {
+    env.PBKDF2_ITERATIONS = '50000';
+    expect(getPbkdf2Iterations()).toBe(PBKDF2_MIN_ITERATIONS);
+    expect(passwordHashNeedsRehash(`$PBKDF2$50000$salt$${'a'.repeat(64)}`)).toBe(false);
+    expect(passwordHashNeedsRehash(`$PBKDF2$600000$salt$${'a'.repeat(64)}`)).toBe(false);
+  });
+
+  it('clamps unsafe values and ignores malformed configuration', () => {
+    env.PBKDF2_ITERATIONS = '1000';
+    expect(getPbkdf2Iterations()).toBe(PBKDF2_MIN_ITERATIONS);
+    env.PBKDF2_ITERATIONS = 'not-a-number';
+    expect(getPbkdf2Iterations()).toBe(PBKDF2_ITERATIONS);
+    env.PBKDF2_ITERATIONS = '   ';
+    expect(getPbkdf2Iterations()).toBe(PBKDF2_ITERATIONS);
+    env.PBKDF2_ITERATIONS = '900000';
+    expect(getPbkdf2Iterations()).toBe(PBKDF2_ITERATIONS);
   });
 });

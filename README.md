@@ -64,6 +64,39 @@ database_name = "typecho-cf-db"
 database_id = "替换为实际的 ID"
 ```
 
+Workers Free 每次请求仅有 10ms CPU，无法完成默认的 600,000 次 PBKDF2。
+接受降低密码哈希强度时，可在 `wrangler.toml` 中显式启用兼容配置：
+
+```toml
+[vars]
+PBKDF2_ITERATIONS = "50000"
+```
+
+该值最低限制为 50,000。移除配置后恢复 600,000；已有高强度密码不会被
+向下降级，低强度密码会在以后使用更高配置成功登录时自动重哈希。
+
+密码 Pepper 必须作为 Cloudflare Secret 保存，不要写入 D1、Git 或普通
+`[vars]`。首次部署前生成 32 字节随机 Pepper：
+
+```bash
+openssl rand -hex 32 | pnpm exec wrangler secret put PASSWORD_PEPPER
+```
+
+启用后，新密码保存为 `$PBKDF2P$iterations$salt$hash`；旧的无 Pepper
+PBKDF2 密码仍可登录，并会在成功登录时自动升级。Pepper 不支持透明轮换：
+删除、丢失或替换 Secret 后，已有 Pepper 密码必须通过“忘记密码”页面，
+或使用带新 `PASSWORD_PEPPER` 环境变量的 CLI 重置工具重新生成。
+
+邮件重置不可用时，可先设置一个新的 Pepper，再用同一个值重置管理员：
+
+```bash
+RECOVERY_PEPPER=$(openssl rand -hex 32)
+printf '%s' "$RECOVERY_PEPPER" | pnpm exec wrangler secret put PASSWORD_PEPPER
+PBKDF2_ITERATIONS=50000 PASSWORD_PEPPER="$RECOVERY_PEPPER" \
+  pnpm run reset-password:cloudflare -- --user admin
+unset RECOVERY_PEPPER
+```
+
 **3. 构建并部署**
 
 ```bash
@@ -129,7 +162,7 @@ pnpm run db:migrate:typecho -- \
 | `--target`, `-t` | 迁移目标：`local` 或 `cloudflare` | `local` |
 | `--dry-run`, `-n` | 预览模式 | `false` |
 | `--site-url` | 新站点 URL（用于重写附件 URL） | — |
-| `--d1-name` | D1 数据库名 | `typecho-cf-db` |
+| `--d1-name` | D1 数据库名或 binding | `DB` |
 | `--r2-bucket` | R2 存储桶名 | `typecho-cf-uploads` |
 
 ### 迁移后重置密码

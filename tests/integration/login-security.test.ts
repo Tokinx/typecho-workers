@@ -7,6 +7,7 @@ import { createTestDb, type TestDatabase } from '../helpers';
 import { hashPassword, PBKDF2_ITERATIONS } from '@/lib/auth';
 import { schema } from '@/db';
 import { eq } from 'drizzle-orm';
+import { env } from 'cloudflare:workers';
 
 let testDb: TestDatabase;
 
@@ -67,6 +68,8 @@ function makeRequest(opts: { ip?: string; origin?: string; body: Record<string, 
 describe('login security', () => {
   beforeEach(async () => {
     testDb = await createTestDb();
+    env.PBKDF2_ITERATIONS = undefined;
+    env.PASSWORD_PEPPER = undefined;
   });
 
   it('locks out after repeated wrong passwords from the same IP (G1-3)', async () => {
@@ -226,5 +229,25 @@ describe('login security', () => {
     const stored = updated!.password!;
     const parts = stored.split('$');
     expect(parseInt(parts[2], 10)).toBe(PBKDF2_ITERATIONS);
+  });
+
+  it('upgrades an unpeppered password after a successful login', async () => {
+    env.PBKDF2_ITERATIONS = '50000';
+    await seedSite();
+    await seedUser('correct-password');
+
+    env.PASSWORD_PEPPER = 'integration-pepper-secret';
+    const response = await POST({
+      request: makeRequest({
+        ip: '6.6.6.7',
+        origin: SITE_URL,
+        body: { name: 'alice', password: 'correct-password' },
+      }),
+      locals: {},
+    } as any);
+
+    expect(response.status).toBe(302);
+    const updated = await testDb.query.users.findFirst({ where: eq(schema.users.name, 'alice') });
+    expect(updated?.password).toMatch(/^\$PBKDF2P\$50000\$/);
   });
 });

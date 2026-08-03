@@ -8,6 +8,8 @@ import {
   generateRandomString,
   hashPassword,
   passwordHashNeedsRehash,
+  getPbkdf2Iterations,
+  hasPasswordPepper,
 } from '@/lib/auth';
 import { LOGIN_ERROR_FLASH_COOKIE, createFlashRedirectHeaders } from '@/lib/flash';
 import { applyFilter, setActivatedPlugins, parseActivatedPlugins, type HookContext } from '@/lib/plugin';
@@ -28,16 +30,21 @@ const LOGIN_URL = '/admin/login';
  * A pre-computed valid PBKDF2 hash used to run `verifyPassword` against a
  * fixed target when the requested username doesn't exist. The specific
  * password is irrelevant — we discard the return value; we just want the
- * server to spend the same ~50-100 ms so response time doesn't leak
- * whether the account exists.
+ * server to spend the same password-hash cost so response time doesn't leak
+ * whether the account exists. The iteration count follows the deployment
+ * profile, including the explicit Workers Free compatibility setting.
  *
  * Generated with:
  *   await hashPassword('unreachable-dummy-password-1')
  * Any hash produced by hashPassword() will do; picking a fixed one keeps
  * the dummy path from allocating a fresh salt on every no-user request.
  */
-const DUMMY_PASSWORD_HASH =
-  '$PBKDF2$600000$0123456789abcdef0123456789abcdef$0000000000000000000000000000000000000000000000000000000000000000';
+function dummyPasswordHash(): string {
+  if (hasPasswordPepper()) {
+    return `$PBKDF2P$${getPbkdf2Iterations()}$0123456789abcdef0123456789abcdef$${'0'.repeat(64)}`;
+  }
+  return `$PBKDF2$${getPbkdf2Iterations()}$0123456789abcdef0123456789abcdef$${'0'.repeat(64)}`;
+}
 
 function redirectWithLoginError(message: string, request?: Request): Response {
   return new Response(null, {
@@ -131,9 +138,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
   if (!user) {
     // Run a dummy PBKDF2 against a fixed hash so response time reveals
     // nothing about whether the account exists. verifyPassword is the
-    // dominant cost of a real login (~50-100 ms); without this branch a
-    // no-user reply arrives in < 10 ms and enumeration becomes trivial.
-    await verifyPassword(password, DUMMY_PASSWORD_HASH);
+    // dominant cost of a real login; without this branch a no-user reply
+    // arrives measurably sooner and makes enumeration easier.
+    await verifyPassword(password, dummyPasswordHash());
     await recordLoginFailure(db, ip, rateConfig);
     return redirectWithLoginError('用户名或密码无效', request);
   }

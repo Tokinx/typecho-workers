@@ -3,6 +3,11 @@ main = "@astrojs/cloudflare/entrypoints/server"
 compatibility_date = "2026-04-21"
 compatibility_flags = [ "nodejs_compat" ]
 
+[vars]
+# Workers Free only: lowers PBKDF2 from the 600,000 default so password
+# operations fit the 10ms CPU budget. Remove this value on Workers Paid.
+# PBKDF2_ITERATIONS = "50000"
+
 [assets]
 directory = "dist"
 binding = "ASSETS"

@@ -9,7 +9,7 @@
  *   pnpm reset-password --user admin --password newpass123
  *
  *   # Reset password for remote D1 (Cloudflare)
- *   pnpm reset-password:remote --user admin --password newpass123
+ *   pnpm reset-password:cloudflare --user admin --password newpass123
  *
  *   # Using npx directly
  *   npx tsx scripts/reset-password.ts --user admin --password newpass123 --target local
@@ -23,7 +23,7 @@
  */
 
 import { execSync } from 'node:child_process';
-import { randomBytes, pbkdf2Sync } from 'node:crypto';
+import { createHmac, randomBytes, pbkdf2Sync } from 'node:crypto';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -47,7 +47,7 @@ function parseArgs(): ResetOptions {
     user: '',
     password: '',
     target: 'local',
-    d1Name: 'typecho-cf-db',
+    d1Name: 'DB',
     list: false,
   };
 
@@ -66,7 +66,7 @@ function parseArgs(): ResetOptions {
         opts.target = (args[++i] || 'local') as 'local' | 'cloudflare';
         break;
       case '--d1-name':
-        opts.d1Name = args[++i] || 'typecho-cf-db';
+        opts.d1Name = args[++i] || 'DB';
         break;
       case '--list':
       case '-l':
@@ -94,16 +94,20 @@ Options:
   --user, -u <name>       Username to reset password for (required unless --list)
   --password, -p <pass>   New password (auto-generated if omitted)
   --target, -t <target>   Target: "local" (default) or "cloudflare"
-  --d1-name <name>        D1 database name (default: typecho-cf-db)
+  --d1-name <name>        D1 database name or binding (default: DB)
   --list, -l              List all users
   --help, -h              Show this help
+
+Environment:
+  PBKDF2_ITERATIONS       Hash cost (50000-600000; default: 600000)
+  PASSWORD_PEPPER         Optional Pepper; must match the Worker secret
 
 Examples:
   # Reset admin password (local)
   pnpm reset-password --user admin --password newpass123
 
   # Reset admin password (remote/Cloudflare)
-  pnpm reset-password:remote --user admin --password newpass123
+  pnpm reset-password:cloudflare --user admin --password newpass123
 
   # Auto-generate password (local)
   pnpm reset-password --user admin
@@ -112,11 +116,20 @@ Examples:
   pnpm reset-password --list
 
   # List all users (remote)
-  pnpm reset-password:remote --list
+  pnpm reset-password:cloudflare --list
 `);
 }
 
-// ─── Password Hashing (matches src/lib/auth.ts — PBKDF2) ────────────────────
+// ─── Password Hashing (matches src/lib/auth.ts) ─────────────────────────────
+
+const PBKDF2_DEFAULT_ITERATIONS = 600_000;
+const PBKDF2_MIN_ITERATIONS = 50_000;
+
+function passwordHashIterations(): number {
+  const configured = Number(process.env.PBKDF2_ITERATIONS || PBKDF2_DEFAULT_ITERATIONS);
+  if (!Number.isInteger(configured)) return PBKDF2_DEFAULT_ITERATIONS;
+  return Math.min(PBKDF2_DEFAULT_ITERATIONS, Math.max(PBKDF2_MIN_ITERATIONS, configured));
+}
 
 function generateSalt(length: number): string {
   const array = randomBytes(length);
@@ -126,13 +139,18 @@ function generateSalt(length: number): string {
 }
 
 function hashPassword(password: string): string {
-  const iterations = 100000;
+  const iterations = passwordHashIterations();
   const salt = generateSalt(16);
-  const hash = pbkdf2Hash(password, salt, iterations);
+  const pepper = process.env.PASSWORD_PEPPER || '';
+  const passwordMaterial = pepper
+    ? createHmac('sha256', pepper).update(password).digest()
+    : password;
+  const hash = pbkdf2Hash(passwordMaterial, salt, iterations);
+  if (pepper) return `$PBKDF2P$${iterations}$${salt}$${hash}`;
   return `$PBKDF2$${iterations}$${salt}$${hash}`;
 }
 
-function pbkdf2Hash(password: string, salt: string, iterations: number): string {
+function pbkdf2Hash(password: string | Buffer, salt: string, iterations: number): string {
   const derived = pbkdf2Sync(password, salt, iterations, 32, 'sha256');
   return derived.toString('hex');
 }
