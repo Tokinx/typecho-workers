@@ -208,79 +208,71 @@ function selectedAttr(actual: unknown, expected: unknown): true | undefined {
               )}
 
               {field.type === 'text' && (
-                <p><input type="text" id={`cfg-${key}`} name={key} class="text w-100" value={String(value)} /></p>
+                <input type="text" id={`cfg-${key}`} name={key} class="text w-100" value={String(value)} />
               )}
 
               {field.type === 'password' && (
-                <p><input type="password" id={`cfg-${key}`} name={key} class="text w-100" value={String(value)} /></p>
+                <input type="password" id={`cfg-${key}`} name={key} class="text w-100" value={String(value)} />
               )}
 
               {field.type === 'textarea' && (
-                <p><textarea id={`cfg-${key}`} name={key} class="text w-100" rows="4">{String(value)}</textarea></p>
+                <textarea id={`cfg-${key}`} name={key} class="text w-100" rows="4">{String(value)}</textarea>
               )}
 
               {field.type === 'select' && fieldOptions(field) && (
-                <p>
-                  <select id={`cfg-${key}`} name={key} data-current-value={fieldValueForOption(value)}>
-                    {Object.entries(fieldOptions(field)!).map(([optVal, optLabel]) => (
-                      <option value={optVal} selected={selectedAttr(value, optVal)}>{optLabel}</option>
-                    ))}
-                  </select>
-                </p>
+                <select id={`cfg-${key}`} name={key} data-current-value={fieldValueForOption(value)}>
+                  {Object.entries(fieldOptions(field)!).map(([optVal, optLabel]) => (
+                    <option value={optVal} selected={selectedAttr(value, optVal)}>{optLabel}</option>
+                  ))}
+                </select>
               )}
 
               {field.type === 'radio' && field.options && (
-                <p>
-                  {Object.entries(field.options).map(([optVal, optLabel]) => (
-                    <span style="margin-right: 15px;">
-                      <input
-                        type="radio"
-                        id={`cfg-${key}-${optVal}`}
-                        name={key}
-                        value={optVal}
-                        checked={String(value) === String(optVal)}
-                      />
-                      <label for={`cfg-${key}-${optVal}`}>{optLabel}</label>
-                    </span>
-                  ))}
-                </p>
+                Object.entries(field.options).map(([optVal, optLabel]) => (
+                  <span style="margin-right: 15px;">
+                    <input
+                      type="radio"
+                      id={`cfg-${key}-${optVal}`}
+                      name={key}
+                      value={optVal}
+                      checked={String(value) === String(optVal)}
+                    />
+                    <label for={`cfg-${key}-${optVal}`}>{optLabel}</label>
+                  </span>
+                ))
               )}
 
               {isBoolCheckbox && (
-                <p>
-                  <label for={`cfg-${key}`}>
-                    <input
-                      type="checkbox"
-                      id={`cfg-${key}`}
-                      name={key}
-                      value="1"
-                      checked={value === '1' || value === true}
-                    />
-                    {' '}{field.label}
-                  </label>
-                </p>
+                <label for={`cfg-${key}`}>
+                  <input
+                    type="checkbox"
+                    id={`cfg-${key}`}
+                    name={key}
+                    value="1"
+                    checked={value === '1' || value === true}
+                  />
+                  {' '}{field.label}
+                </label>
               )}
 
               {field.type === 'checkbox' && field.options && (
-                <p>
-                  {Object.entries(field.options).map(([optVal, optLabel]) => {
-                    const checked = Array.isArray(value)
-                      ? value.includes(optVal)
-                      : String(value) === optVal;
-                    return (
-                      <span style="margin-right: 15px;">
-                        <input
-                          type="checkbox"
-                          id={`cfg-${key}-${optVal}`}
-                          name={key}
-                          value={optVal}
-                          checked={checked}
-                        />
-                        <label for={`cfg-${key}-${optVal}`}>{optLabel}</label>
-                      </span>
-                    );
-                  })}
-                </p>
+                Object.entries(field.options).map(([optVal, optLabel]) => {
+                  const checked = Array.isArray(value)
+                    ? value.includes(optVal)
+                    : String(value) === optVal;
+                  return (
+                    <span style="margin-right: 15px;">
+                      <input
+                        type="checkbox"
+                        id={`cfg-${key}-${optVal}`}
+                        name={key}
+                        value={optVal}
+                        checked={checked}
+                      />
+                      <label for={`cfg-${key}-${optVal}`}>{optLabel}</label>
+                    </span>
+                  );
+                })
               )}
 
               {field.type === 'repeatable' && field.itemFields && (
@@ -311,25 +303,23 @@ function selectedAttr(actual: unknown, expected: unknown): true | undefined {
                               <label class="typecho-label" for={inputId}>{itemField.label}</label>
 
                               {itemField.type === 'text' && (
-                                <p><input type="text" id={inputId} name={inputName} class="text w-100" value={String(itemValue)} disabled={!visible} /></p>
+                                <input type="text" id={inputId} name={inputName} class="text w-100" value={String(itemValue)} disabled={!visible} />
                               )}
 
                               {itemField.type === 'password' && (
-                                <p><input type="password" id={inputId} name={inputName} class="text w-100" value={String(itemValue)} disabled={!visible} /></p>
+                                <input type="password" id={inputId} name={inputName} class="text w-100" value={String(itemValue)} disabled={!visible} />
                               )}
 
                               {itemField.type === 'textarea' && (
-                                <p><textarea id={inputId} name={inputName} class="text w-100" rows="3" disabled={!visible}>{String(itemValue)}</textarea></p>
+                                <textarea id={inputId} name={inputName} class="text w-100" rows="3" disabled={!visible}>{String(itemValue)}</textarea>
                               )}
 
                               {itemField.type === 'select' && fieldOptions(itemField) && (
-                                <p>
-                                  <select id={inputId} name={inputName} disabled={!visible} data-current-value={fieldValueForOption(itemValue)}>
-                                    {Object.entries(fieldOptions(itemField)!).map(([optVal, optLabel]) => (
-                                      <option value={optVal} selected={selectedAttr(itemValue, optVal)}>{optLabel}</option>
-                                    ))}
-                                  </select>
-                                </p>
+                                <select id={inputId} name={inputName} disabled={!visible} data-current-value={fieldValueForOption(itemValue)}>
+                                  {Object.entries(fieldOptions(itemField)!).map(([optVal, optLabel]) => (
+                                    <option value={optVal} selected={selectedAttr(itemValue, optVal)}>{optLabel}</option>
+                                  ))}
+                                </select>
                               )}
 
                               {itemField.description && (
@@ -338,9 +328,7 @@ function selectedAttr(actual: unknown, expected: unknown): true | undefined {
                             </div>
                           );
                         })}
-                        <p>
-                          <button type="button" class="btn btn-xs typecho-repeatable-remove">删除该项</button>
-                        </p>
+                        <button type="button" class="btn btn-xs typecho-repeatable-remove">删除该项</button>
                       </fieldset>
                     ))}
                   </div>
@@ -366,22 +354,20 @@ function selectedAttr(actual: unknown, expected: unknown): true | undefined {
                           >
                             <label class="typecho-label" for={inputId}>{itemField.label}</label>
                             {itemField.type === 'text' && (
-                              <p><input type="text" id={inputId} name={inputName} class="text w-100" value={String(itemValue)} disabled={!visible} /></p>
+                              <input type="text" id={inputId} name={inputName} class="text w-100" value={String(itemValue)} disabled={!visible} />
                             )}
                             {itemField.type === 'password' && (
-                              <p><input type="password" id={inputId} name={inputName} class="text w-100" value={String(itemValue)} disabled={!visible} /></p>
+                              <input type="password" id={inputId} name={inputName} class="text w-100" value={String(itemValue)} disabled={!visible} />
                             )}
                             {itemField.type === 'textarea' && (
-                              <p><textarea id={inputId} name={inputName} class="text w-100" rows="3" disabled={!visible}>{String(itemValue)}</textarea></p>
+                              <textarea id={inputId} name={inputName} class="text w-100" rows="3" disabled={!visible}>{String(itemValue)}</textarea>
                             )}
                             {itemField.type === 'select' && fieldOptions(itemField) && (
-                              <p>
-                                <select id={inputId} name={inputName} disabled={!visible} data-current-value={fieldValueForOption(itemValue)}>
-                                  {Object.entries(fieldOptions(itemField)!).map(([optVal, optLabel]) => (
-                                    <option value={optVal} selected={selectedAttr(itemValue, optVal)}>{optLabel}</option>
-                                  ))}
-                                </select>
-                              </p>
+                              <select id={inputId} name={inputName} disabled={!visible} data-current-value={fieldValueForOption(itemValue)}>
+                                {Object.entries(fieldOptions(itemField)!).map(([optVal, optLabel]) => (
+                                  <option value={optVal} selected={selectedAttr(itemValue, optVal)}>{optLabel}</option>
+                                ))}
+                              </select>
                             )}
                             {itemField.description && (
                               <p class="description" set:html={itemField.description}></p>
@@ -389,9 +375,7 @@ function selectedAttr(actual: unknown, expected: unknown): true | undefined {
                           </div>
                         );
                       })}
-                      <p>
-                        <button type="button" class="btn btn-xs typecho-repeatable-remove">删除该项</button>
-                      </p>
+                      <button type="button" class="btn btn-xs typecho-repeatable-remove">删除该项</button>
                     </fieldset>
                   </template>
                 </div>

@@ -123,16 +123,20 @@ function formatBytes(bytes: number): string {
       <ul class="typecho-option">
         <li>
           <label for="name" class="typecho-label">文件标题</label>
-          <p><input type="text" id="name" name="name" class="text w-100" value={attachment.title || ''} /></p>
+          <input type="text" id="name" name="name" class="text w-100" value={attachment.title || ''} />
           <p class="description">文件标题用于前台展示，可自行修改</p>
         </li>
+      </ul>
+      <ul class="typecho-option">
         <li>
           <label for="slug" class="typecho-label">缩略名</label>
-          <p><input type="text" id="slug" name="slug" class="text w-100" value={attachment.slug || ''} /></p>
+          <input type="text" id="slug" name="slug" class="text w-100" value={attachment.slug || ''} />
         </li>
+      </ul>
+      <ul class="typecho-option">
         <li>
           <label class="typecho-label">文件链接</label>
-          <p><input type="text" class="text w-100 mono" value={relativeUrl} readonly onclick="this.select();" /></p>
+          <input type="text" class="text w-100 mono" value={relativeUrl} readonly onclick="this.select();" />
           <p class="description">此链接可直接被引用, 使用相对路径便于切换网址后使用</p>
         </li>
       </ul>

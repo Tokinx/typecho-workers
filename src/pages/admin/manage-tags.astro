@@ -101,6 +101,8 @@ const editTag: any = editRows[0] ?? null;
             <input type="text" id="name" name="name" class="text w-100" value={editTag?.name || ''} required />
             <p class="description">标签名称将在前台显示</p>
           </li>
+        </ul>
+        <ul class="typecho-option">
           <li>
             <label for="slug" class="typecho-label">缩略名</label>
             <input type="text" id="slug" name="slug" class="text w-100" value={editTag?.slug || ''} placeholder="留空自动生成" />

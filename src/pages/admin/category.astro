@@ -89,11 +89,15 @@ const pageTitle = editCategory
           <label for="name" class="typecho-label">分类名称 *</label>
           <input type="text" id="name" name="name" class="text w-100" value={editCategory?.name || ''} required />
         </li>
+      </ul>
+      <ul class="typecho-option">
         <li>
           <label for="slug" class="typecho-label">分类缩略名</label>
           <input type="text" id="slug" name="slug" class="text w-100" value={editCategory?.slug || ''} />
           <p class="description">分类缩略名用于创建友好的链接形式, 建议使用字母、数字、下划线和连字符.</p>
         </li>
+      </ul>
+      <ul class="typecho-option">
         <li>
           <label for="parent" class="typecho-label">父级分类</label>
           <select id="parent" name="parent">
@@ -106,6 +110,8 @@ const pageTitle = editCategory
           </select>
           <p class="description">此分类将归档在您选择的父级分类下.</p>
         </li>
+      </ul>
+      <ul class="typecho-option">
         <li>
           <label for="description" class="typecho-label">分类描述</label>
           <textarea id="description" name="description" class="w-100 mono" rows="3">{editCategory?.description || ''}</textarea>

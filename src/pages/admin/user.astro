@@ -43,34 +43,40 @@ const groups = [
       <ul class="typecho-option">
         <li>
           <label for="name" class="typecho-label">用户名 *</label>
-          <p><input type="text" id="name" name="name" class="text w-100" value={editUser?.name || ''}
-            {isEdit ? 'readonly' : ''} required /></p>
+          <input type="text" id="name" name="name" class="text w-100" value={editUser?.name || ''}
+            {isEdit ? 'readonly' : ''} required />
           <p class="description">{isEdit ? '用户名创建后不可修改' : '此用户用于登录的名称'}</p>
         </li>
+      </ul>
+      <ul class="typecho-option">
         <li>
           <label for="mail" class="typecho-label">邮件地址 *</label>
-          <p><input type="email" id="mail" name="mail" class="text w-100" value={editUser?.mail || ''} required /></p>
+          <input type="email" id="mail" name="mail" class="text w-100" value={editUser?.mail || ''} required />
           <p class="description">此邮件地址将作为该用户的联系方式</p>
         </li>
+      </ul>
+      <ul class="typecho-option">
         <li>
           <label for="screenName" class="typecho-label">用户昵称</label>
-          <p><input type="text" id="screenName" name="screenName" class="text w-100" value={editUser?.screenName || ''} /></p>
+          <input type="text" id="screenName" name="screenName" class="text w-100" value={editUser?.screenName || ''} />
           <p class="description">用户昵称可以与用户名不同, 用于前台显示. 如果留空, 将使用用户名</p>
         </li>
+      </ul>
+      <ul class="typecho-option">
         <li>
           <label for="url" class="typecho-label">个人主页地址</label>
-          <p><input type="url" id="url" name="url" class="text w-100" value={editUser?.url || ''} /></p>
+          <input type="url" id="url" name="url" class="text w-100" value={editUser?.url || ''} />
           <p class="description">此用户的个人主页地址, 请用 <code>http://</code> 或 <code>https://</code> 开头</p>
         </li>
+      </ul>
+      <ul class="typecho-option">
         <li>
           <label for="group" class="typecho-label">用户组</label>
-          <p>
-            <select id="group" name="group">
-              {groups.map(g => (
-                <option value={g.value} selected={editUser?.group === g.value}>{g.label}</option>
-              ))}
-            </select>
-          </p>
+          <select id="group" name="group">
+            {groups.map(g => (
+              <option value={g.value} selected={editUser?.group === g.value}>{g.label}</option>
+            ))}
+          </select>
         </li>
       </ul>
 
@@ -79,13 +85,15 @@ const groups = [
         <ul class="typecho-option">
           <li>
             <label for="password" class="typecho-label">{isEdit ? '新密码' : '用户密码 *'}</label>
-            <p><input type="password" id="password" name="password" class="text w-100" autocomplete="new-password"
-              {!isEdit ? 'required' : ''} /></p>
+            <input type="password" id="password" name="password" class="text w-100" autocomplete="new-password"
+              {!isEdit ? 'required' : ''} />
             <p class="description">{isEdit ? '如果不修改密码, 请留空' : '为此用户设置一个密码, 建议密码长度大于6位'}</p>
           </li>
+        </ul>
+        <ul class="typecho-option">
           <li>
             <label for="confirm" class="typecho-label">密码确认</label>
-            <p><input type="password" id="confirm" name="confirm" class="text w-100" autocomplete="new-password" /></p>
+            <input type="password" id="confirm" name="confirm" class="text w-100" autocomplete="new-password" />
             <p class="description">请再次输入密码进行确认</p>
           </li>
         </ul>
