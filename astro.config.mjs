@@ -17,7 +17,7 @@ export default defineConfig({
     inspectorPort: isBuild ? false : undefined,
   }),
   security: {
-    checkOrigin: true,
+    checkOrigin: false,
   },
   integrations: [themeLoader(), pluginLoader(), clientLoader()],
   vite: {
