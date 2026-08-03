@@ -22,14 +22,24 @@ async function handler({ request, locals, url }: { request: Request; locals: App
   const VALID_STATUSES = ['publish', 'draft', 'hidden', 'private', 'waiting'];
   const markStatus = VALID_STATUSES.includes(markStatusInput) ? markStatusInput : '';
   const type = url.searchParams.get('type') || 'post';
-  if (action !== 'delete' && !(action === 'mark' && markStatus)) {
+  const isPageSort = action === 'sort' && type === 'page';
+  if (action !== 'delete' && !(action === 'mark' && markStatus) && !isPageSort) {
     return new Response('Invalid action', { status: 400 });
   }
 
-  let cids: number[] = [];
-  if (request.method === 'POST') {
-    const formData = await request.formData();
-    cids = formData.getAll('cid[]').map(v => parseInt(v.toString(), 10)).filter(Boolean);
+  const formData = await request.formData();
+  const rawCids = formData.getAll('cid[]').map(value => value.toString());
+  const cids = rawCids.map(value => parseInt(value, 10)).filter(Boolean);
+  if (isPageSort) {
+    // The order must be an exact, unique list of page IDs. This keeps a
+    // drag operation scoped to the rows currently visible in the list.
+    if (
+      cids.length !== rawCids.length
+      || rawCids.some(value => !/^[1-9]\d*$/.test(value))
+      || new Set(cids).size !== cids.length
+    ) {
+      return new Response('Invalid page order', { status: 400 });
+    }
   }
 
   // Typecho uses JS to collect checkboxes and submit — redirect back if no cids
@@ -40,6 +50,54 @@ async function handler({ request, locals, url }: { request: Request; locals: App
       type === 'page' ? '/admin/manage-pages' : '/admin/manage-posts',
     );
     return new Response(null, { status: 302, headers: { Location: referer } });
+  }
+
+  if (isPageSort) {
+    if (!isEditor) {
+      return new Response('Forbidden', { status: 403 });
+    }
+
+    const rawParent = formData.get('parent')?.toString() || '';
+    if (!/^\d+$/.test(rawParent)) {
+      return new Response('Invalid page parent', { status: 400 });
+    }
+    const parent = Number(rawParent);
+    if (!Number.isSafeInteger(parent) || parent < 0) {
+      return new Response('Invalid page parent', { status: 400 });
+    }
+
+    const pageList = sql.join(cids.map(id => sql`${id}`), sql`, `);
+    const pages = await auth.db.select({
+      cid: schema.contents.cid,
+      type: schema.contents.type,
+      parent: schema.contents.parent,
+    }).from(schema.contents)
+      .where(sql`${schema.contents.cid} IN (${pageList})`);
+    if (
+      pages.length !== cids.length
+      || pages.some(page => (
+        (page.type !== 'page' && page.type !== 'page_draft')
+        || (Number(page.parent) || 0) !== parent
+      ))
+    ) {
+      return new Response('Invalid page order', { status: 400 });
+    }
+
+    const statements = cids.map((cid, index) => auth.db.update(schema.contents)
+      .set({ order: index + 1 })
+      .where(sql`${schema.contents.cid} = ${cid} AND ${schema.contents.type} IN ('page', 'page_draft') AND coalesce(${schema.contents.parent}, 0) = ${parent}`));
+    const batchFn = (auth.db as any).batch;
+    if (typeof batchFn === 'function') {
+      await batchFn.call(auth.db, statements as any);
+    } else {
+      for (const statement of statements) await statement;
+    }
+
+    await bumpCacheVersion(auth.db);
+    await purgeContentCache(auth.options.siteUrl || '');
+    return new Response(JSON.stringify({ success: 1, message: '页面排序已经完成' }), {
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    });
   }
 
   if (action === 'delete') {

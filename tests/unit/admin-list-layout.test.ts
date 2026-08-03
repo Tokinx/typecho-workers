@@ -73,4 +73,24 @@ describe('admin list layout', () => {
     expect(source).not.toContain('typecho-list-operate clearfix');
     expect(source).not.toContain('class="typecho-table-wrap"');
   });
+
+  it('keeps Typecho 1.3 page hierarchy and drag-order markup', () => {
+    const source = readProjectFile('src/pages/admin/manage-pages.astro');
+    const layout = readProjectFile('src/layouts/Admin.astro');
+
+    expect(source).toContain("const rawParent = Astro.url.searchParams.get('parent') || ''");
+    expect(source).toContain(": '管理独立页面'");
+    expect(source).toContain('addLink={parentId > 0 ? `/admin/write-page?parent=${parentId}` : \'/admin/write-page\'}');
+    expect(source).toContain('data-page-parent={String(parentId)}');
+    expect(source).toContain('<th>子页面</th>');
+    expect(source).toContain('id={`${pg.type}-${pg.cid}`}');
+    expect(source).toContain('/admin/manage-pages?parent=${pg.cid}');
+    expect(source).toContain('/admin/write-page?parent=${pg.cid}');
+    expect(source).toContain("document.addEventListener('DOMContentLoaded', function () {");
+    expect(source).toContain("$('.typecho-list-table').tableDnD({");
+    expect(source).toContain("/api/admin/content-batch?do=sort&type=page");
+    expect(source).toContain('{!keywords && (');
+    expect(layout).toContain('addLink?: string;');
+    expect(layout).toContain('{addLink && <a href={addLink}>新增</a>}');
+  });
 });

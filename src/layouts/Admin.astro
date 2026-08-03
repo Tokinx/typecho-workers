@@ -12,10 +12,11 @@ interface Props {
   user: UserRow;
   activeMenu?: string;
   bodyClass?: string;
+  addLink?: string;
   pluginCtx?: HookContext;
 }
 
-const { title, options, urls, user, activeMenu, bodyClass, pluginCtx } = Astro.props;
+const { title, options, urls, user, activeMenu, bodyClass, addLink, pluginCtx } = Astro.props;
 const _pluginCtx: HookContext = pluginCtx ?? { activatedPlugins: new Set<string>() };
 
 const userGroup = user?.group || 'visitor';
@@ -124,6 +125,7 @@ const adminFooterHtml = await applyFilterSafely(_pluginCtx, 'admin:footer', '', 
     <div class="body container">
       <div class="typecho-page-title">
         <h2>{title}</h2>
+        {addLink && <a href={addLink}>新增</a>}
       </div>
       <slot name="before-main" />
       <div class:list={['row', 'typecho-page-main', bodyClass]} role="main">

@@ -15,12 +15,19 @@ if (!hasPermission(ctx.user!.group || 'visitor', 'editor')) {
 
 const { db, options, urls, user, csrfToken } = ctx;
 const keywords = Astro.url.searchParams.get('keywords') || '';
+const rawParent = Astro.url.searchParams.get('parent') || '';
+const parentId = keywords || !rawParent ? 0 : Number(rawParent);
+if (!keywords && rawParent && (!/^\d+$/.test(rawParent) || !Number.isSafeInteger(parentId))) {
+  return new Response('页面不存在', { status: 404 });
+}
 
 const conditions: any[] = [
   sql`${schema.contents.type} IN ('page', 'page_draft')`,
 ];
 if (keywords) {
   conditions.push(sql`${schema.contents.title} LIKE ${'%' + keywords + '%'}`);
+} else {
+  conditions.push(sql`coalesce(${schema.contents.parent}, 0) = ${parentId}`);
 }
 
 const pageRows = await db.select({
@@ -33,6 +40,25 @@ const pageRows = await db.select({
   .where(sql.join(conditions, sql` AND `))
   .orderBy(schema.contents.order, desc(schema.contents.created));
 const pages = pageRows.map(row => row.content);
+const childCountRows = await db.select({
+  parent: schema.contents.parent,
+  count: sql<number>`count(*)`,
+}).from(schema.contents)
+  .where(sql`${schema.contents.type} IN ('page', 'page_draft')`)
+  .groupBy(schema.contents.parent);
+const childCounts = new Map(childCountRows.map(row => [Number(row.parent) || 0, Number(row.count)]));
+const parentPage = parentId > 0
+  ? await db.query.contents.findFirst({
+    where: sql`${schema.contents.cid} = ${parentId} AND ${schema.contents.type} IN ('page', 'page_draft')`,
+  })
+  : null;
+if (parentId > 0 && !parentPage) {
+  return new Response('页面不存在', { status: 404 });
+}
+const pageListTitle = parentPage ? `管理 ${parentPage.title || '无标题'} 的子页面` : '管理独立页面';
+const parentBackHref = parentPage?.parent
+  ? `/admin/manage-pages?parent=${parentPage.parent}`
+  : '/admin/manage-pages';
 const authorMap = new Map(pageRows
   .filter(row => row.authorUid !== null)
   .map(row => [row.authorUid!, {
@@ -41,7 +67,15 @@ const authorMap = new Map(pageRows
     screenName: row.authorScreenName,
   }]));
 ---
-<Admin title="管理页面" options={options} urls={urls} user={user} activeMenu="manage-pages" pluginCtx={ctx}>
+<Admin
+  title={pageListTitle}
+  addLink={parentId > 0 ? `/admin/write-page?parent=${parentId}` : '/admin/write-page'}
+  options={options}
+  urls={urls}
+  user={user}
+  activeMenu="manage-pages"
+  pluginCtx={ctx}
+>
   <div class="col-mb-12 typecho-list">
     <form method="get" class="typecho-list-operate">
         <div class="operate">
@@ -56,20 +90,21 @@ const authorMap = new Map(pageRows
           </div>
         </div>
         <div class="search" role="search">
+          {parentPage && <a href={parentBackHref}>&laquo; 返回父级页面</a>}
           {keywords && <a href="/admin/manage-pages">&laquo; 取消筛选</a>}
           <input type="text" class="text-s" placeholder="请输入关键字" value={keywords} name="keywords" />
           <button type="submit" class="btn btn-s">筛选</button>
         </div>
     </form>
 
-    <form method="post" name="manage_pages" class="operate-form">
+    <form method="post" name="manage_pages" class="operate-form" data-page-parent={String(parentId)}>
       <input type="hidden" name="_" value={csrfToken} />
       <table class="typecho-list-table">
           <colgroup>
-            <col width="20" class="kit-hidden-mb" />
+            <col width="3%" class="kit-hidden-mb" />
             <col width="6%" class="kit-hidden-mb" />
-            <col width="30%" />
-            <col width="30%" />
+            <col width="42%" />
+            <col width="18%" />
             <col width="" class="kit-hidden-mb" />
             <col width="16%" />
           </colgroup>
@@ -78,7 +113,7 @@ const authorMap = new Map(pageRows
               <th class="kit-hidden-mb"></th>
               <th class="kit-hidden-mb"></th>
               <th>标题</th>
-              <th>缩略名</th>
+              <th>子页面</th>
               <th class="kit-hidden-mb">作者</th>
               <th>日期</th>
             </tr>
@@ -92,8 +127,9 @@ const authorMap = new Map(pageRows
               pages.map((pg) => {
                 const author = authorMap.get(pg.authorId || 0);
                 const isDraft = pg.type === 'page_draft';
+                const childCount = childCounts.get(pg.cid) || 0;
                 return (
-                  <tr>
+                  <tr id={`${pg.type}-${pg.cid}`}>
                     <td class="kit-hidden-mb"><input type="checkbox" value={String(pg.cid)} name="cid[]" /></td>
                     <td class="kit-hidden-mb">
                       <a href={`/admin/manage-comments?cid=${pg.cid}`}
@@ -110,7 +146,15 @@ const authorMap = new Map(pageRows
                           title={`浏览 ${pg.title}`}><i class="i-exlink"></i></a>
                       )}
                     </td>
-                    <td>{pg.slug}</td>
+                    <td>
+                      {childCount > 0 ? (
+                        <a href={`/admin/manage-pages?parent=${pg.cid}`}>
+                          {childCount === 1 ? '一个页面' : `${childCount}个页面`}
+                        </a>
+                      ) : (
+                        <a href={`/admin/write-page?parent=${pg.cid}`}>新增</a>
+                      )}
+                    </td>
                     <td class="kit-hidden-mb">{author?.screenName || author?.name || '未知'}</td>
                     <td>{formatDate(pg.created || 0, 'Y-m-d', options.timezone)}</td>
                   </tr>
@@ -121,4 +165,26 @@ const authorMap = new Map(pageRows
       </table>
     </form>
   </div>
+  {!keywords && (
+    <script is:inline>
+      document.addEventListener('DOMContentLoaded', function () {
+        var table = $('.typecho-list-table').tableDnD({
+          onDrop: function () {
+            var ids = [];
+            var form = table.closest('form.operate-form');
+
+            $('input[type=checkbox]', table).each(function () {
+              ids.push($(this).val());
+            });
+
+            $.post('/api/admin/content-batch?do=sort&type=page', $.param({
+              cid: ids,
+              parent: form.data('page-parent'),
+              _: $('input[name="_"]', form).val()
+            }));
+          }
+        });
+      });
+    </script>
+  )}
 </Admin>

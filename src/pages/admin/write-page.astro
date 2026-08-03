@@ -18,6 +18,7 @@ if (!hasPermission(ctx.user!.group || 'visitor', 'editor')) {
 
 const { db, options, urls, user, csrfToken } = ctx;
 const cid = Astro.url.searchParams.get('cid');
+const rawRequestedParent = Astro.url.searchParams.get('parent') || '';
 type ContentRow = typeof schema.contents.$inferSelect;
 interface AttachmentItem { cid: number; title: string | null; url: string; size: number; isImage: boolean; }
 interface ParentPageOption { cid: number; title: string; depth: number; }
@@ -166,6 +167,21 @@ const scheduleDate = page?.created
   ? formatDate(page.created, 'Y-m-d H:i', Number(options.timezone) || 0)
   : '';
 const parentPageOptions = buildParentPageOptions(parentPageRows, page?.cid || 0);
+const requestedParentId = !isEdit && /^\d+$/.test(rawRequestedParent)
+  ? Number(rawRequestedParent)
+  : 0;
+const initialParentId = parentPageOptions.some(parent => parent.cid === requestedParentId)
+  ? requestedParentId
+  : 0;
+const selectedParentId = page?.parent ?? initialParentId;
+const requestedParent = !isEdit && initialParentId > 0
+  ? parentPageRows.find(parent => parent.cid === initialParentId)
+  : null;
+const pageEditorTitle = isEdit
+  ? '编辑页面'
+  : requestedParent
+    ? `新增 ${requestedParent.title || '无标题'} 的子页面`
+    : '创建新页面';
 const activeTheme = options.theme || 'typecho-theme-minimal';
 const pageTemplateOptions = Object.entries(themeTemplates[activeTheme]?.PageTemplates ?? {});
 const hasCurrentPageTemplate = !page?.template || pageTemplateOptions.some(([template]) => template === page?.template);
@@ -175,7 +191,7 @@ const writePageBottomHtml = await applyFilterSafely(ctx, 'admin:writePage:bottom
 
 ---
 <Admin
-  title={isEdit ? '编辑页面' : '创建新页面'}
+  title={pageEditorTitle}
   options={options}
   urls={urls}
   user={user}
@@ -325,9 +341,9 @@ const writePageBottomHtml = await applyFilterSafely(ctx, 'admin:writePage:bottom
           <label for="parent" class="typecho-label">父级页面</label>
           <p>
             <select name="parent" id="parent">
-              <option value="0" selected={!page?.parent}>不选择</option>
+              <option value="0" selected={selectedParentId === 0}>不选择</option>
               {parentPageOptions.map((parent) => (
-                <option value={String(parent.cid)} selected={page?.parent === parent.cid}>
+                <option value={String(parent.cid)} selected={selectedParentId === parent.cid}>
                   {'\u00a0\u00a0\u00a0\u00a0'.repeat(parent.depth)}{parent.title}
                 </option>
               ))}

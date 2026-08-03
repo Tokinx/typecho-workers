@@ -5,6 +5,7 @@
  * Verifies auth guards, permission checks, meta count adjustments, and redirects.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { inArray } from 'drizzle-orm';
 import * as schema from '@/db/schema';
 import { createTestDb, seedAdmin, makeAuthCookie, type TestDatabase } from '../helpers';
 
@@ -73,6 +74,20 @@ function makeBatchRequest(
       'content-type': 'application/x-www-form-urlencoded',
       cookie: cookieHeader,
       referer,
+    },
+    body: body.toString(),
+  });
+}
+
+function makePageSortRequest(cids: number[], cookieHeader: string, parent = '0'): Request {
+  const body = new URLSearchParams({ parent });
+  for (const cid of cids) body.append('cid[]', String(cid));
+  return new Request('https://example.com/api/admin/content-batch?do=sort&type=page', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+      cookie: cookieHeader,
+      referer: 'https://example.com/admin/manage-pages',
     },
     body: body.toString(),
   });
@@ -306,5 +321,64 @@ describe('POST /api/admin/content-batch', () => {
     const res = await POST({ request: req, locals: {}, url: new URL(req.url) } as any);
     expect(res.status).toBe(302);
     expect(res.headers.get('location')).toContain('manage-pages');
+  });
+
+  // -- page sorting --
+
+  it('persists the Typecho page drag order for the current parent', async () => {
+    const admin = await seedAdmin(testDb, { secret: TEST_SECRET, authCode: TEST_AUTH_CODE });
+    const cookie = await makeAuthCookie(testDb, admin.uid, TEST_AUTH_CODE, TEST_SECRET);
+    const first = await seedPost(testDb, { slug: 'first-page', type: 'page', parent: 0, order: 9 });
+    const second = await seedPost(testDb, { slug: 'second-page', type: 'page', parent: 0, order: 3 });
+
+    const req = makePageSortRequest([second.cid!, first.cid!], cookie);
+    const res = await POST({ request: req, locals: {}, url: new URL(req.url) } as any);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ success: 1, message: '页面排序已经完成' });
+    const pages = await testDb.select({ cid: schema.contents.cid, order: schema.contents.order })
+      .from(schema.contents)
+      .where(inArray(schema.contents.cid, [first.cid!, second.cid!]));
+    expect(new Map(pages.map(page => [page.cid, page.order]))).toEqual(new Map([
+      [second.cid!, 1],
+      [first.cid!, 2],
+    ]));
+  });
+
+  it('rejects page ordering with duplicate IDs, a wrong parent, or a non-page ID', async () => {
+    const admin = await seedAdmin(testDb, { secret: TEST_SECRET, authCode: TEST_AUTH_CODE });
+    const cookie = await makeAuthCookie(testDb, admin.uid, TEST_AUTH_CODE, TEST_SECRET);
+    const rootPage = await seedPost(testDb, { slug: 'root-sort-page', type: 'page', parent: 0, order: 7 });
+    const childPage = await seedPost(testDb, { slug: 'child-sort-page', type: 'page', parent: rootPage.cid, order: 8 });
+    const post = await seedPost(testDb, { slug: 'not-a-sort-page', type: 'post', parent: 0, order: 9 });
+
+    for (const req of [
+      makePageSortRequest([rootPage.cid!, rootPage.cid!], cookie),
+      makePageSortRequest([childPage.cid!], cookie, '0'),
+      makePageSortRequest([post.cid!], cookie),
+    ]) {
+      const res = await POST({ request: req, locals: {}, url: new URL(req.url) } as any);
+      expect(res.status).toBe(400);
+    }
+
+    const unchanged = await testDb.query.contents.findFirst({ where: (table, { eq }) => eq(table.cid, rootPage.cid!) });
+    expect(unchanged?.order).toBe(7);
+  });
+
+  it('requires editor permission to persist page ordering', async () => {
+    const contributor = await seedAdmin(testDb, {
+      secret: TEST_SECRET,
+      authCode: TEST_AUTH_CODE,
+      group: 'contributor',
+    });
+    const cookie = await makeAuthCookie(testDb, contributor.uid, TEST_AUTH_CODE, TEST_SECRET);
+    const page = await seedPost(testDb, { slug: 'contributor-page', type: 'page', parent: 0, order: 6 });
+
+    const req = makePageSortRequest([page.cid!], cookie);
+    const res = await POST({ request: req, locals: {}, url: new URL(req.url) } as any);
+
+    expect(res.status).toBe(403);
+    const unchanged = await testDb.query.contents.findFirst({ where: (table, { eq }) => eq(table.cid, page.cid!) });
+    expect(unchanged?.order).toBe(6);
   });
 });

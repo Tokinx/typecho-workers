@@ -51,6 +51,14 @@ describe('Typecho 1.3 page editor layout', () => {
     expect(source).toContain('name="parent" id="parent"');
   });
 
+  it('preselects the requested parent when creating a child page', () => {
+    expect(source).toContain("const rawRequestedParent = Astro.url.searchParams.get('parent') || ''");
+    expect(source).toContain('const initialParentId = parentPageOptions.some');
+    expect(source).toContain('const selectedParentId = page?.parent ?? initialParentId');
+    expect(source).toContain('title={pageEditorTitle}');
+    expect(source).toContain('selected={selectedParentId === parent.cid}');
+  });
+
   it('uses the Typecho date picker, preview icon, and persisted resize handle', () => {
     expect(source).toContain('class="typecho-date w-100" type="text" name="date" id="date"');
     expect(source).toContain('/vendor/timepicker.js');
