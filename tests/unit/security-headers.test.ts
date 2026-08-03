@@ -26,6 +26,7 @@ describe('CSP directive helpers', () => {
   it('default policy includes upstream services and blocks framing', () => {
     const csp = serializeCsp(defaultCspDirectives());
     expect(csp).toContain("frame-ancestors 'none'");
+    expect(csp).toContain("frame-src 'self'");
     expect(csp).toContain("script-src 'self'");
     expect(csp).not.toContain('https://challenges.cloudflare.com');
     expect(csp).not.toContain('https://static.cloudflareinsights.com');
@@ -76,6 +77,15 @@ describe('applySecurityHeaders', () => {
       { request: new Request('https://example.com/') },
     );
     expect(response.headers.get('X-Frame-Options')).toBe('SAMEORIGIN');
+  });
+
+  it('allows the authenticated admin preview to be framed by its editor only', async () => {
+    const response = await applySecurityHeaders(new Response('preview'), {
+      request: new Request('https://example.com/admin/preview?cid=1'),
+      allowSameOriginFrame: true,
+    });
+    expect(response.headers.get('X-Frame-Options')).toBe('SAMEORIGIN');
+    expect(response.headers.get('Content-Security-Policy')).toContain("frame-ancestors 'self'");
   });
 
   it('lets plugins extend the CSP via csp:directives', async () => {

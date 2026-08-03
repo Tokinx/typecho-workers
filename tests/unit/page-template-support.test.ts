@@ -25,4 +25,15 @@ describe('page-specific theme templates', () => {
       expect(source(path), path).toContain('PageTemplates?.[');
     }
   });
+
+  it('renders preview rows through the matching page-data helper and closes the parent preview on exit', () => {
+    const preview = source('src/pages/admin/preview.astro');
+
+    expect(preview).toContain('preparePageData, preparePostData');
+    expect(preview).toContain("row.type === 'page' || row.type === 'page_draft'");
+    expect(preview).toContain('{ previewMode: true }');
+    expect(preview).toContain("Astro.response.headers.set('X-Robots-Tag', 'noindex, nofollow')");
+    expect(preview).not.toContain("import Base from '@/layouts/Base.astro'");
+    expect(preview).toContain("window.parent.postMessage('cancelPreview', parentOrigin)");
+  });
 });

@@ -1,14 +1,14 @@
 ---
-import Base from '@/layouts/Base.astro';
 import { themeTemplates } from 'virtual:theme-templates';
 import { createContextAlongside, requireAuth } from '@/lib/context';
 import { hasPermission } from '@/lib/auth';
 import { schema } from '@/db';
-import { preparePostData } from '@/lib/page-data';
+import { preparePageData, preparePostData } from '@/lib/page-data';
 import { eq } from 'drizzle-orm';
 
 const cid = parseInt(Astro.url.searchParams.get('cid') || '0', 10);
 if (!cid) return new Response('missing cid', { status: 400 });
+Astro.response.headers.set('X-Robots-Tag', 'noindex, nofollow');
 
 const [ctx, row] = await createContextAlongside(
   Astro.locals,
@@ -37,12 +37,17 @@ const Template = isPage
   ? (customPageTemplate ?? templates.Page ?? defaults.Page!)
   : (templates.Post ?? defaults.Post!);
 
-const data = await preparePostData(ctx, row, { previewMode: true });
+const data = isPage
+  ? await preparePageData(ctx, row.slug || String(row.cid), Astro.request.url, null, row, null, { previewMode: true })
+  : await preparePostData(ctx, row.cid, Astro.request.url, null, row, null, { previewMode: true });
+if (data instanceof Response) return data;
 ---
 
-<Base seo={{ canonical: '' }}>
-  <Fragment slot="head">
-    <meta name="robots" content="noindex,nofollow" />
-  </Fragment>
-  <Template {...data} />
-</Base>
+<Template {...data} />
+<script define:vars={{ parentOrigin: Astro.url.origin }}>
+  window.addEventListener('beforeunload', function () {
+    if (window.parent !== window) {
+      window.parent.postMessage('cancelPreview', parentOrigin);
+    }
+  });
+</script>

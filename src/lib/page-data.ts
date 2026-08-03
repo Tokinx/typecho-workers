@@ -355,6 +355,14 @@ export interface PreparePostResult {
   redirect?: never;
 }
 
+/**
+ * Internal rendering options for authenticated admin previews. Public routes
+ * must keep the default visibility checks enabled.
+ */
+export interface ContentDataOptions {
+  previewMode?: boolean;
+}
+
 export async function preparePostData(
   ctx: RequestContext,
   cidNum: number,
@@ -362,6 +370,7 @@ export async function preparePostData(
   suppliedPassword: string | null,
   preloadedRow?: ContentRow | null,
   unapprovedCommentToken?: string | null,
+  dataOptions: ContentDataOptions = {},
 ): Promise<ThemePostProps | Response> {
   const { db, options, urls, user, isLoggedIn } = ctx;
 
@@ -371,13 +380,15 @@ export async function preparePostData(
 
   if (!contentRow) return new Response('Not Found', { status: 404 });
 
-  if (!canViewContent(contentRow, { isLoggedIn, uid: user?.uid })) {
+  if (!dataOptions.previewMode && !canViewContent(contentRow, { isLoggedIn, uid: user?.uid })) {
     return new Response('Not Found', { status: 404 });
   }
 
   // Password
   const hasPassword = !!contentRow.password;
-  const passwordVerified = hasPassword && suppliedPassword === contentRow.password;
+  // The admin preview route has already checked that the current user owns
+  // the content or may edit it, matching Typecho's preview=1 behaviour.
+  const passwordVerified = dataOptions.previewMode || (hasPassword && suppliedPassword === contentRow.password);
   const visibleUnapprovedCommentId = options.secret
     ? await validateUnapprovedCommentToken(unapprovedCommentToken, options.secret as string, cidNum)
     : null;
@@ -503,6 +514,7 @@ export async function preparePageData(
   suppliedPassword: string | null,
   preloadedRow?: ContentRow | null,
   unapprovedCommentToken?: string | null,
+  dataOptions: ContentDataOptions = {},
 ): Promise<ThemePageProps | Response> {
   const { db, options, urls, user, isLoggedIn } = ctx;
 
@@ -512,7 +524,7 @@ export async function preparePageData(
 
   if (!pageRow) return new Response('Not Found', { status: 404 });
 
-  if (!canViewContent(pageRow, { isLoggedIn, uid: user?.uid })) {
+  if (!dataOptions.previewMode && !canViewContent(pageRow, { isLoggedIn, uid: user?.uid })) {
     return new Response('Not Found', { status: 404 });
   }
 
@@ -524,7 +536,9 @@ export async function preparePageData(
   );
 
   const hasPassword = !!pageRow.password;
-  const passwordVerified = hasPassword && suppliedPassword === pageRow.password;
+  // See the post detail equivalent above: authenticated admin previews may
+  // inspect protected content without entering its public password.
+  const passwordVerified = dataOptions.previewMode || (hasPassword && suppliedPassword === pageRow.password);
   const visibleUnapprovedCommentId = options.secret
     ? await validateUnapprovedCommentToken(unapprovedCommentToken, options.secret as string, pageRow.cid)
     : null;

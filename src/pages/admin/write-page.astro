@@ -554,7 +554,9 @@ const writePageBottomHtml = await applyFilterSafely(ctx, 'admin:writePage:bottom
             changed = false,
             saving = false,
             saveTimer = null,
-            lastSaveTime = '';
+            lastSaveTime = '',
+            previewRequested = false,
+            previewWasFullscreen = false;
 
         function message(text) {
           autoSaveMessage.text(text);
@@ -566,6 +568,37 @@ const writePageBottomHtml = await applyFilterSafely(ctx, 'admin:writePage:bottom
           message('尚未保存' + (lastSaveTime ? ' (上次保存时间: ' + lastSaveTime + ')' : ''));
           if (saveTimer) clearTimeout(saveTimer);
           saveTimer = setTimeout(saveDraft, 3000);
+        }
+
+        function previewData(cid) {
+          if (!cid) return;
+          previewWasFullscreen = $(document.body).hasClass('fullscreen');
+          $(document.body).addClass('fullscreen preview');
+
+          $('.preview-frame').remove();
+          var frame = $('<iframe frameborder="0" class="preview-frame preview-loading"></iframe>')
+            .attr('src', '/admin/preview?cid=' + encodeURIComponent(cid))
+            .attr('sandbox', 'allow-same-origin allow-scripts')
+            .appendTo(document.body);
+
+          frame.on('load', function () {
+            frame.removeClass('preview-loading');
+          });
+          frame.height($(window).height() - 53);
+        }
+
+        function previewSavedData() {
+          var draftId = Number(form.find('input[name="autosaveDraftId"]').val() || 0),
+              cid = Number(form.find('input[name="cid"]').val() || 0);
+          previewData(draftId || cid);
+        }
+
+        function cancelPreview() {
+          if (!previewWasFullscreen) {
+            $(document.body).removeClass('fullscreen');
+          }
+          $(document.body).removeClass('preview');
+          $('.preview-frame').remove();
         }
 
         function saveDraft() {
@@ -606,13 +639,19 @@ const writePageBottomHtml = await applyFilterSafely(ctx, 'admin:writePage:bottom
             },
             error: function () {
               changed = true;
+              previewRequested = false;
               message('保存失败, 请重试');
             },
             complete: function () {
               saving = false;
-              if (changed && autoSaveEnabled) {
+              if (changed && previewRequested) {
+                saveDraft();
+              } else if (changed && autoSaveEnabled) {
                 if (saveTimer) clearTimeout(saveTimer);
                 saveTimer = setTimeout(saveDraft, 3000);
+              } else if (previewRequested) {
+                previewRequested = false;
+                previewSavedData();
               }
             }
           });
@@ -625,6 +664,24 @@ const writePageBottomHtml = await applyFilterSafely(ctx, 'admin:writePage:bottom
         });
         $(window).on('beforeunload.writePage', function () {
           if (changed) return '内容已经改变尚未保存, 您确认要离开此页面吗?';
+        });
+
+        $('#btn-preview').on('click', function () {
+          if (!changed) {
+            previewSavedData();
+            return;
+          }
+          if (window.confirm('修改后的内容需要保存后才能预览, 是否保存?')) {
+            previewRequested = true;
+            saveDraft();
+          }
+        });
+        $('#btn-cancel-preview').on('click', cancelPreview);
+        $(window).on('message.writePagePreview', function (event) {
+          var messageEvent = event.originalEvent;
+          if (messageEvent && messageEvent.origin === window.location.origin && messageEvent.data === 'cancelPreview') {
+            cancelPreview();
+          }
         });
       })();
 
@@ -691,17 +748,12 @@ const writePageBottomHtml = await applyFilterSafely(ctx, 'admin:writePage:bottom
         return false;
       });
 
-      $('#btn-preview').click(function () {
-        $('.wmd-edittab a[href="#wmd-preview"]').trigger('click');
-      });
-      $('#btn-cancel-preview').click(function () {
-        $('.wmd-edittab a[href="#wmd-editarea"]').trigger('click');
-      });
-
       // 缩略名仅在永久链接格式使用 {slug} 时存在，并随内容长度调整宽度。
       $('#slug').on('input', function () {
         $(this).attr('size', Math.max(5, String($(this).val() || '').length));
-      }).trigger('input');
+      }).each(function () {
+        $(this).attr('size', Math.max(5, String($(this).val() || '').length));
+      });
 
       // ========== 自定义字段 ==========
       (function () {

@@ -27,6 +27,7 @@ export function defaultCspDirectives(): CspDirectives {
     'font-src': ["'self'", 'data:'],
     'connect-src': ["'self'"],
     'frame-src': [
+      "'self'",
       'https://www.youtube.com',
       'https://player.bilibili.com',
       'https://player.vimeo.com',
@@ -62,6 +63,8 @@ export interface SecurityHeaderContext {
    * to source code from anywhere — including the site itself.
    */
   upload?: boolean;
+  /** Allow the authenticated /admin/preview response to be framed by its editor. */
+  allowSameOriginFrame?: boolean;
 }
 
 /**
@@ -93,14 +96,21 @@ export async function applySecurityHeaders(
     } catch {
       // Plugin failures already logged by applyFilterSafely.
     }
+    if (secCtx.allowSameOriginFrame) {
+      directives['frame-ancestors'] = ["'self'"];
+    }
     cspString = serializeCsp(directives);
   } else {
-    cspString = serializeCsp(defaultCspDirectives());
+    const directives = defaultCspDirectives();
+    if (secCtx.allowSameOriginFrame) {
+      directives['frame-ancestors'] = ["'self'"];
+    }
+    cspString = serializeCsp(directives);
   }
 
   const additions: Array<[string, string]> = [
     ['X-Content-Type-Options', 'nosniff'],
-    ['X-Frame-Options', 'DENY'],
+    ['X-Frame-Options', secCtx.allowSameOriginFrame ? 'SAMEORIGIN' : 'DENY'],
     ['Referrer-Policy', 'strict-origin-when-cross-origin'],
     ['Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()'],
     ['Cross-Origin-Opener-Policy', 'same-origin'],

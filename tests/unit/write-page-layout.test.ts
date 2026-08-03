@@ -16,6 +16,13 @@ describe('Typecho 1.3 page editor layout', () => {
     expect(source).not.toContain('edit-slug-btn');
   });
 
+  it('does not report the slug width initialization as an edit', () => {
+    const slugSection = source.slice(source.indexOf('// 缩略名'), source.indexOf('// ========== 自定义字段'));
+
+    expect(slugSection).toContain('}).each(function () {');
+    expect(slugSection).not.toContain(".trigger('input')");
+  });
+
   it('places custom fields below the editor using the Typecho details layout', () => {
     const editor = source.indexOf('id="text" name="text"');
     const customField = source.indexOf('id="custom-field"');
@@ -68,6 +75,16 @@ describe('Typecho 1.3 page editor layout', () => {
     expect(source).toContain('/api/admin/editor-size');
     expect(source).toContain("textarea.blur().css('opacity', 0.25)");
     expect(source).toContain("textarea.css('opacity', 1)");
+  });
+
+  it('opens the saved draft in a full-theme preview iframe', () => {
+    expect(source).toContain("$(document.body).addClass('fullscreen preview')");
+    expect(source).toContain(".attr('src', '/admin/preview?cid=' + encodeURIComponent(cid))");
+    expect(source).toContain(".attr('sandbox', 'allow-same-origin allow-scripts')");
+    expect(source).toContain("window.confirm('修改后的内容需要保存后才能预览, 是否保存?')");
+    expect(source).toContain('previewData(draftId || cid)');
+    expect(source).toContain("$(window).on('message.writePagePreview'");
+    expect(source).not.toContain("$('.wmd-edittab a[href=\"#wmd-preview\"]').trigger('click')");
   });
 
   it('sends the CSRF header with attachment upload and deletion requests', () => {

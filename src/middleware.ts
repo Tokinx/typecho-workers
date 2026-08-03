@@ -324,7 +324,12 @@ export const onRequest = defineMiddleware(async (context, next) => {
     }
   }
 
-  response = await applySecurityHeaders(response, { request: context.request }, pluginCtx);
+  response = await applySecurityHeaders(response, {
+    request: context.request,
+    // The editor's same-origin, sandboxed iframe is the sole exception to
+    // the default anti-framing policy.
+    allowSameOriginFrame: path === '/admin/preview',
+  }, pluginCtx);
 
   // ── Write response to edge cache ──────────────────────────────────────────
   if (cacheKey && response.status === 200) {
