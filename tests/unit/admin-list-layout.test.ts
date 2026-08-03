@@ -66,6 +66,13 @@ describe('admin list layout', () => {
     expect(layout).toContain("siblings('form.operate-form').first()");
   });
 
+  it('keeps native controls inside an operation menu open for interaction', () => {
+    const layout = readProjectFile('src/layouts/Admin.astro');
+
+    expect(layout).toContain("$('.dropdown-menu').on('click', function (event) {");
+    expect(layout).toContain('event.stopPropagation();');
+  });
+
   it('uses the same list operation structure in the WebDAV management page', () => {
     const source = readProjectFile('src/plugins/typecho-plugin-webdav/index.ts');
 
@@ -92,5 +99,29 @@ describe('admin list layout', () => {
     expect(source).toContain('{!keywords && (');
     expect(layout).toContain('addLink?: string;');
     expect(layout).toContain('{addLink && <a href={addLink}>新增</a>}');
+  });
+
+  it('keeps Typecho 1.3 category hierarchy, merge, and separate editor markup', () => {
+    const list = readProjectFile('src/pages/admin/manage-categories.astro');
+    const editor = readProjectFile('src/pages/admin/category.astro');
+
+    expect(list).toContain("addLink={parentId > 0 ? `/admin/category?parent=${parentId}` : '/admin/category'}");
+    expect(list).toContain("? `管理 ${parentCategory.name || '未命名分类'} 的子分类`");
+    expect(list).toContain('data-category-parent={String(parentId)}');
+    expect(list).toContain('<th class="kit-hidden-mb">子分类</th>');
+    expect(list).toContain('id={`mid-${category.mid}`}');
+    expect(list).toContain('/admin/manage-categories?parent=${category.mid}');
+    expect(list).toContain('/admin/category?parent=${category.mid}');
+    expect(list).toContain('<li class="multiline">');
+    expect(list).toContain('class="btn merge btn-s"');
+    expect(list).toContain('table.tableDnD({');
+    expect(list).toContain('/api/admin/meta?action=sort&type=category');
+    expect(list).not.toContain('typecho-mini-panel');
+
+    expect(editor).toContain('col-tb-6 col-tb-offset-3');
+    expect(editor).toContain('name="parent"');
+    expect(editor).toContain('excludedParentIds');
+    expect(editor).toContain('name="description"');
+    expect(editor).toContain("editCategory ? '编辑分类' : '增加分类'");
   });
 });

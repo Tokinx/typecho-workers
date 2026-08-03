@@ -2,37 +2,66 @@
 import Admin from '@/layouts/Admin.astro';
 import { createContext, requireAuth } from '@/lib/context';
 import { hasPermission } from '@/lib/auth';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { schema } from '@/db';
+import { buildCategoryLink } from '@/lib/content';
 
 const ctx = await createContext(Astro.locals, Astro.request);
 const authCheck = requireAuth(ctx);
 if (authCheck) return authCheck;
-
 if (!hasPermission(ctx.user!.group || 'visitor', 'editor')) {
   return new Response('Forbidden', { status: 403 });
 }
 
 const { db, options, urls, user, csrfToken } = ctx;
+const rawParent = Astro.url.searchParams.get('parent') || '';
+const parentId = rawParent ? Number(rawParent) : 0;
+if (rawParent && (!/^\d+$/.test(rawParent) || !Number.isSafeInteger(parentId))) {
+  return new Response('分类不存在', { status: 404 });
+}
 
-// Editing
-const editMid = Astro.url.searchParams.get('mid');
-const editId = editMid ? parseInt(editMid, 10) : 0;
-const [categories, editRows] = await db.batch([
+const parentCategory = parentId > 0
+  ? await db.query.metas.findFirst({
+    where: and(eq(schema.metas.mid, parentId), eq(schema.metas.type, 'category')),
+  })
+  : null;
+if (parentId > 0 && !parentCategory) {
+  return new Response('分类不存在', { status: 404 });
+}
+
+const [categories, childCountRows] = await db.batch([
   db.select().from(schema.metas)
+    .where(and(
+      eq(schema.metas.type, 'category'),
+      sql`coalesce(${schema.metas.parent}, 0) = ${parentId}`,
+    ))
+    .orderBy(schema.metas.order, schema.metas.name),
+  db.select({ parent: schema.metas.parent, count: sql<number>`count(*)` })
+    .from(schema.metas)
     .where(eq(schema.metas.type, 'category'))
-    .orderBy(schema.metas.order),
-  db.select().from(schema.metas)
-    .where(and(eq(schema.metas.mid, editId || -1), eq(schema.metas.type, 'category')))
-    .limit(1),
+    .groupBy(schema.metas.parent),
 ]);
-const editCat: any = editRows[0] ?? null;
-
-const isDefault = (mid: number) => options.defaultCategory === mid;
+const childCounts = new Map(childCountRows.map(row => [Number(row.parent) || 0, Number(row.count)]));
+const categoryListTitle = parentCategory
+  ? `管理 ${parentCategory.name || '未命名分类'} 的子分类`
+  : '管理分类';
+const parentBackHref = parentCategory?.parent
+  ? `/admin/manage-categories?parent=${parentCategory.parent}`
+  : '/admin/manage-categories';
+const isDefault = (mid: number) => (Number(options.defaultCategory) || 0) === mid;
 ---
-<Admin title="管理分类" options={options} urls={urls} user={user} activeMenu="manage-categories" pluginCtx={ctx}>
+<Admin
+  title={categoryListTitle}
+  addLink={parentId > 0 ? `/admin/category?parent=${parentId}` : '/admin/category'}
+  options={options}
+  urls={urls}
+  user={user}
+  activeMenu="manage-categories"
+  bodyClass="manage-metas"
+  pluginCtx={ctx}
+>
   <div class="col-mb-12" role="main">
-    <form method="post" name="manage_categories" class="operate-form">
+    <form method="post" name="manage_categories" class="operate-form" data-category-parent={String(parentId)}>
       <input type="hidden" name="_" value={csrfToken} />
       <div class="typecho-list-operate">
         <div class="operate">
@@ -42,92 +71,136 @@ const isDefault = (mid: number) => options.defaultCategory === mid;
             <ul class="dropdown-menu">
               <li><a href="/api/admin/meta?action=delete&type=category">删除</a></li>
               <li><a href="/api/admin/meta?action=refresh&type=category">刷新</a></li>
+              <li class="multiline">
+                <button type="button" class="btn merge btn-s">合并到</button>
+                <select name="merge" aria-label="合并目标分类">
+                  {categories.map((category) => <option value={String(category.mid)}>{category.name}</option>)}
+                </select>
+              </li>
             </ul>
           </div>
+        </div>
+        <div class="search" role="search">
+          {parentCategory && <a href={parentBackHref}>&laquo; 返回父级分类</a>}
         </div>
       </div>
 
       <table class="typecho-list-table">
-          <colgroup>
-            <col width="20" class="kit-hidden-mb" />
-            <col width="" />
-            <col width="25%" class="kit-hidden-mb" />
-            <col width="15%" />
-            <col width="10%" class="kit-hidden-mb" />
-          </colgroup>
-          <thead>
-            <tr class="nodrag">
-              <th class="kit-hidden-mb"></th>
-              <th>名称</th>
-              <th class="kit-hidden-mb">缩略名</th>
-              <th></th>
-              <th class="kit-hidden-mb">文章数</th>
+        <colgroup>
+          <col width="3%" class="kit-hidden-mb" />
+          <col width="" />
+          <col width="15%" class="kit-hidden-mb" />
+          <col width="20%" class="kit-hidden-mb" />
+          <col width="15%" />
+          <col width="15%" class="kit-hidden-mb" />
+        </colgroup>
+        <thead>
+          <tr class="nodrag">
+            <th class="kit-hidden-mb"></th>
+            <th>名称</th>
+            <th class="kit-hidden-mb">子分类</th>
+            <th class="kit-hidden-mb">缩略名</th>
+            <th></th>
+            <th class="kit-hidden-mb">文章数</th>
+          </tr>
+        </thead>
+        <tbody>
+          {categories.length === 0 ? (
+            <tr>
+              <td colspan="6" class="none">没有任何分类</td>
             </tr>
-          </thead>
-          <tbody>
-            {categories.length === 0 ? (
-              <tr>
-                <td colspan="5" class="none">没有任何分类</td>
-              </tr>
-            ) : (
-              categories.map((cat) => (
-                <tr id={`mid-${cat.mid}`}>
-                  <td class="kit-hidden-mb"><input type="checkbox" value={String(cat.mid)} name="mid[]" /></td>
+          ) : (
+            categories.map((category) => {
+              const childCount = childCounts.get(category.mid) || 0;
+              const categoryLink = buildCategoryLink(
+                category.slug || '',
+                urls.siteUrl,
+                options.categoryPattern as string | undefined,
+                category.mid,
+              );
+              return (
+                <tr id={`mid-${category.mid}`}>
+                  <td class="kit-hidden-mb"><input type="checkbox" value={String(category.mid)} name="mid[]" /></td>
                   <td>
-                    <a href={`/admin/manage-categories?mid=${cat.mid}`}>{cat.name}</a>
-                    <a href={`/category/${cat.slug}/`} title={`浏览 ${cat.name}`}><i class="i-exlink"></i></a>
+                    <a href={`/admin/category?mid=${category.mid}`}>{category.name}</a>
+                    <a href={categoryLink} title={`浏览 ${category.name}`}><i class="i-exlink"></i></a>
                   </td>
-                  <td class="kit-hidden-mb">{cat.slug}</td>
+                  <td class="kit-hidden-mb">
+                    {childCount > 0 ? (
+                      <a href={`/admin/manage-categories?parent=${category.mid}`}>
+                        {childCount === 1 ? '一个分类' : `${childCount}个分类`}
+                      </a>
+                    ) : (
+                      <a href={`/admin/category?parent=${category.mid}`}>新增</a>
+                    )}
+                  </td>
+                  <td class="kit-hidden-mb">{category.slug}</td>
                   <td>
-                    {isDefault(cat.mid) ? (
+                    {isDefault(category.mid) ? (
                       <span>默认</span>
                     ) : (
                       <a class="hidden-by-mouse"
-                        href={`/api/admin/meta?action=default&mid=${cat.mid}&type=category&_=${csrfToken}`}
+                        href={`/api/admin/meta?action=default&mid=${category.mid}&type=category&_=${csrfToken}`}
                         title="设为默认">默认</a>
                     )}
                   </td>
                   <td class="kit-hidden-mb">
-                    <a class="balloon-button left size-small" href={`/admin/manage-posts?category=${cat.mid}`}>{cat.count || 0}</a>
+                    <a class="balloon-button left size-small" href={`/admin/manage-posts?category=${category.mid}`}>{category.count || 0}</a>
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
+              );
+            })
+          )}
+        </tbody>
       </table>
     </form>
-
-    <div class="typecho-mini-panel" style="margin-top: 20px;">
-      <form method="post" action="/api/admin/meta">
-        <input type="hidden" name="_" value={csrfToken} />
-        <input type="hidden" name="action" value={editCat ? 'update' : 'create'} />
-        <input type="hidden" name="type" value="category" />
-        {editCat && <input type="hidden" name="mid" value={String(editCat.mid)} />}
-
-        <h4>{editCat ? '编辑分类' : '新增分类'}</h4>
-
-        <ul class="typecho-option">
-          <li>
-            <label for="name" class="typecho-label">名称 *</label>
-            <input type="text" id="name" name="name" class="text w-100" value={editCat?.name || ''} required />
-          </li>
-          <li>
-            <label for="slug" class="typecho-label">缩略名</label>
-            <input type="text" id="slug" name="slug" class="text w-100" value={editCat?.slug || ''} placeholder="留空自动生成" />
-            <p class="description">分类缩略名用于创建友好的链接形式, 建议使用字母、数字、下划线和连字符</p>
-          </li>
-          <li>
-            <label for="description" class="typecho-label">描述</label>
-            <textarea id="description" name="description" class="w-100 mono" rows="3">{editCat?.description || ''}</textarea>
-            <p class="description">此文字用于描述分类, 在有些主题中它会被显示</p>
-          </li>
-        </ul>
-
-        <p>
-          <button type="submit" class="btn primary">{editCat ? '更新分类' : '增加分类'}</button>
-          {editCat && <a href="/admin/manage-categories" class="btn">取消</a>}
-        </p>
-      </form>
-    </div>
   </div>
+
+  <script is:inline>
+    document.addEventListener('DOMContentLoaded', function () {
+      var table = $('.typecho-list-table');
+      if (!table.length) return;
+
+      table.tableDnD({
+        onDrop: function () {
+          var ids = [];
+          var form = table.closest('form.operate-form');
+
+          $('tbody input[type=checkbox]', table).each(function () {
+            ids.push($(this).val());
+          });
+
+          $.post('/api/admin/meta?action=sort&type=category', $.param({
+            mid: ids,
+            parent: form.data('category-parent'),
+            _: $('input[name="_"]', form).val()
+          }));
+
+          $('tr', table).each(function (index) {
+            $(this).toggleClass('even', index % 2 === 1);
+          });
+        }
+      });
+
+      $('.dropdown-menu button.merge').on('click', function () {
+        var form = $(this).closest('form.operate-form');
+        if ($('input[type=checkbox]:checked', form).length === 0) {
+          alert('请先选择要操作的项目');
+          return;
+        }
+        if (!$('select[name="merge"]', form).val()) {
+          alert('请选择合并目标分类');
+          return;
+        }
+
+        form.attr('action', '/api/admin/meta?action=merge&type=category').submit();
+      });
+
+      table.on('click', 'a[href*="action=default"]', function (event) {
+        event.preventDefault();
+        var form = $(this).closest('form.operate-form');
+        form.attr('action', $(this).attr('href')).submit();
+      });
+    });
+  </script>
 </Admin>

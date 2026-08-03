@@ -1,0 +1,119 @@
+---
+import Admin from '@/layouts/Admin.astro';
+import { createContext, requireAuth } from '@/lib/context';
+import { hasPermission } from '@/lib/auth';
+import { and, eq } from 'drizzle-orm';
+import { schema } from '@/db';
+
+const ctx = await createContext(Astro.locals, Astro.request);
+const authCheck = requireAuth(ctx);
+if (authCheck) return authCheck;
+if (!hasPermission(ctx.user!.group || 'visitor', 'editor')) {
+  return new Response('Forbidden', { status: 403 });
+}
+
+const { db, options, urls, user, csrfToken } = ctx;
+const rawMid = Astro.url.searchParams.get('mid') || '';
+const rawParent = Astro.url.searchParams.get('parent') || '';
+if ((rawMid && (!/^\d+$/.test(rawMid) || !Number.isSafeInteger(Number(rawMid)) || Number(rawMid) <= 0))
+  || (rawParent && (!/^\d+$/.test(rawParent) || !Number.isSafeInteger(Number(rawParent))))) {
+  return new Response('分类不存在', { status: 404 });
+}
+
+const editMid = rawMid ? Number(rawMid) : 0;
+const requestedParentId = rawParent ? Number(rawParent) : 0;
+const categories = await db.select().from(schema.metas)
+  .where(eq(schema.metas.type, 'category'))
+  .orderBy(schema.metas.order, schema.metas.name);
+const categoryByMid = new Map(categories.map(category => [category.mid, category] as const));
+const editCategory = editMid ? categoryByMid.get(editMid) : null;
+if (editMid && !editCategory) {
+  return new Response('分类不存在', { status: 404 });
+}
+const requestedParent = requestedParentId > 0 ? categoryByMid.get(requestedParentId) : null;
+if (requestedParentId > 0 && !requestedParent) {
+  return new Response('分类不存在', { status: 404 });
+}
+
+const excludedParentIds = new Set<number>();
+if (editCategory) {
+  excludedParentIds.add(editCategory.mid);
+  const pending = [editCategory.mid];
+  while (pending.length > 0) {
+    const parent = pending.pop()!;
+    for (const category of categories) {
+      if ((Number(category.parent) || 0) !== parent || excludedParentIds.has(category.mid)) continue;
+      excludedParentIds.add(category.mid);
+      pending.push(category.mid);
+    }
+  }
+}
+
+const childrenByParent = new Map<number, typeof categories>();
+for (const category of categories) {
+  const parent = Number(category.parent) || 0;
+  const children = childrenByParent.get(parent) || [];
+  children.push(category);
+  childrenByParent.set(parent, children);
+}
+const parentOptions: Array<{ mid: number; name: string; level: number }> = [];
+const visitedParentOptions = new Set<number>();
+function addParentOptions(parent: number, level: number): void {
+  for (const category of childrenByParent.get(parent) || []) {
+    if (excludedParentIds.has(category.mid) || !visitedParentOptions.add(category.mid)) continue;
+    parentOptions.push({ mid: category.mid, name: category.name || '未命名分类', level });
+    addParentOptions(category.mid, level + 1);
+  }
+}
+addParentOptions(0, 0);
+
+const selectedParent = editCategory
+  ? Number(editCategory.parent) || 0
+  : requestedParentId;
+const pageTitle = editCategory
+  ? `编辑分类 ${editCategory.name || ''}`.trim()
+  : requestedParent
+    ? `新增 ${requestedParent.name || '分类'} 的子分类`
+    : '新增分类';
+---
+<Admin title={pageTitle} options={options} urls={urls} user={user} activeMenu="manage-categories" pluginCtx={ctx}>
+  <div class="col-mb-12 col-tb-6 col-tb-offset-3" role="form">
+    <form method="post" action="/api/admin/meta">
+      <input type="hidden" name="_" value={csrfToken} />
+      <input type="hidden" name="action" value={editCategory ? 'update' : 'create'} />
+      <input type="hidden" name="type" value="category" />
+      {editCategory && <input type="hidden" name="mid" value={String(editCategory.mid)} />}
+
+      <ul class="typecho-option">
+        <li>
+          <label for="name" class="typecho-label">分类名称 *</label>
+          <input type="text" id="name" name="name" class="text w-100" value={editCategory?.name || ''} required />
+        </li>
+        <li>
+          <label for="slug" class="typecho-label">分类缩略名</label>
+          <input type="text" id="slug" name="slug" class="text w-100" value={editCategory?.slug || ''} />
+          <p class="description">分类缩略名用于创建友好的链接形式, 建议使用字母、数字、下划线和连字符.</p>
+        </li>
+        <li>
+          <label for="parent" class="typecho-label">父级分类</label>
+          <select id="parent" name="parent">
+            <option value="0" selected={selectedParent === 0}>不选择</option>
+            {parentOptions.map((category) => (
+              <option value={String(category.mid)} selected={selectedParent === category.mid}>
+                {'\u00a0\u00a0\u00a0\u00a0'.repeat(category.level)}{category.name}
+              </option>
+            ))}
+          </select>
+          <p class="description">此分类将归档在您选择的父级分类下.</p>
+        </li>
+        <li>
+          <label for="description" class="typecho-label">分类描述</label>
+          <textarea id="description" name="description" class="w-100 mono" rows="3">{editCategory?.description || ''}</textarea>
+          <p class="description">此文字用于描述分类, 在有的主题中它会被显示.</p>
+        </li>
+      </ul>
+
+      <p><button type="submit" class="btn primary">{editCategory ? '编辑分类' : '增加分类'}</button></p>
+    </form>
+  </div>
+</Admin>

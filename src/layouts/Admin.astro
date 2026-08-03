@@ -218,6 +218,12 @@ const adminFooterHtml = await applyFilterSafely(_pluginCtx, 'admin:footer', '', 
           $('.dropdown-menu').hide();
         });
 
+        // Controls inside an operation menu, such as category merge targets,
+        // must remain usable without the document-level close handler firing.
+        $('.dropdown-menu').on('click', function (event) {
+          event.stopPropagation();
+        });
+
         // 批量操作 - dropdown-menu 链接
         $('.dropdown-menu a[href*="/api/admin/"]').click(function (e) {
           e.preventDefault();

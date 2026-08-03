@@ -143,4 +143,30 @@ describe('POST /api/admin/meta delete (G7-1)', () => {
     const gone = await testDb.query.metas.findFirst({ where: eq(schema.metas.mid, orphanMid) });
     expect(gone).toBeFalsy();
   });
+
+  it('moves child categories to the nearest surviving parent', async () => {
+    const admin = await seedAdmin(testDb, { secret: TEST_SECRET, authCode: TEST_AUTH_CODE });
+    const cookie = await makeAuthCookie(testDb, admin.uid, TEST_AUTH_CODE, TEST_SECRET);
+
+    const [root] = await testDb.insert(schema.metas).values({
+      name: 'Root', slug: 'root', type: 'category', count: 0, order: 1, parent: 0,
+    }).returning();
+    await seedDefaultCategory(root.mid);
+    const [removed] = await testDb.insert(schema.metas).values({
+      name: 'Removed', slug: 'removed', type: 'category', count: 0, order: 1, parent: root.mid,
+    }).returning();
+    const [child] = await testDb.insert(schema.metas).values({
+      name: 'Child', slug: 'child', type: 'category', count: 0, order: 1, parent: removed.mid,
+    }).returning();
+
+    const res = await POST({
+      request: buildDeleteRequest(removed.mid, cookie),
+      locals: {},
+      url: new URL('https://example.com/api/admin/meta'),
+    } as any);
+
+    expect(res.status).toBe(302);
+    const childAfterDelete = await testDb.query.metas.findFirst({ where: eq(schema.metas.mid, child.mid) });
+    expect(childAfterDelete?.parent).toBe(root.mid);
+  });
 });
