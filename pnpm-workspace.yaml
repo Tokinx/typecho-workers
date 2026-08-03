@@ -1,3 +1,7 @@
+packages:
+  - 'src/plugins/*'
+  - 'src/themes/*'
+
 allowBuilds:
   esbuild: true
   sharp: true

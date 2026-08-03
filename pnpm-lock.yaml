@@ -79,6 +79,22 @@ importers:
         specifier: ^4.114.0
         version: 4.114.0
 
+  src/plugins/typecho-plugin-antispam: {}
+
+  src/plugins/typecho-plugin-mailer: {}
+
+  src/plugins/typecho-plugin-notes: {}
+
+  src/plugins/typecho-plugin-scribe: {}
+
+  src/plugins/typecho-plugin-turnstile: {}
+
+  src/plugins/typecho-plugin-webdav: {}
+
+  src/plugins/typecho-plugin-wechat-publisher: {}
+
+  src/themes/typecho-theme-minimal: {}
+
 packages:
 
   '@astrojs/cloudflare@14.1.5':

@@ -105,6 +105,33 @@ pnpm run deploy
 
 部署完成后访问 Worker URL，首次访问自动跳转安装向导。
 
+### Git 自动部署（不提交 `wrangler.toml`）
+
+Cloudflare Workers Builds 从 Git 检出时没有本地的 `wrangler.toml`。本项目的
+`build:cloudflare` 会在构建前根据构建变量生成一个被忽略的临时配置，使 Astro
+和 Wrangler 都能获得相同的兼容性与资源绑定配置。
+
+在 Cloudflare 的 **Build variables** 中添加以下值：
+
+| 变量 | 值 |
+|------|----|
+| `TYPECHO_CF_D1_DATABASE_ID` | D1 数据库 ID |
+| `TYPECHO_CF_D1_DATABASE_NAME` | D1 数据库名称，例如 `typecho-cf-db` |
+| `TYPECHO_CF_R2_BUCKET_NAME` | R2 存储桶名称，例如 `typecho-cf-uploads` |
+| `TYPECHO_CF_PBKDF2_ITERATIONS` | Workers Free 使用 `50000` |
+| `TYPECHO_CF_WORKER_NAME` | 可选；Worker 名称，默认 `typecho-cf` |
+
+将构建设置改为：
+
+```text
+构建命令：pnpm run build:cloudflare
+部署命令：pnpm run deploy:cloudflare-build
+```
+
+该流程不会写入 `PASSWORD_PEPPER` 或 `INSTALL_TOKEN`。首次 Git 部署创建 Worker
+后，在 Worker 的 **Variables and Secrets** 中分别添加这两个 Secret，再重新部署，
+然后才能提交安装表单。
+
 ---
 
 ## 命令参考
@@ -113,7 +140,9 @@ pnpm run deploy
 |------|------|
 | `pnpm run dev` | 本地开发服务器 |
 | `pnpm run build` | 生产构建 |
+| `pnpm run build:cloudflare` | Git 构建前生成被忽略的 Worker 配置，再构建 |
 | `pnpm run deploy` | 构建 + 部署到 Cloudflare Workers |
+| `pnpm run deploy:cloudflare-build` | 使用构建期临时配置部署 Worker |
 | `pnpm run test` | 运行所有测试 |
 | `pnpm run test:watch` | 监听模式运行测试 |
 | `pnpm run test:coverage` | 生成覆盖率报告 |

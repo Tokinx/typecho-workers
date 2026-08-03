@@ -20,4 +20,18 @@ describe('package scripts', () => {
     expect(pkg.scripts['db:migrate:cloudflare']).toBeUndefined();
     expect(pkg.scripts['db:migrate:dry-run']).toBeUndefined();
   });
+
+  it('declares local plugins and themes as pnpm workspace packages', () => {
+    const workspace = readFileSync(join(process.cwd(), 'pnpm-workspace.yaml'), 'utf-8');
+
+    expect(workspace).toMatch(/packages:\s*\n\s*- 'src\/plugins\/\*'/);
+    expect(workspace).toMatch(/packages:[\s\S]*- 'src\/themes\/\*'/);
+  });
+
+  it('provides a dedicated Git build and deploy path for an ignored Worker config', () => {
+    const pkg = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf-8'));
+
+    expect(pkg.scripts['build:cloudflare']).toContain('generate:cloudflare-config');
+    expect(pkg.scripts['deploy:cloudflare-build']).toBe('wrangler deploy --config wrangler.toml');
+  });
 });

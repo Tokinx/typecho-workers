@@ -10,7 +10,10 @@
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
+    "generate:cloudflare-config": "tsx scripts/generate-wrangler-config.ts",
+    "build:cloudflare": "pnpm run generate:cloudflare-config && astro build",
     "deploy": "pnpm build && wrangler deploy",
+    "deploy:cloudflare-build": "wrangler deploy --config wrangler.toml",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
