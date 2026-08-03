@@ -46,6 +46,22 @@ describe('admin list layout', () => {
     }
   });
 
+  it('uses the Typecho 1.3 tag cloud and keeps its merge target in the operation menu', () => {
+    const source = readProjectFile('src/pages/admin/manage-tags.astro');
+
+    expect(source).toContain('class="typecho-list-notable tag-list"');
+    expect(source).not.toContain('<table class="typecho-list-table">');
+    expect(source).toContain('<span rel={`/admin/manage-tags?mid=${tag.mid}`}>{tag.name}</span>');
+    expect(source).toContain('class="tag-edit-link"');
+    expect(source).not.toContain('<h4>');
+    expect(source).toContain('class="btn merge btn-s"');
+    expect(source).toContain('name="merge"');
+    expect(source).toContain('/api/admin/meta?action=merge&type=tag');
+    expect(source).toContain('编辑标签 ${editTag.name');
+    expect(source).toContain("editTag ? '更新标签' : '增加标签'");
+    expect(source).toContain('编辑标签 ${editTag.name || \'未命名标签\'}');
+  });
+
   it('uses upstream operation spacing without legacy wrapper compatibility rules', () => {
     const css = readProjectFile('public/css/admin.css');
 
@@ -62,6 +78,7 @@ describe('admin list layout', () => {
 
     expect(layout).toContain("root.is('form.operate-form')");
     expect(layout).toContain("root.find('.typecho-list-table tbody input[type=checkbox]')");
+    expect(layout).toContain("root.find('.typecho-list-notable input[type=checkbox]')");
     expect(layout).toContain("inputNode.closest('form.typecho-list-operate').parent()");
     expect(layout).toContain("siblings('form.operate-form').first()");
   });

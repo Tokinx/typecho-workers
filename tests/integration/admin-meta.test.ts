@@ -285,6 +285,64 @@ describe('POST /api/admin/meta category hierarchy and bulk actions', () => {
   });
 });
 
+describe('POST /api/admin/meta tag merge', () => {
+  it('merges tag relationships, deduplicates posts, and refreshes the target count', async () => {
+    const [target, sourceA, sourceB] = await testDb.insert(schema.metas).values([
+      { name: 'Target', slug: 'target', type: 'tag', count: 0 },
+      { name: 'Source A', slug: 'source-a', type: 'tag', count: 0 },
+      { name: 'Source B', slug: 'source-b', type: 'tag', count: 0 },
+    ]).returning();
+    await testDb.insert(schema.contents).values([
+      { title: 'One', slug: 'one', type: 'post', status: 'publish' },
+      { title: 'Two', slug: 'two', type: 'post', status: 'publish' },
+    ]);
+    const contents = await testDb.select().from(schema.contents).orderBy(schema.contents.cid);
+    await testDb.insert(schema.relationships).values([
+      { cid: contents[0].cid, mid: sourceA.mid },
+      { cid: contents[0].cid, mid: sourceB.mid },
+      { cid: contents[1].cid, mid: sourceA.mid },
+      { cid: contents[1].cid, mid: target.mid },
+    ]);
+
+    const cookie = await makeAuthCookie(testDb, 1, AUTH_CODE, SECRET);
+    const merge = makeAdminReq('/api/admin/meta?action=merge&type=tag', {
+      'mid[]': [String(sourceA.mid), String(sourceB.mid)], merge: target.name || 'Target',
+    }, cookie);
+    const res = await POST({ request: merge, locals: {}, url: new URL(merge.url) } as any);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get('Location')).toBe('/admin/manage-tags');
+    expect(await testDb.query.metas.findFirst({ where: (table, { eq }) => eq(table.mid, sourceA.mid) })).toBeUndefined();
+    expect(await testDb.query.metas.findFirst({ where: (table, { eq }) => eq(table.mid, sourceB.mid) })).toBeUndefined();
+    const targetAfterMerge = await testDb.query.metas.findFirst({ where: (table, { eq }) => eq(table.mid, target.mid) });
+    expect(targetAfterMerge?.count).toBe(2);
+    const targetRelationships = (await testDb.select().from(schema.relationships))
+      .filter(relationship => relationship.mid === target.mid);
+    expect(targetRelationships.map(relationship => relationship.cid).sort()).toEqual(contents.map(content => content.cid).sort());
+  });
+
+  it('creates the requested target tag and rejects an invalid source selection', async () => {
+    const [source, category] = await testDb.insert(schema.metas).values([
+      { name: 'Source', slug: 'source', type: 'tag', count: 0 },
+      { name: 'Category', slug: 'category', type: 'category', count: 0 },
+    ]).returning();
+    const cookie = await makeAuthCookie(testDb, 1, AUTH_CODE, SECRET);
+
+    const merge = makeAdminReq('/api/admin/meta?action=merge&type=tag', {
+      'mid[]': [String(source.mid)], merge: 'Merged',
+    }, cookie);
+    const mergeRes = await POST({ request: merge, locals: {}, url: new URL(merge.url) } as any);
+    expect(mergeRes.status).toBe(302);
+    expect(await testDb.query.metas.findFirst({ where: (table, { and, eq }) => and(eq(table.type, 'tag'), eq(table.name, 'Merged')) })).toBeTruthy();
+
+    const invalid = makeAdminReq('/api/admin/meta?action=merge&type=tag', {
+      'mid[]': [String(category.mid)], merge: 'Other',
+    }, cookie);
+    const invalidRes = await POST({ request: invalid, locals: {}, url: new URL(invalid.url) } as any);
+    expect(invalidRes.status).toBe(404);
+  });
+});
+
 describe('GET /api/admin/meta', () => {
   it('returns 401 without auth', async () => {
     const req = new Request('https://example.com/api/admin/meta');

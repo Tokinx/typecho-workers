@@ -212,6 +212,82 @@ async function handler({ request, locals, url }: { request: Request; locals: App
     });
   }
 
+  if (action === 'merge' && type === 'tag') {
+    const sourceIds = validateMetaIds(rawMids, '请选择要合并的标签');
+    if ('error' in sourceIds) return new Response(sourceIds.error, { status: 400 });
+
+    const targetName = formData.get('merge')?.toString().trim() || '';
+    if (!targetName) return new Response('请填写合并目标标签', { status: 400 });
+
+    const sourceIdSql = sql.join(sourceIds.ids.map(id => sql`${id}`), sql`, `);
+    const sourceTags = await db.select({ mid: schema.metas.mid })
+      .from(schema.metas)
+      .where(and(
+        eq(schema.metas.type, 'tag'),
+        sql`${schema.metas.mid} IN (${sourceIdSql})`,
+      ));
+    if (sourceTags.length !== sourceIds.ids.length) {
+      return new Response('标签不存在', { status: 404 });
+    }
+
+    let targetTag = await db.query.metas.findFirst({
+      where: and(eq(schema.metas.type, 'tag'), eq(schema.metas.name, targetName)),
+    });
+    if (!targetTag) {
+      const targetSlug = generateSlug(targetName) || targetName.toLowerCase().replace(/\s+/g, '-');
+      const inserted = await db.insert(schema.metas).values({
+        name: targetName,
+        slug: targetSlug,
+        type: 'tag',
+        count: 0,
+        order: 0,
+      }).returning();
+      targetTag = inserted[0];
+    }
+    if (!targetTag) return new Response('合并目标标签无效', { status: 400 });
+
+    // Typecho permits selecting the target as well: it remains in place while
+    // the other selected tags are merged into it.
+    const mergeIds = sourceIds.ids.filter(id => id !== targetTag!.mid);
+    if (mergeIds.length > 0) {
+      const mergeIdSql = sql.join(mergeIds.map(id => sql`${id}`), sql`, `);
+      const [sourceRelationships, targetRelationships] = await db.batch([
+        db.select({ cid: schema.relationships.cid })
+          .from(schema.relationships)
+          .where(sql`${schema.relationships.mid} IN (${mergeIdSql})`),
+        db.select({ cid: schema.relationships.cid })
+          .from(schema.relationships)
+          .where(eq(schema.relationships.mid, targetTag.mid)),
+      ]);
+      const targetCids = new Set(targetRelationships.map(row => row.cid));
+      const relationshipInserts: any[] = [];
+      for (const relationship of sourceRelationships) {
+        if (targetCids.has(relationship.cid)) continue;
+        targetCids.add(relationship.cid);
+        relationshipInserts.push(db.insert(schema.relationships).values({ cid: relationship.cid, mid: targetTag.mid }));
+      }
+
+      await runBatch(db, [
+        ...relationshipInserts,
+        db.delete(schema.relationships).where(sql`${schema.relationships.mid} IN (${mergeIdSql})`),
+        db.delete(schema.metas).where(and(
+          eq(schema.metas.type, 'tag'),
+          sql`${schema.metas.mid} IN (${mergeIdSql})`,
+        )),
+      ]);
+    }
+
+    const [{ count }] = await db.select({ count: sql<number>`count(*)` })
+      .from(schema.relationships)
+      .where(eq(schema.relationships.mid, targetTag.mid));
+    await db.update(schema.metas).set({ count: Number(count) || 0 })
+      .where(and(eq(schema.metas.mid, targetTag.mid), eq(schema.metas.type, 'tag')));
+
+    await bumpCacheVersion(db);
+    await purgeSiteCache(options.siteUrl || '');
+    return new Response(null, { status: 302, headers: { Location: redirectTo } });
+  }
+
   if (action === 'merge' && type === 'category') {
     const sourceIds = validateMetaIds(rawMids, '请选择要合并的分类');
     if ('error' in sourceIds) return new Response(sourceIds.error, { status: 400 });

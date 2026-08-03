@@ -164,9 +164,13 @@ const adminFooterHtml = await applyFilterSafely(_pluginCtx, 'admin:footer', '', 
 
         function listCheckboxes(scope) {
           var root = $(scope);
-          return root.is('form.operate-form')
+          var tableCheckboxes = root.is('form.operate-form')
             ? root.find('.typecho-list-table tbody input[type=checkbox]')
             : root.find('form.operate-form .typecho-list-table tbody input[type=checkbox]');
+          var tagCheckboxes = root.is('form.operate-form')
+            ? root.find('.typecho-list-notable input[type=checkbox]')
+            : root.find('form.operate-form .typecho-list-notable input[type=checkbox]');
+          return tableCheckboxes.add(tagCheckboxes);
         }
 
         function syncSelectAll(scope) {
@@ -190,8 +194,26 @@ const adminFooterHtml = await applyFilterSafely(_pluginCtx, 'admin:footer', '', 
           syncSelectAll(selectionScope(this));
         });
 
+        // Tags use the same selectable interaction but are rendered as a
+        // Typecho 1.3 tag cloud rather than a table.
+        $('.typecho-list-notable').on('click', 'li', function (event) {
+          var target = $(event.target);
+          if (target.closest('input, textarea, select, a, button, i, label').length) return;
+
+          var checkbox = $(this).find('input[type=checkbox]').first();
+          if (!checkbox.length) return;
+          checkbox.prop('checked', !checkbox.prop('checked')).trigger('change');
+        }).on('change', 'input[type=checkbox]', function () {
+          var checkbox = $(this);
+          checkbox.closest('li').toggleClass('checked', this.checked);
+          syncSelectAll(selectionScope(this));
+        });
+
         $('.typecho-list-table tbody input[type=checkbox]').each(function () {
           $(this).closest('tr').toggleClass('checked', this.checked);
+        });
+        $('.typecho-list-notable input[type=checkbox]').each(function () {
+          $(this).closest('li').toggleClass('checked', this.checked);
         });
 
         // 表格全选 - 在 .typecho-list 范围内查找所有 checkbox
