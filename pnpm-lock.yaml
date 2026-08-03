@@ -26,6 +26,9 @@ importers:
       typecho-plugin-antispam:
         specifier: file:src/plugins/typecho-plugin-antispam
         version: file:src/plugins/typecho-plugin-antispam
+      typecho-plugin-mailer:
+        specifier: file:src/plugins/typecho-plugin-mailer
+        version: file:src/plugins/typecho-plugin-mailer
       typecho-plugin-notes:
         specifier: file:src/plugins/typecho-plugin-notes
         version: file:src/plugins/typecho-plugin-notes
@@ -2407,6 +2410,9 @@ packages:
   typecho-plugin-antispam@file:src/plugins/typecho-plugin-antispam:
     resolution: {directory: src/plugins/typecho-plugin-antispam, type: directory}
 
+  typecho-plugin-mailer@file:src/plugins/typecho-plugin-mailer:
+    resolution: {directory: src/plugins/typecho-plugin-mailer, type: directory}
+
   typecho-plugin-notes@file:src/plugins/typecho-plugin-notes:
     resolution: {directory: src/plugins/typecho-plugin-notes, type: directory}
 
@@ -4738,6 +4744,8 @@ snapshots:
       fsevents: 2.3.3
 
   typecho-plugin-antispam@file:src/plugins/typecho-plugin-antispam: {}
+
+  typecho-plugin-mailer@file:src/plugins/typecho-plugin-mailer: {}
 
   typecho-plugin-notes@file:src/plugins/typecho-plugin-notes: {}
 

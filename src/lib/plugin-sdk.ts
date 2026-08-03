@@ -25,8 +25,8 @@ export { hasPermission, verifyPassword } from './auth';
 export { buildPermalink, formatDate, buildAuthorLink, buildCategoryLink } from './content';
 
 // ── Markdown / HTML ──
+export { escapeHtml } from './escape';
 export {
-  escapeHtml,
   renderMarkdown,
   renderMarkdownFiltered,
   renderContentExcerpt,
