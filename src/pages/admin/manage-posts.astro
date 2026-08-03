@@ -118,7 +118,7 @@ const titleActionHtml = new Map<number, string>(
 ---
 <Admin title="管理文章" options={options} urls={urls} user={user} activeMenu="manage-posts" pluginCtx={ctx}>
   <div class="col-mb-12 typecho-list">
-    <div class="clearfix">
+    <div class="typecho-list-operate">
       <ul class="typecho-option-tabs">
         <li class:list={[{ current: !status }]}>
           <a href="/admin/manage-posts">可用</a>
@@ -136,8 +136,7 @@ const titleActionHtml = new Map<number, string>(
       </ul>
     </div>
 
-    <div class="typecho-list-operate clearfix">
-      <form method="get">
+    <form method="get" class="typecho-list-operate">
         <div class="operate">
           <label><i class="sr-only">全选</i><input type="checkbox" class="typecho-table-select-all" /></label>
           <div class="btn-group btn-drop">
@@ -167,13 +166,11 @@ const titleActionHtml = new Map<number, string>(
           <button type="submit" class="btn btn-s">筛选</button>
           {status && <input type="hidden" value={status} name="status" />}
         </div>
-      </form>
-    </div>
+    </form>
 
     <form method="post" name="manage_posts" class="operate-form">
       <input type="hidden" name="_" value={csrfToken} />
-      <div class="typecho-table-wrap">
-        <table class="typecho-list-table">
+      <table class="typecho-list-table">
           <colgroup>
             <col width="20" class="kit-hidden-mb" />
             <col width="6%" class="kit-hidden-mb" />
@@ -195,7 +192,7 @@ const titleActionHtml = new Map<number, string>(
           <tbody>
             {posts.length === 0 ? (
               <tr>
-                <td colspan="6"><h6 class="typecho-list-table-title">没有任何文章</h6></td>
+                <td colspan="6" class="none">没有任何文章</td>
               </tr>
             ) : (
               posts.map((post) => {
@@ -237,13 +234,11 @@ const titleActionHtml = new Map<number, string>(
               })
             )}
           </tbody>
-        </table>
-      </div>
+      </table>
     </form>
 
-    <div class="typecho-list-operate clearfix">
-      <div class="operate-toolbar">
-        <div class="operate">
+    <form method="get" class="typecho-list-operate">
+      <div class="operate">
           <label><i class="sr-only">全选</i><input type="checkbox" class="typecho-table-select-all" /></label>
           <div class="btn-group btn-drop">
             <button class="btn dropdown-toggle btn-s" type="button"><i class="sr-only">操作</i>选中项 <i class="i-caret-down"></i></button>
@@ -259,16 +254,15 @@ const titleActionHtml = new Map<number, string>(
               )}
             </ul>
           </div>
-        </div>
-
-        {totalPages > 1 && (
-          <ul class="typecho-pager">
-            {page > 1 && <li><a href={`/admin/manage-posts?page=${page - 1}${status ? '&status=' + status : ''}`}>&laquo;</a></li>}
-            <li class="current"><a href="#">{page} / {totalPages}</a></li>
-            {page < totalPages && <li><a href={`/admin/manage-posts?page=${page + 1}${status ? '&status=' + status : ''}`}>&raquo;</a></li>}
-          </ul>
-        )}
       </div>
-    </div>
+
+      {totalPages > 1 && (
+        <ul class="typecho-pager">
+          {page > 1 && <li><a href={`/admin/manage-posts?page=${page - 1}${status ? '&status=' + status : ''}`}>&laquo;</a></li>}
+          <li class="current"><a href="#">{page} / {totalPages}</a></li>
+          {page < totalPages && <li><a href={`/admin/manage-posts?page=${page + 1}${status ? '&status=' + status : ''}`}>&raquo;</a></li>}
+        </ul>
+      )}
+    </form>
   </div>
 </Admin>

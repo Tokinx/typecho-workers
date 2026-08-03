@@ -43,8 +43,7 @@ const authorMap = new Map(pageRows
 ---
 <Admin title="管理页面" options={options} urls={urls} user={user} activeMenu="manage-pages" pluginCtx={ctx}>
   <div class="col-mb-12 typecho-list">
-    <div class="typecho-list-operate clearfix">
-      <form method="get">
+    <form method="get" class="typecho-list-operate">
         <div class="operate">
           <label><i class="sr-only">全选</i><input type="checkbox" class="typecho-table-select-all" /></label>
           <div class="btn-group btn-drop">
@@ -61,13 +60,11 @@ const authorMap = new Map(pageRows
           <input type="text" class="text-s" placeholder="请输入关键字" value={keywords} name="keywords" />
           <button type="submit" class="btn btn-s">筛选</button>
         </div>
-      </form>
-    </div>
+    </form>
 
     <form method="post" name="manage_pages" class="operate-form">
       <input type="hidden" name="_" value={csrfToken} />
-      <div class="typecho-table-wrap">
-        <table class="typecho-list-table">
+      <table class="typecho-list-table">
           <colgroup>
             <col width="20" class="kit-hidden-mb" />
             <col width="6%" class="kit-hidden-mb" />
@@ -89,7 +86,7 @@ const authorMap = new Map(pageRows
           <tbody>
             {pages.length === 0 ? (
               <tr>
-                <td colspan="6"><h6 class="typecho-list-table-title">没有任何页面</h6></td>
+                <td colspan="6" class="none">没有任何页面</td>
               </tr>
             ) : (
               pages.map((pg) => {
@@ -121,8 +118,7 @@ const authorMap = new Map(pageRows
               })
             )}
           </tbody>
-        </table>
-      </div>
+      </table>
     </form>
   </div>
 </Admin>

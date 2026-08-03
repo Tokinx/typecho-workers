@@ -9,6 +9,9 @@ const isBuild = process.argv.includes('build');
 
 export default defineConfig({
   output: 'server',
+  // Preserve authored whitespace in server-rendered markup and Vite assets.
+  // Some themes rely on it for inline content and whitespace-sensitive CSS.
+  compressHTML: false,
   adapter: cloudflare({
     imageService: 'passthrough',
     inspectorPort: isBuild ? false : undefined,
@@ -18,6 +21,10 @@ export default defineConfig({
   },
   integrations: [themeLoader(), pluginLoader(), clientLoader()],
   vite: {
+    build: {
+      minify: false,
+      cssMinify: false,
+    },
     resolve: {
       alias: sharedAliases,
     },

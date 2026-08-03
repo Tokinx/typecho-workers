@@ -34,7 +34,7 @@ const isDefault = (mid: number) => options.defaultCategory === mid;
   <div class="col-mb-12" role="main">
     <form method="post" name="manage_categories" class="operate-form">
       <input type="hidden" name="_" value={csrfToken} />
-      <div class="typecho-list-operate clearfix">
+      <div class="typecho-list-operate">
         <div class="operate">
           <label><i class="sr-only">全选</i><input type="checkbox" class="typecho-table-select-all" /></label>
           <div class="btn-group btn-drop">
@@ -47,8 +47,7 @@ const isDefault = (mid: number) => options.defaultCategory === mid;
         </div>
       </div>
 
-      <div class="typecho-table-wrap">
-        <table class="typecho-list-table">
+      <table class="typecho-list-table">
           <colgroup>
             <col width="20" class="kit-hidden-mb" />
             <col width="" />
@@ -68,7 +67,7 @@ const isDefault = (mid: number) => options.defaultCategory === mid;
           <tbody>
             {categories.length === 0 ? (
               <tr>
-                <td colspan="5"><h6 class="typecho-list-table-title">没有任何分类</h6></td>
+                <td colspan="5" class="none">没有任何分类</td>
               </tr>
             ) : (
               categories.map((cat) => (
@@ -95,8 +94,7 @@ const isDefault = (mid: number) => options.defaultCategory === mid;
               ))
             )}
           </tbody>
-        </table>
-      </div>
+      </table>
     </form>
 
     <div class="typecho-mini-panel" style="margin-top: 20px;">

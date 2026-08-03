@@ -89,7 +89,7 @@ async function compileAll(sources: ClientSource[], silent = false): Promise<void
         bundle: true,
         format: 'iife',
         target: 'es2020',
-        minify: process.env.NODE_ENV === 'production',
+        minify: false,
         sourcemap: process.env.NODE_ENV !== 'production' ? 'inline' : false,
         logLevel: 'warning',
         // External: browser scripts must not bundle server-side modules

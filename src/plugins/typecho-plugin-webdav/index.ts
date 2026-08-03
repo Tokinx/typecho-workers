@@ -185,25 +185,25 @@ async function handleAdminApiRequest(request: Request, config: WebDavConfig, wor
 function adminPageHtml(csrf: string, pageSize: number): string {
   return `<div class="col-mb-12 typecho-list" id="webdav-app">
   <div id="webdav-notice" style="display:none"></div>
-  <div class="typecho-list-operate clearfix">
+  <form method="get" class="typecho-list-operate" onsubmit="return false">
     <div class="operate">
       <label><i class="sr-only">全选</i><input type="checkbox" class="typecho-table-select-all"></label>
       <div class="btn-group btn-drop">
         <button class="btn dropdown-toggle btn-s" type="button">选中项 <i class="i-caret-down"></i></button>
         <ul class="dropdown-menu"><li><a href="#" id="btn-delete-selected">删除</a></li></ul>
       </div>
-      <button class="btn primary btn-s" id="btn-upload">上传文件</button>
-      <button class="btn btn-s" id="btn-new-folder">新建文件夹</button>
+      <button type="button" class="btn primary btn-s" id="btn-upload">上传文件</button>
+      <button type="button" class="btn btn-s" id="btn-new-folder">新建文件夹</button>
     </div>
-  </div>
+  </form>
   <div class="webdav-breadcrumb" style="margin:0 0 1em;padding:8px 12px;background:#FFF;border-radius:2px;font-size:.92857em">
     <a href="#" data-path="" class="breadcrumb-link">根目录</a><span id="breadcrumb-path"></span>
   </div>
-  <div class="typecho-table-wrap" id="webdav-table-wrap">
+  <div id="webdav-table-wrap">
     <table class="typecho-list-table">
       <colgroup><col width="20"><col width=""><col width="12%" class="kit-hidden-mb"><col width="18%" class="kit-hidden-mb"><col width="12%"></colgroup>
       <thead><tr><th><input type="checkbox" class="typecho-table-select-all"></th><th>名称</th><th>大小</th><th>修改时间</th><th>操作</th></tr></thead>
-      <tbody id="file-list-body"><tr><td colspan="5"><h6 class="typecho-list-table-title"><span class="loading">加载中...</span></h6></td></tr></tbody>
+      <tbody id="file-list-body"><tr><td colspan="5" class="none"><span class="loading">加载中...</span></td></tr></tbody>
     </table>
   </div>
 <div id="upload-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.45);z-index:1000"><div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#FFF;padding:24px;border-radius:4px;width:400px;max-width:90vw"><h3 style="margin:0 0 16px;font-size:1.1em">上传文件</h3><p style="color:#999;font-size:.92857em;margin:0 0 12px">上传到：<span id="upload-dir-path">/</span></p><input type="file" id="upload-file-input" multiple style="margin-bottom:12px;width:100%" webkitdirectory=""><progress id="upload-progress" value="0" max="100" style="width:100%;display:none;margin-bottom:12px"></progress><div style="text-align:right"><button class="btn btn-s" id="btn-upload-cancel">取消</button><button class="btn primary btn-s" id="btn-upload-confirm">上传</button></div></div></div>
@@ -390,7 +390,7 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
       const isActive = extra?.activeMenu === 'webdav';
       const extraHtml = `<script>
 (function(){
-  var mgmt = document.querySelector('#typecho-nav-list ul.root:nth-child(3) ul.child');
+  var mgmt = document.querySelector('.typecho-head-nav nav > menu > li:nth-child(3) > menu');
   if (mgmt) {
     var li = document.createElement('li');
     li.className = '${isActive ? 'focus' : ''}';

@@ -89,9 +89,9 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
       return html + `<script>
 (function(){
   function insertAfter(rootIndex, afterHref, href, label, focused){
-    var root=document.querySelector('#typecho-nav-list ul.root:nth-child('+rootIndex+')');
+    var root=document.querySelector('.typecho-head-nav nav > menu > li:nth-child('+rootIndex+')');
     if(!root)return;
-    var anchor=root.querySelector('ul.child a[href="'+afterHref+'"]');
+    var anchor=root.querySelector(':scope > menu a[href="'+afterHref+'"]');
     if(!anchor||!anchor.parentElement)return;
     var item=document.createElement('li');
     item.className=focused?'focus':'';

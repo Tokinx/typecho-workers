@@ -91,6 +91,11 @@ describe('typecho-plugin-notes', () => {
     expect(html).toContain('id="notes-search-input"');
     expect(html).not.toContain('notes-search-clear');
     expect(html).not.toContain('>搜索</button>');
+    expect(html).toContain('className="notes-notice-close"');
+    expect(html).toContain('setAttribute("aria-label","关闭提示")');
+    expect(html).toContain('window.setTimeout(dismissNotice,5000)');
+    expect(html).toContain('window.clearTimeout(noticeTimer)');
+    expect(html).toContain('notice.addEventListener("click"');
     expect(html).toContain('searchInput.addEventListener("search"');
     expect(html).toContain('resize:vertical');
     expect(html).toContain('syncPreviewHeight');

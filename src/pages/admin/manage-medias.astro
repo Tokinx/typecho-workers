@@ -89,9 +89,8 @@ function formatBytes(bytes: number): string {
 }
 ---
 <Admin title="管理文件" options={options} urls={urls} user={user} activeMenu="manage-medias" pluginCtx={ctx}>
-  <div class="col-mb-12 typecho-list">
-    <div class="typecho-list-operate clearfix">
-      <form method="get">
+  <div class="col-mb-12">
+    <form method="get" class="typecho-list-operate">
         <div class="operate">
           <label><i class="sr-only">全选</i><input type="checkbox" class="typecho-table-select-all" /></label>
           <div class="btn-group btn-drop">
@@ -106,13 +105,11 @@ function formatBytes(bytes: number): string {
           <input type="text" class="text-s" placeholder="请输入关键字" value={keywords} name="keywords" />
           <button type="submit" class="btn btn-s">筛选</button>
         </div>
-      </form>
-    </div>
+    </form>
 
     <form method="post" name="manage_medias" class="operate-form">
       <input type="hidden" name="_" value={csrfToken} />
-      <div class="typecho-table-wrap">
-        <table class="typecho-list-table">
+      <table class="typecho-list-table">
           <colgroup>
             <col width="20" class="kit-hidden-mb" />
             <col width="45%" />
@@ -132,7 +129,7 @@ function formatBytes(bytes: number): string {
           <tbody>
             {attachments.length === 0 ? (
               <tr>
-                <td colspan="5"><h6 class="typecho-list-table-title">没有任何文件</h6></td>
+                <td colspan="5" class="none">没有任何文件</td>
               </tr>
             ) : (
               attachments.map((att) => {
@@ -168,13 +165,11 @@ function formatBytes(bytes: number): string {
               })
             )}
           </tbody>
-        </table>
-      </div>
+      </table>
     </form>
 
-    <div class="typecho-list-operate clearfix">
-      <div class="operate-toolbar">
-        <div class="operate">
+    <form method="get" class="typecho-list-operate">
+      <div class="operate">
           <label><i class="sr-only">全选</i><input type="checkbox" class="typecho-table-select-all" /></label>
           <div class="btn-group btn-drop">
             <button class="btn dropdown-toggle btn-s" type="button"><i class="sr-only">操作</i>选中项 <i class="i-caret-down"></i></button>
@@ -182,16 +177,15 @@ function formatBytes(bytes: number): string {
               <li><a href="/api/admin/media-batch?do=delete">删除</a></li>
             </ul>
           </div>
-        </div>
-
-        {totalPages > 1 && (
-          <ul class="typecho-pager">
-            {page > 1 && <li><a href={`/admin/manage-medias?page=${page - 1}${keywords ? '&keywords=' + encodeURIComponent(keywords) : ''}`}>&laquo;</a></li>}
-            <li class="current"><a href="#">{page} / {totalPages}</a></li>
-            {page < totalPages && <li><a href={`/admin/manage-medias?page=${page + 1}${keywords ? '&keywords=' + encodeURIComponent(keywords) : ''}`}>&raquo;</a></li>}
-          </ul>
-        )}
       </div>
-    </div>
+
+      {totalPages > 1 && (
+        <ul class="typecho-pager">
+          {page > 1 && <li><a href={`/admin/manage-medias?page=${page - 1}${keywords ? '&keywords=' + encodeURIComponent(keywords) : ''}`}>&laquo;</a></li>}
+          <li class="current"><a href="#">{page} / {totalPages}</a></li>
+          {page < totalPages && <li><a href={`/admin/manage-medias?page=${page + 1}${keywords ? '&keywords=' + encodeURIComponent(keywords) : ''}`}>&raquo;</a></li>}
+        </ul>
+      )}
+    </form>
   </div>
 </Admin>
