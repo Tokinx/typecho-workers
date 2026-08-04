@@ -40,6 +40,7 @@ const defaultSettings = {
   l1Ttl: '86400',
   listTtl: '86400',
   detailTtl: '604800',
+  bypassCookieNames: '',
   staticCdnUrl: '',
   staticExtensions: 'jpg,png,css,js,zip',
   avatarCdnUrl: '',
@@ -150,22 +151,76 @@ describe('typecho-plugin-cache provider', () => {
     expect(await secondResponse.text()).toContain('coalesced');
   });
 
-  it('bypasses cache for cookies, sensitive queries, and unknown query variants', async () => {
+  it('allows ordinary cookies but bypasses configured cookies and unsafe query variants', async () => {
     const kv = new MemoryKv();
-    await activate(kv);
+    await activate(kv, { ...defaultSettings, bypassCookieNames: 'experiment' });
     const next = vi.fn(async () => new Response('<html>private variant</html>', {
       headers: { 'Content-Type': 'text/html' },
     }));
-    const cookie = requestContext();
-    cookie.request = new Request(cookie.request, { headers: { Cookie: 'theme=dark' } });
+    const ordinaryCookie = requestContext();
+    ordinaryCookie.request = new Request(ordinaryCookie.request, { headers: { Cookie: 'theme=dark' } });
+    const bypassCookie = requestContext();
+    bypassCookie.request = new Request(bypassCookie.request, { headers: { Cookie: 'experiment=one' } });
     const password = requestContext('https://example.com/archives/1/?password=secret');
     const unknown = requestContext('https://example.com/?feature=one');
 
-    for (const context of [cookie, password, unknown]) {
+    const ordinaryResponse = await earlyRequestProvider.handle(ordinaryCookie, next);
+    expect(ordinaryResponse.headers.get('X-Typecho-Cache')).toBe('MISS');
+    for (const context of [bypassCookie, password, unknown]) {
       const response = await earlyRequestProvider.handle(context, next);
       expect(response.headers.get('X-Typecho-Cache')).toBe('BYPASS');
     }
-    expect(next).toHaveBeenCalledTimes(3);
+    expect(next).toHaveBeenCalledTimes(4);
+  });
+
+  it('serves authenticated cache hits but never stores authenticated misses', async () => {
+    const kv = new MemoryKv();
+    await activate(kv);
+    const publicNext = vi.fn(async () => new Response('<html>public</html>', {
+      headers: { 'Content-Type': 'text/html' },
+    }));
+    await earlyRequestProvider.handle(requestContext(), publicNext);
+
+    const authenticatedHit = requestContext();
+    authenticatedHit.request = new Request(authenticatedHit.request, {
+      headers: { Cookie: '__typecho_uid=1; __typecho_authCode=token' },
+    });
+    const hit = await earlyRequestProvider.handle(authenticatedHit, publicNext);
+    expect(hit.headers.get('X-Typecho-Cache')).toBe('L1');
+
+    await earlyRequestProvider.invalidate!({ reason: 'test', domains: ['all'] });
+    const privateNext = vi.fn(async () => new Response('<html>private toolbar</html>', {
+      headers: { 'Content-Type': 'text/html' },
+    }));
+    const miss = await earlyRequestProvider.handle(authenticatedHit, privateNext);
+    expect(miss.headers.get('X-Typecho-Cache')).toBe('BYPASS');
+
+    const anonymous = await earlyRequestProvider.handle(requestContext(), publicNext);
+    expect(anonymous.headers.get('X-Typecho-Cache')).toBe('MISS');
+    expect(await anonymous.text()).toContain('public');
+    expect(privateNext).toHaveBeenCalledOnce();
+    expect(publicNext).toHaveBeenCalledTimes(2);
+  });
+
+  it('treats an unapproved-comment cookie as read-only on a cold cache', async () => {
+    const kv = new MemoryKv();
+    await activate(kv);
+    const context = requestContext('https://example.com/archives/1/');
+    context.request = new Request(context.request, {
+      headers: { Cookie: '__typecho_unapproved_comment=private-token' },
+    });
+    const privateNext = vi.fn(async () => new Response('<html>waiting comment</html>', {
+      headers: { 'Content-Type': 'text/html' },
+    }));
+    const response = await earlyRequestProvider.handle(context, privateNext);
+    expect(response.headers.get('X-Typecho-Cache')).toBe('BYPASS');
+
+    const publicNext = vi.fn(async () => new Response('<html>public</html>', {
+      headers: { 'Content-Type': 'text/html' },
+    }));
+    const anonymous = await earlyRequestProvider.handle(requestContext('https://example.com/archives/1/'), publicNext);
+    expect(anonymous.headers.get('X-Typecho-Cache')).toBe('MISS');
+    expect(await anonymous.text()).toContain('public');
   });
 
   it('normalizes tracking parameters without multiplying cached variants', async () => {

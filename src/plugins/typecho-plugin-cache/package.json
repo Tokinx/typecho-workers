@@ -51,6 +51,12 @@
           "default": "604800",
           "options": { "86400": "1 天", "259200": "3 天", "604800": "7 天" }
         },
+        "bypassCookieNames": {
+          "type": "textarea",
+          "label": "额外绕过 Cookie 名称",
+          "default": "",
+          "description": "按 Cookie 名精确匹配，多个名称使用英文逗号或换行分隔"
+        },
         "staticCdnUrl": {
           "type": "text",
           "label": "静态文件 CDN URL",

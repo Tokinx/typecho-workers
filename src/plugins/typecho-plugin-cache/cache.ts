@@ -27,6 +27,7 @@ export interface CachePluginConfig {
   l1Ttl: number;
   listTtl: number;
   detailTtl: number;
+  bypassCookieNames: string[];
   staticCdnUrl: string;
   staticExtensions: string[];
   avatarCdnUrl: string;
@@ -85,6 +86,13 @@ function normalizeExtensions(value: unknown): string[] {
     .filter(item => /^[a-z0-9][a-z0-9_-]{0,15}$/.test(item)))];
 }
 
+function normalizeCookieNames(value: unknown): string[] {
+  const values = Array.isArray(value) ? value : String(value || '').split(/[,\r\n]+/);
+  return [...new Set(values
+    .map(item => String(item).trim())
+    .filter(item => /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(item)))];
+}
+
 function ttl(value: unknown, allowed: number[], fallback: number): number {
   const parsed = Number.parseInt(String(value || ''), 10);
   return allowed.includes(parsed) ? parsed : fallback;
@@ -98,6 +106,7 @@ export function normalizeCacheConfig(settings: Record<string, unknown> | CachePl
     l1Ttl: ttl(settings.l1Ttl, [86_400, 259_200, 604_800], 86_400),
     listTtl: ttl(settings.listTtl, [86_400, 259_200, 604_800], 86_400),
     detailTtl: ttl(settings.detailTtl, [86_400, 259_200, 604_800], 604_800),
+    bypassCookieNames: normalizeCookieNames(settings.bypassCookieNames),
     staticCdnUrl: normalizeUrl(settings.staticCdnUrl),
     staticExtensions: normalizeExtensions(settings.staticExtensions),
     avatarCdnUrl: normalizeUrl(settings.avatarCdnUrl),
@@ -434,10 +443,33 @@ async function rewriteHtmlResponse(
   return new Response(body, { status: response.status, statusText: response.statusText, headers });
 }
 
-function shouldBypassRequest(request: Request): boolean {
-  if (request.headers.has('Cookie') || request.headers.has('Authorization')) return true;
+type RequestCachePolicy = 'read-write' | 'read-only' | 'bypass';
+
+export function parseCookieNames(cookieHeader: string | null): Set<string> {
+  const names = new Set<string>();
+  for (const part of (cookieHeader || '').split(';')) {
+    const separator = part.indexOf('=');
+    const name = (separator >= 0 ? part.slice(0, separator) : part).trim();
+    if (name) names.add(name);
+  }
+  return names;
+}
+
+function requestCachePolicy(request: Request, config: CachePluginConfig): RequestCachePolicy {
+  if (request.headers.has('Authorization')) return 'bypass';
   const cacheControl = request.headers.get('Cache-Control')?.toLowerCase() || '';
-  return cacheControl.includes('no-cache') || cacheControl.includes('no-store');
+  if (cacheControl.includes('no-cache') || cacheControl.includes('no-store')) return 'bypass';
+
+  const cookieNames = parseCookieNames(request.headers.get('Cookie'));
+  if (config.bypassCookieNames.some(name => cookieNames.has(name))) return 'bypass';
+  if (
+    cookieNames.has('__typecho_uid') ||
+    cookieNames.has('__typecho_authCode') ||
+    cookieNames.has('__typecho_unapproved_comment')
+  ) {
+    return 'read-only';
+  }
+  return 'read-write';
 }
 
 async function renderWithRuntimeRewrite(
@@ -499,7 +531,8 @@ async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNex
   const domain = classifyCacheDomain(context.url.pathname, control);
   const normalizedUrl = normalizeCacheUrl(context.url, domain);
   const domainEnabled = control.config.cacheScopes.includes(domain);
-  const bypass = shouldBypassRequest(context.request) || !normalizedUrl;
+  const policy = requestCachePolicy(context.request, control.config);
+  const bypass = policy === 'bypass' || !normalizedUrl;
   if (!domainEnabled || bypass) {
     const response = await next();
     const rewritten = await rewriteHtmlResponse(response, control.config, context.url.origin, control.options.siteUrl)
@@ -537,6 +570,13 @@ async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNex
   } catch (error) {
     console.error('[edge-cache] Cache lookup failed; falling back to D1:', error);
     return renderWithRuntimeRewrite(context, next);
+  }
+
+  if (policy === 'read-only') {
+    const response = await next();
+    const rewritten = await rewriteHtmlResponse(response, control.config, context.url.origin, control.options.siteUrl)
+      .catch(() => response);
+    return withCacheHeader(rewritten, 'BYPASS');
   }
 
   const existing = inFlight.get(cacheId);
