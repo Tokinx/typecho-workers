@@ -20,13 +20,14 @@ const {
   isLoggedIn,
   password = '',
 } = Astro.props;
+const requestedCommentPage = Astro.url.searchParams.get('commentPage');
 ---
 <section
   class="warm-comments"
   id="comments"
   data-comments-root
   data-cid={cid}
-  data-current-page={commentPagination.currentPage}
+  data-current-page={requestedCommentPage || undefined}
 >
   <div class="warm-comments__heading">
     <h2>讨论与交流 <span data-comment-total></span></h2>
@@ -123,7 +124,7 @@ const {
       const tokenInput = root.querySelector('[data-comment-token]');
       const replying = root.querySelector('[data-replying]');
       const replyingAuthor = root.querySelector('[data-replying-author]');
-      let page = Number(root.dataset.currentPage || 1);
+      let page = root.dataset.currentPage ? Number(root.dataset.currentPage) : null;
 
       const renderPagination = pagination => {
         let nav = root.querySelector('[data-comment-pagination]');
@@ -148,7 +149,9 @@ const {
         if (!list) return;
         list.setAttribute('aria-busy', 'true');
         try {
-          const response = await fetch(`/api/comments?cid=${encodeURIComponent(cid)}&commentPage=${requestedPage}`, {
+          const params = new URLSearchParams({ cid });
+          if (requestedPage !== null) params.set('commentPage', String(requestedPage));
+          const response = await fetch(`/api/comments?${params}`, {
             credentials: 'same-origin',
             headers: { Accept: 'application/json' },
           });

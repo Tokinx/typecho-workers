@@ -45,6 +45,8 @@ export interface ThemeManifest {
   tags?: string[];
   /** Named Astro components available to individual pages */
   pageTemplates?: Record<string, { name: string; component: string }>;
+  /** Whether comment rows are rendered during SSR or loaded from the public API. */
+  commentsMode?: 'ssr' | 'api';
   /** Typecho-style appearance settings rendered on /admin/options-theme */
   config?: Record<string, PluginConfigField>;
 }
@@ -97,6 +99,7 @@ const FALLBACK_THEME: ThemeManifest = {
   screenshot: 'screenshot.png',
   stylesheet: '/themes/typecho-theme-minimal/style.css',
   license: 'GPL-2.0',
+  commentsMode: 'ssr',
   config: MINIMAL_THEME_CONFIG,
 };
 
@@ -292,7 +295,8 @@ function getThemeInfo(themeId: string): ThemeInfo | undefined {
 }
 
 function normalizeThemeManifest(themeId: string, manifest: ThemeManifest): ThemeManifest {
-  if (themeId !== FALLBACK_THEME.id) return { ...manifest, id: themeId };
+  const commentsMode = manifest.commentsMode === 'api' ? 'api' : 'ssr';
+  if (themeId !== FALLBACK_THEME.id) return { ...manifest, id: themeId, commentsMode };
 
   // Preserve metadata from an installed default theme, while ensuring a
   // long-running registry still receives the built-in 1.3-compatible asset
@@ -301,6 +305,7 @@ function normalizeThemeManifest(themeId: string, manifest: ThemeManifest): Theme
     ...FALLBACK_THEME,
     ...manifest,
     id: themeId,
+    commentsMode,
     config: {
       ...MINIMAL_THEME_CONFIG,
       ...manifest.config,

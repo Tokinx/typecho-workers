@@ -17,13 +17,14 @@ import { renderCommentText, renderContentExcerpt, renderMarkdownFiltered } from 
 import { paginate } from '@/lib/pagination';
 import { generateCommentToken, validateUnapprovedCommentToken } from '@/lib/auth';
 import { buildGravatarUrl } from '@/lib/gravatar';
-import { loadCommentPage } from '@/lib/comment-page';
+import { buildCommentPaginationSummary, loadCommentPage, type CommentPage } from '@/lib/comment-page';
 import type { RequestContext } from '@/lib/context';
 import { canViewContent, publishedPostCondition } from '@/lib/content-visibility';
 import type {
   ThemeIndexProps, ThemePostProps, ThemePageProps, ThemeArchiveProps, ThemeNotFoundProps,
   PostListItem, CommentNode, CommentOptions,
 } from '@/lib/theme-props';
+import { getActiveTheme } from '@/lib/theme';
 
 // ─── Local row types (derived from Drizzle schema) ───────────────────────
 
@@ -53,6 +54,27 @@ async function loadCommon(ctx: RequestContext, requestUrl: string) {
   ]);
   const currentPath = new URL(requestUrl).pathname;
   return { options, urls, user, isLoggedIn, pages, sidebarData, currentPath, pluginCtx: ctx };
+}
+
+async function loadThemeCommentPage(
+  db: Database,
+  options: SiteOptions,
+  cid: number,
+  totalComments: number,
+  requestUrl: string,
+  unapprovedCommentToken?: string | null,
+): Promise<CommentPage> {
+  const theme = getActiveTheme(String(options.theme || 'typecho-theme-minimal'));
+  if (theme.manifest.commentsMode === 'api') {
+    return {
+      rows: [],
+      pagination: buildCommentPaginationSummary(options, requestUrl, totalComments),
+    };
+  }
+  const visibleUnapprovedCommentId = options.secret
+    ? await validateUnapprovedCommentToken(unapprovedCommentToken, options.secret as string, cid)
+    : null;
+  return loadCommentPage(db, cid, options, requestUrl, visibleUnapprovedCommentId);
 }
 
 function getPage(locals: Record<string, unknown>, url: URL): number {
@@ -392,10 +414,6 @@ export async function preparePostData(
   // The admin preview route has already checked that the current user owns
   // the content or may edit it, matching Typecho's preview=1 behaviour.
   const passwordVerified = dataOptions.previewMode || (hasPassword && suppliedPassword === contentRow.password);
-  const visibleUnapprovedCommentId = options.secret
-    ? await validateUnapprovedCommentToken(unapprovedCommentToken, options.secret as string, cidNum)
-    : null;
-
   // Keep all content-specific reads in one D1 round trip while the common
   // chrome data loads independently.
   const [
@@ -437,7 +455,7 @@ export async function preparePostData(
         .orderBy(asc(schema.contents.created))
         .limit(1),
     ]),
-    loadCommentPage(db, cidNum, options, requestUrl, visibleUnapprovedCommentId),
+    loadThemeCommentPage(db, options, cidNum, contentRow.commentsNum || 0, requestUrl, unapprovedCommentToken),
   ]);
   const author = authorRows[0] ?? null;
   const allComments = commentPage.rows;
@@ -542,12 +560,8 @@ export async function preparePageData(
   // See the post detail equivalent above: authenticated admin previews may
   // inspect protected content without entering its public password.
   const passwordVerified = dataOptions.previewMode || (hasPassword && suppliedPassword === pageRow.password);
-  const visibleUnapprovedCommentId = options.secret
-    ? await validateUnapprovedCommentToken(unapprovedCommentToken, options.secret as string, pageRow.cid)
-    : null;
-
   const [commentPage, common] = await Promise.all([
-    loadCommentPage(db, pageRow.cid, options, requestUrl, visibleUnapprovedCommentId),
+    loadThemeCommentPage(db, options, pageRow.cid, pageRow.commentsNum || 0, requestUrl, unapprovedCommentToken),
     loadCommon(ctx, requestUrl),
   ]);
   const allComments = commentPage.rows;

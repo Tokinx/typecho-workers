@@ -67,6 +67,30 @@ function buildPagination(
   };
 }
 
+/** Build the lightweight pagination shell used by API-backed comment themes. */
+export function buildCommentPaginationSummary(
+  options: SiteOptions,
+  requestUrl: string,
+  totalComments: number,
+): CommentPagination {
+  const pageSize = Math.min(
+    COMMENT_PAGE_SIZE_MAX,
+    Math.max(1, Number(options.commentsPageSize) || 20),
+  );
+  const rawPage = new URL(requestUrl).searchParams.get('commentPage');
+  const parsedPage = rawPage ? Number.parseInt(rawPage, 10) : Number.NaN;
+  const requestedPage = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : null;
+  return buildPagination(
+    requestUrl,
+    !!options.commentsPageBreak,
+    requestedPage,
+    options.commentsPageDisplay === 'first' ? 'first' : 'last',
+    pageSize,
+    Math.max(0, totalComments),
+    Math.max(0, totalComments),
+  );
+}
+
 /**
  * Load one bounded comment thread page. Threaded mode paginates root comments
  * and uses a recursive CTE to keep every selected root's descendants together.

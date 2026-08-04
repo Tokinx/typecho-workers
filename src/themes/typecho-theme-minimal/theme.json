@@ -10,6 +10,7 @@
   "stylesheets": ["normalize.css", "grid.css"],
   "homepage": "https://github.com/eslizn/typecho-cf",
   "license": "GPL-2.0",
+  "commentsMode": "ssr",
   "tags": ["minimal", "classic", "typecho"],
   "config": {
     "logoUrl": {
