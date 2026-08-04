@@ -17,7 +17,7 @@ import { advanceOptionsSnapshotGeneration } from '@/lib/options-snapshot-generat
 import { notifyEarlyRequestInvalidation } from '@/lib/early-request';
 
 export type PublicCacheDomain = 'home' | 'post' | 'page' | 'note' | 'archive' | 'other';
-export type SharedCacheDomain = 'options' | 'navigation' | 'sidebar' | 'metas';
+export type SharedCacheDomain = 'options' | 'navigation' | 'sidebar' | 'metas' | 'comments' | 'notes';
 
 export interface PublicCacheInvalidation {
   reason: string;

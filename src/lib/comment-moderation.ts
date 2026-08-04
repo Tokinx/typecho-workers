@@ -97,7 +97,7 @@ export async function applyCommentAction(
     }
     await doHook(ctx, 'comment:action', comment, { action, oldStatus, newStatus: 'deleted', options });
     if (oldStatus === 'approved') {
-      await invalidatePublicCache(db, { reason: 'comment-visible', domains: [], sharedDomains: ['sidebar'] });
+      await invalidatePublicCache(db, { reason: 'comment-visible', domains: [], sharedDomains: ['sidebar', 'comments', 'notes'] });
     }
     return;
   }
@@ -115,7 +115,7 @@ export async function applyCommentAction(
 
   await doHook(ctx, 'comment:action', comment, { action, oldStatus, newStatus: nextStatus, options });
   if ((oldStatus === 'approved') !== (nextStatus === 'approved')) {
-    await invalidatePublicCache(db, { reason: 'comment-visible', domains: [], sharedDomains: ['sidebar'] });
+    await invalidatePublicCache(db, { reason: 'comment-visible', domains: [], sharedDomains: ['sidebar', 'comments', 'notes'] });
   }
 }
 
@@ -176,7 +176,7 @@ export async function applyCommentActions(
     await doHook(ctx, 'comment:action', comment, { action, oldStatus, newStatus, options });
   }
   if (comments.some(comment => (comment.status === 'approved') !== (action === 'approved'))) {
-    await invalidatePublicCache(db, { reason: 'comment-visible-batch', domains: [], sharedDomains: ['sidebar'] });
+    await invalidatePublicCache(db, { reason: 'comment-visible-batch', domains: [], sharedDomains: ['sidebar', 'comments', 'notes'] });
   }
 }
 

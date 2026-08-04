@@ -21,10 +21,17 @@ const L1_ORIGIN = 'https://typecho-cache.internal';
 const CONTROL_MEMO_TTL_MS = 5_000;
 const GENERATION_MEMO_TTL_MS = 5_000;
 const MAX_HTML_BYTES = 5 * 1024 * 1024;
-const SHARED_DATA_TTL_SECONDS = 604_800;
+const SHARED_DATA_TTL_SECONDS: Record<SharedCacheDomain, number> = {
+  options: 604_800,
+  navigation: 604_800,
+  sidebar: 604_800,
+  metas: 604_800,
+  comments: 60,
+  notes: 604_800,
+};
 const ALL_DOMAINS: PublicCacheDomain[] = ['home', 'post', 'page', 'note', 'archive', 'other'];
 const DETAIL_DOMAINS = new Set<PublicCacheDomain>(['post', 'page', 'note']);
-const ALL_SHARED_DOMAINS: SharedCacheDomain[] = ['options', 'navigation', 'sidebar', 'metas'];
+const ALL_SHARED_DOMAINS: SharedCacheDomain[] = ['options', 'navigation', 'sidebar', 'metas', 'comments', 'notes'];
 const TRACKING_PARAMS = new Set(['fbclid', 'gclid', 'dclid', 'msclkid']);
 
 export interface CachePluginConfig {
@@ -238,7 +245,7 @@ async function writeSharedData<T>(domain: SharedCacheDomain, key: string, value:
   await kv.put(
     `${SHARED_DATA_PREFIX}${domain}:${generationValue}:${keyHash}`,
     JSON.stringify(value),
-    { expirationTtl: SHARED_DATA_TTL_SECONDS },
+    { expirationTtl: SHARED_DATA_TTL_SECONDS[domain] },
   );
   return true;
 }

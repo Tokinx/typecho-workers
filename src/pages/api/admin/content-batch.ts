@@ -198,7 +198,7 @@ async function handler({ request, locals, url }: { request: Request; locals: App
     await invalidatePublicCache(auth.db, {
       reason: 'content-batch',
       domains: ['all'],
-      sharedDomains: ['navigation', 'sidebar', 'metas'],
+      sharedDomains: ['navigation', 'sidebar', 'metas', 'comments', 'notes'],
     });
   }
 

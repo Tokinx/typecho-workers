@@ -572,7 +572,7 @@ async function createNote(body: unknown, context: NotesActionContext): Promise<R
   if (!cid) return jsonError(500, '笔记创建失败');
   await synchronizeNoteTopics(context.db, cid, topicMids);
   if (input.status === 'publish') {
-    await invalidatePublicCache(context.db, { reason: 'note-create', domains: ['home', 'note'] });
+    await invalidatePublicCache(context.db, { reason: 'note-create', domains: ['home', 'note'], sharedDomains: ['comments', 'notes'] });
   }
   return jsonOk({ success: true, cid, topics: topicMids });
 }
@@ -595,7 +595,7 @@ async function updateNote(body: Record<string, unknown>, context: NotesActionCon
   }).where(and(eq(schema.contents.cid, cid), eq(schema.contents.type, NOTE_TYPE)));
   await synchronizeNoteTopics(context.db, cid, topicMids);
   if (existing.status === 'publish' || input.status === 'publish') {
-    await invalidatePublicCache(context.db, { reason: 'note-update', domains: ['home', 'note'] });
+    await invalidatePublicCache(context.db, { reason: 'note-update', domains: ['home', 'note'], sharedDomains: ['comments', 'notes'] });
   }
   return jsonOk({ success: true, topics: topicMids });
 }
@@ -619,7 +619,7 @@ async function deleteNote(body: Record<string, unknown>, context: NotesActionCon
   ]);
   await recountTopics(context.db, oldTopics.map(topic => topic.mid));
   if (existing.status === 'publish') {
-    await invalidatePublicCache(context.db, { reason: 'note-delete', domains: ['home', 'note'] });
+    await invalidatePublicCache(context.db, { reason: 'note-delete', domains: ['home', 'note'], sharedDomains: ['comments', 'notes'] });
   }
   return jsonOk({ success: true });
 }
@@ -685,6 +685,12 @@ async function replyToNoteComment(
   ]);
   const coid = inserted[0]?.coid;
   if (!coid) return jsonError(500, '回复保存失败');
+
+  await invalidatePublicCache(context.db, {
+    reason: 'note-comment',
+    domains: [],
+    sharedDomains: ['sidebar', 'comments', 'notes'],
+  });
 
   return jsonOk({ success: true, coid });
 }

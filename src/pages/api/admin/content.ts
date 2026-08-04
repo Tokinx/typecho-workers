@@ -218,7 +218,7 @@ async function purgeContentAndRelatedCache(
   await invalidatePublicCache(db, {
     reason: 'content',
     domains: ['all'],
-    sharedDomains: content?.type?.startsWith('page') ? ['navigation'] : ['sidebar', 'metas'],
+    sharedDomains: ['navigation', 'sidebar', 'metas', 'comments', 'notes'],
   });
 }
 

@@ -318,6 +318,17 @@ describe('typecho-plugin-cache provider', () => {
     }
   });
 
+  it('stores public comment projections for at most one minute', async () => {
+    const kv = new MemoryKv();
+    await activate(kv);
+    registerEarlyRequestLoaders({ [CACHE_PLUGIN_ID]: async () => earlyRequestProvider });
+
+    await loadEarlyRequestSharedData('comments', 'cid:42:page:1', async () => ({ comments: [] }), {});
+
+    const entry = [...kv.putOptions.entries()].find(([key]) => key.includes(':s:comments:'));
+    expect(entry?.[1]?.expirationTtl).toBe(60);
+  });
+
   it('advances only the requested shared-data generation', async () => {
     const kv = new MemoryKv();
     await activate(kv);

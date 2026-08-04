@@ -286,7 +286,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const newCoid = inserted[0].coid;
   commentData.coid = newCoid;
   if (finalStatus === 'approved') {
-    await invalidatePublicCache(db, { reason: 'comment-visible', domains: [], sharedDomains: ['sidebar'] });
+    await invalidatePublicCache(db, { reason: 'comment-visible', domains: [], sharedDomains: ['sidebar', 'comments', 'notes'] });
   }
 
   // Trigger feedback:finishComment hook — plugins can act after comment saved
