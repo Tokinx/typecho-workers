@@ -9,6 +9,7 @@ import { isValidEmail } from '@/lib/mail';
 import { renderCommentText, stripHtmlTags } from '@/lib/markdown';
 import { doHook } from '@/lib/plugin';
 import { normalizeHttpUrl } from '@/lib/url';
+import { invalidatePublicCache } from '@/lib/cache';
 
 const MAX_COMMENT_TEXT_LENGTH = 10_000;
 const MAX_AUTHOR_LENGTH = 200;
@@ -92,6 +93,9 @@ export const POST: APIRoute = async ({ request }) => {
       where: eq(schema.comments.coid, parentComment.coid),
     });
     if (!updated) return jsonError(500, '更新评论失败');
+    if (updated.status === 'approved') {
+      await invalidatePublicCache(auth.db, { reason: 'comment-edit', domains: [], sharedDomains: ['sidebar'] });
+    }
 
     return jsonOk({ comment: editableComment(updated, auth.options) });
   }
@@ -153,5 +157,6 @@ export const POST: APIRoute = async ({ request }) => {
   };
   await doHook(auth.pluginCtx, 'feedback:reply', savedReply, parentComment, hookExtra);
   await doHook(auth.pluginCtx, 'feedback:finishComment', savedReply, hookExtra);
+  await invalidatePublicCache(auth.db, { reason: 'comment-reply', domains: [], sharedDomains: ['sidebar'] });
   return jsonOk({ comment: editableComment(savedReply, auth.options) });
 };

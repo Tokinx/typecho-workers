@@ -11,7 +11,7 @@ import {
   advanceOptionsSnapshotGeneration,
   getOptionsSnapshotGeneration,
 } from '@/lib/options-snapshot-generation';
-import { notifyEarlyRequestInvalidation } from '@/lib/early-request';
+import { loadEarlyRequestSharedData, notifyEarlyRequestInvalidation } from '@/lib/early-request';
 
 export interface SiteOptions {
   theme: string;
@@ -222,6 +222,10 @@ export async function loadOptions(db: Database): Promise<SiteOptions> {
 }
 
 async function loadOptionsFresh(db: Database): Promise<SiteOptions> {
+  return loadEarlyRequestSharedData('options', 'global', () => loadOptionsFromFallback(db), db);
+}
+
+async function loadOptionsFromFallback(db: Database): Promise<SiteOptions> {
   // Try cache first — key is versioned by cacheVersion so cross-PoP
   // writes automatically bust the entry (one D1 read is much cheaper
   // than reloading all rows).
@@ -317,22 +321,23 @@ export async function setOption(db: Database, name: string, value: string, userI
       target: [schema.options.name, schema.options.user],
       set: { value },
     });
-  if (name === 'cacheVersion') {
+  if (name === 'cacheVersion' || userId !== 0) {
     await write;
   } else {
-    await executeOptionBatch(db, [
-      write,
-      cacheVersionUpsert(db),
-    ]);
-    resetCacheVersionMemo();
+    await write;
   }
   invalidateOptionsSnapshot(db);
-  if (name !== 'cacheVersion') {
-    await notifyEarlyRequestInvalidation({
+  if (name !== 'cacheVersion' && userId === 0) {
+    const handled = await notifyEarlyRequestInvalidation({
       reason: 'option-set',
       domains: ['all'],
-      ...(userId === 0 ? { options: { [name]: value } } : {}),
+      sharedDomains: ['all'],
+      options: { [name]: value },
     });
+    if (!handled) {
+      await cacheVersionUpsert(db);
+      resetCacheVersionMemo();
+    }
   }
 }
 
@@ -343,22 +348,23 @@ export async function deleteOption(db: Database, name: string, userId = 0): Prom
   const remove = db
     .delete(schema.options)
     .where(and(eq(schema.options.name, name), eq(schema.options.user, userId)));
-  if (name === 'cacheVersion') {
+  if (name === 'cacheVersion' || userId !== 0) {
     await remove;
   } else {
-    await executeOptionBatch(db, [
-      remove,
-      cacheVersionUpsert(db),
-    ]);
-    resetCacheVersionMemo();
+    await remove;
   }
   invalidateOptionsSnapshot(db);
-  if (name !== 'cacheVersion') {
-    await notifyEarlyRequestInvalidation({
+  if (name !== 'cacheVersion' && userId === 0) {
+    const handled = await notifyEarlyRequestInvalidation({
       reason: 'option-delete',
       domains: ['all'],
-      ...(userId === 0 ? { options: { [name]: undefined } } : {}),
+      sharedDomains: ['all'],
+      options: { [name]: undefined },
     });
+    if (!handled) {
+      await cacheVersionUpsert(db);
+      resetCacheVersionMemo();
+    }
   }
 }
 
@@ -410,22 +416,28 @@ export async function mutateOptionsBatch(
       eq(schema.options.user, userId),
     )) as any);
   }
-  statements.push(cacheVersionUpsert(db));
   await executeOptionBatch(db, statements);
   // The batch wrote a new version without going through bumpCacheVersion().
   // Force the next local read to observe it instead of serving the old memo.
-  resetCacheVersionMemo();
   invalidateOptionsSnapshot(db);
-  await notifyEarlyRequestInvalidation({
-    reason: 'options-batch',
-    domains: ['all'],
-    ...(userId === 0 ? {
+  const changesPublicOptions = userId === 0 && [...keys, ...deleteKeys].some(name => name !== 'cacheVersion');
+  if (changesPublicOptions) {
+    const handled = await notifyEarlyRequestInvalidation({
+      reason: 'options-batch',
+      domains: ['all'],
+      sharedDomains: ['all'],
       options: {
         ...Object.fromEntries(deleteKeys.map(name => [name, undefined])),
         ...entries,
       },
-    } : {}),
-  });
+    });
+    if (!handled && !keys.includes('cacheVersion')) {
+      await cacheVersionUpsert(db);
+      resetCacheVersionMemo();
+    }
+  } else if (keys.includes('cacheVersion')) {
+    resetCacheVersionMemo();
+  }
 }
 
 /**

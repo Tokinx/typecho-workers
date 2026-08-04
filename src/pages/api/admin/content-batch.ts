@@ -98,7 +98,11 @@ async function handler({ request, locals, url }: { request: Request; locals: App
     }
 
     if (pages.some(page => canViewContent(page, {}))) {
-      await invalidatePublicCache(auth.db, { reason: 'page-sort', domains: ['all'] });
+      await invalidatePublicCache(auth.db, {
+        reason: 'page-sort',
+        domains: ['all'],
+        sharedDomains: ['navigation'],
+      });
     }
     return new Response(JSON.stringify({ success: 1, message: '页面排序已经完成' }), {
       headers: { 'Content-Type': 'application/json; charset=utf-8' },
@@ -191,7 +195,11 @@ async function handler({ request, locals, url }: { request: Request; locals: App
   }
 
   if (affectsPublicCache) {
-    await invalidatePublicCache(auth.db, { reason: 'content-batch', domains: ['all'] });
+    await invalidatePublicCache(auth.db, {
+      reason: 'content-batch',
+      domains: ['all'],
+      sharedDomains: ['navigation', 'sidebar', 'metas'],
+    });
   }
 
   const referer = safeAdminRedirectUrl(

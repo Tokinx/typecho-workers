@@ -2,8 +2,7 @@
 import { themeTemplates } from 'virtual:theme-templates';
 import { createContextAlongside } from '@/lib/context';
 import { prepareNotFoundData, prepareTagData } from '@/lib/page-data';
-import { and, eq } from 'drizzle-orm';
-import { schema } from '@/db';
+import { findPublicMeta } from '@/lib/public-metas';
 
 const { slug } = Astro.params;
 if (!slug) return Astro.redirect('/');
@@ -11,9 +10,7 @@ if (!slug) return Astro.redirect('/');
 const [ctx, tag] = await createContextAlongside(
   Astro.locals,
   Astro.request,
-  db => db.query.metas.findFirst({
-    where: and(eq(schema.metas.slug, slug), eq(schema.metas.type, 'tag')),
-  }),
+  db => findPublicMeta(db, 'tag', slug),
 );
 const { options } = ctx;
 

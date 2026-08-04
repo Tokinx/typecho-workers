@@ -1,4 +1,4 @@
-import type { PublicCacheInvalidation } from '@/lib/cache';
+import type { PublicCacheInvalidation, SharedCacheDomain } from '@/lib/cache';
 
 export interface EarlyRequestContext {
   request: Request;
@@ -26,12 +26,44 @@ export interface EarlyRequestProvider {
   sync?(context: EarlyRequestSyncContext): Promise<void> | void;
   invalidate?(event: PublicCacheInvalidation): Promise<boolean>;
   lifecycle?(event: EarlyRequestLifecycleEvent): Promise<void>;
+  readSharedData?<T>(domain: SharedCacheDomain, key: string): Promise<T | null>;
+  writeSharedData?<T>(domain: SharedCacheDomain, key: string, value: T): Promise<boolean>;
 }
 
 export type EarlyRequestProviderLoader = () => Promise<EarlyRequestProvider | null | undefined>;
 
 const providerLoaders = new Map<string, EarlyRequestProviderLoader>();
 const pendingProviders = new Map<string, Promise<EarlyRequestProvider | null>>();
+const SHARED_SNAPSHOT_TTL_MS = 60_000;
+type SharedSnapshot = { value: unknown; expiresAt: number };
+const sharedSnapshots = new Map<string, SharedSnapshot>();
+let sharedScopeIds = new WeakMap<object, number>();
+let nextSharedScopeId = 1;
+
+function sharedSnapshotKey(domain: SharedCacheDomain, key: string, scope?: object): string {
+  let scopeId = 0;
+  if (scope) {
+    scopeId = sharedScopeIds.get(scope) || nextSharedScopeId++;
+    sharedScopeIds.set(scope, scopeId);
+  }
+  return `${domain}\0${scopeId}\0${key}`;
+}
+
+function cloneSharedValue<T>(value: T): T {
+  return structuredClone(value);
+}
+
+function invalidateSharedSnapshots(domains?: SharedCacheDomain[] | ['all']): void {
+  if (!domains?.length) return;
+  if (domains[0] === 'all') {
+    sharedSnapshots.clear();
+    return;
+  }
+  const prefixes = new Set(domains.map(domain => `${domain}\0`));
+  for (const key of sharedSnapshots.keys()) {
+    if ([...prefixes].some(prefix => key.startsWith(prefix))) sharedSnapshots.delete(key);
+  }
+}
 
 export function registerEarlyRequestLoaders(loaders: Record<string, EarlyRequestProviderLoader>): void {
   for (const [pluginId, loader] of Object.entries(loaders)) {
@@ -113,6 +145,7 @@ export async function runEarlyRequestProviders(
 }
 
 export async function notifyEarlyRequestInvalidation(event: PublicCacheInvalidation): Promise<boolean> {
+  invalidateSharedSnapshots(event.sharedDomains);
   const providers = await loadProviders();
   let handled = false;
   for (const [pluginId, provider] of providers) {
@@ -124,6 +157,44 @@ export async function notifyEarlyRequestInvalidation(event: PublicCacheInvalidat
     }
   }
   return handled;
+}
+
+/** Load a JSON-serializable shared dataset through L0 -> provider -> D1. */
+export async function loadEarlyRequestSharedData<T>(
+  domain: SharedCacheDomain,
+  key: string,
+  fallback: () => Promise<T>,
+  scope?: object,
+): Promise<T> {
+  const snapshotKey = sharedSnapshotKey(domain, key, scope);
+  const snapshot = sharedSnapshots.get(snapshotKey);
+  if (snapshot && snapshot.expiresAt > Date.now()) return cloneSharedValue(snapshot.value as T);
+
+  const providers = await loadProviders();
+  for (const [pluginId, provider] of providers) {
+    if (!provider.readSharedData) continue;
+    try {
+      const value = await provider.readSharedData<T>(domain, key);
+      if (value !== null) {
+        sharedSnapshots.set(snapshotKey, { value: cloneSharedValue(value), expiresAt: Date.now() + SHARED_SNAPSHOT_TTL_MS });
+        return cloneSharedValue(value);
+      }
+    } catch (error) {
+      console.error(`[early-request] Shared cache read failed for ${pluginId}:`, error);
+    }
+  }
+
+  const value = await fallback();
+  sharedSnapshots.set(snapshotKey, { value: cloneSharedValue(value), expiresAt: Date.now() + SHARED_SNAPSHOT_TTL_MS });
+  for (const [pluginId, provider] of providers) {
+    if (!provider.writeSharedData) continue;
+    try {
+      if (await provider.writeSharedData(domain, key, value)) break;
+    } catch (error) {
+      console.error(`[early-request] Shared cache write failed for ${pluginId}:`, error);
+    }
+  }
+  return cloneSharedValue(value);
 }
 
 export async function syncEarlyRequestProviders(
@@ -156,4 +227,7 @@ export async function notifyEarlyRequestLifecycle(
 export function resetEarlyRequestProvidersForTests(): void {
   providerLoaders.clear();
   pendingProviders.clear();
+  sharedSnapshots.clear();
+  sharedScopeIds = new WeakMap<object, number>();
+  nextSharedScopeId = 1;
 }

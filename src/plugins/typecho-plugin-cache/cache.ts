@@ -5,7 +5,7 @@ import type {
   EarlyRequestProvider,
   EarlyRequestSyncContext,
 } from '@/lib/early-request';
-import type { PublicCacheDomain, PublicCacheInvalidation } from '@/lib/cache';
+import type { PublicCacheDomain, PublicCacheInvalidation, SharedCacheDomain } from '@/lib/cache';
 import { env } from 'cloudflare:workers';
 import { compilePermalinkPattern, type PermalinkPatternKind } from '@/lib/permalink-pattern';
 import { loadPluginConfig } from '@/lib/plugin';
@@ -14,12 +14,16 @@ export const CACHE_PLUGIN_ID = 'typecho-plugin-cache';
 export const CACHE_CONTROL_KEY = 'typecho:edge-cache:v1:control';
 const GENERATION_PREFIX = 'typecho:edge-cache:v1:g:';
 const PAGE_PREFIX = 'typecho:edge-cache:v1:p:';
+const SHARED_GENERATION_PREFIX = 'typecho:edge-cache:v1:sg:';
+const SHARED_DATA_PREFIX = 'typecho:edge-cache:v1:s:';
 const L1_ORIGIN = 'https://typecho-cache.internal';
 const CONTROL_MEMO_TTL_MS = 5_000;
 const GENERATION_MEMO_TTL_MS = 5_000;
 const MAX_HTML_BYTES = 5 * 1024 * 1024;
+const SHARED_DATA_TTL_SECONDS = 604_800;
 const ALL_DOMAINS: PublicCacheDomain[] = ['home', 'post', 'page', 'note', 'archive', 'other'];
 const DETAIL_DOMAINS = new Set<PublicCacheDomain>(['post', 'page', 'note']);
+const ALL_SHARED_DOMAINS: SharedCacheDomain[] = ['options', 'navigation', 'sidebar', 'metas'];
 const TRACKING_PARAMS = new Set(['fbclid', 'gclid', 'dclid', 'msclkid']);
 
 export interface CachePluginConfig {
@@ -175,6 +179,16 @@ async function generation(kv: KVNamespace, domain: PublicCacheDomain | 'all'): P
   return value;
 }
 
+async function sharedGeneration(kv: KVNamespace, domain: SharedCacheDomain): Promise<string> {
+  const key = `${SHARED_GENERATION_PREFIX}${domain}`;
+  const now = Date.now();
+  const memo = generationMemo.get(key);
+  if (memo && memo.expiresAt > now) return memo.value;
+  const value = await kv.get(key, { type: 'text', cacheTtl: 60 }) || '0';
+  generationMemo.set(key, { value, expiresAt: now + GENERATION_MEMO_TTL_MS });
+  return value;
+}
+
 function nextGeneration(): string {
   return `${Date.now().toString(36)}-${crypto.randomUUID()}`;
 }
@@ -190,6 +204,41 @@ export async function invalidateDomains(
     await kv.put(key, value);
     generationMemo.set(key, { value, expiresAt: Date.now() + GENERATION_MEMO_TTL_MS });
   }));
+}
+
+export async function invalidateSharedDomains(
+  kv: KVNamespace,
+  domains: SharedCacheDomain[] | ['all'],
+): Promise<void> {
+  const targets = domains[0] === 'all' ? ALL_SHARED_DOMAINS : [...new Set(domains)];
+  await Promise.all(targets.map(async domain => {
+    const key = `${SHARED_GENERATION_PREFIX}${domain}`;
+    const value = nextGeneration();
+    await kv.put(key, value);
+    generationMemo.set(key, { value, expiresAt: Date.now() + GENERATION_MEMO_TTL_MS });
+  }));
+}
+
+async function readSharedData<T>(domain: SharedCacheDomain, key: string): Promise<T | null> {
+  const kv = runtimeKv();
+  if (!kv || !await loadControl(kv)) return null;
+  const [generationValue, keyHash] = await Promise.all([sharedGeneration(kv, domain), sha256(key)]);
+  return await kv.get<T>(`${SHARED_DATA_PREFIX}${domain}:${generationValue}:${keyHash}`, {
+    type: 'json',
+    cacheTtl: 60,
+  });
+}
+
+async function writeSharedData<T>(domain: SharedCacheDomain, key: string, value: T): Promise<boolean> {
+  const kv = runtimeKv();
+  if (!kv || !await loadControl(kv)) return false;
+  const [generationValue, keyHash] = await Promise.all([sharedGeneration(kv, domain), sha256(key)]);
+  await kv.put(
+    `${SHARED_DATA_PREFIX}${domain}:${generationValue}:${keyHash}`,
+    JSON.stringify(value),
+    { expirationTtl: SHARED_DATA_TTL_SECONDS },
+  );
+  return true;
 }
 
 function pathMatchesPattern(path: string, pattern: string, kind: PermalinkPatternKind): boolean {
@@ -618,7 +667,10 @@ async function lifecycle(event: EarlyRequestLifecycleEvent): Promise<void> {
   runtimeConfig = control.config;
   if (!kv) return;
   await writeControl(kv, control);
-  await invalidateDomains(kv, ['all']);
+  await Promise.all([
+    invalidateDomains(kv, ['all']),
+    invalidateSharedDomains(kv, ['all']),
+  ]);
 }
 
 async function invalidate(event: PublicCacheInvalidation): Promise<boolean> {
@@ -633,7 +685,10 @@ async function invalidate(event: PublicCacheInvalidation): Promise<boolean> {
     };
     await writeControl(kv, nextControl);
   }
-  await invalidateDomains(kv, event.domains);
+  await Promise.all([
+    event.domains.length ? invalidateDomains(kv, event.domains) : Promise.resolve(),
+    event.sharedDomains?.length ? invalidateSharedDomains(kv, event.sharedDomains) : Promise.resolve(),
+  ]);
   return true;
 }
 
@@ -642,6 +697,8 @@ export const earlyRequestProvider: EarlyRequestProvider = {
   sync: syncRuntime,
   lifecycle,
   invalidate,
+  readSharedData,
+  writeSharedData,
 };
 
 export function resetCacheProviderForTests(): void {

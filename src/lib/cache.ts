@@ -17,10 +17,13 @@ import { advanceOptionsSnapshotGeneration } from '@/lib/options-snapshot-generat
 import { notifyEarlyRequestInvalidation } from '@/lib/early-request';
 
 export type PublicCacheDomain = 'home' | 'post' | 'page' | 'note' | 'archive' | 'other';
+export type SharedCacheDomain = 'options' | 'navigation' | 'sidebar' | 'metas';
 
 export interface PublicCacheInvalidation {
   reason: string;
   domains: PublicCacheDomain[] | ['all'];
+  /** Stable server-side datasets cached independently from rendered HTML. */
+  sharedDomains?: SharedCacheDomain[] | ['all'];
   /** Option values that an early provider may need before the next D1 bootstrap. */
   options?: Record<string, unknown>;
 }
@@ -111,7 +114,7 @@ async function writeCacheVersion(db: Database): Promise<void> {
 
 export async function bumpCacheVersion(
   db: Database,
-  event: PublicCacheInvalidation = { reason: 'options', domains: ['all'] },
+  event: PublicCacheInvalidation = { reason: 'options', domains: ['all'], sharedDomains: ['all'] },
 ): Promise<void> {
   await writeCacheVersion(db);
   await notifyEarlyRequestInvalidation(event);

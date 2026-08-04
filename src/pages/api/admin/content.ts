@@ -215,7 +215,11 @@ async function purgeContentAndRelatedCache(
   // Every public cache key embeds cacheVersion. A single version bump replaces
   // URL-by-URL purges and avoids loading relationships solely to build keys
   // that the Cache API no longer stores.
-  await invalidatePublicCache(db, { reason: 'content', domains: ['all'] });
+  await invalidatePublicCache(db, {
+    reason: 'content',
+    domains: ['all'],
+    sharedDomains: content?.type?.startsWith('page') ? ['navigation'] : ['sidebar', 'metas'],
+  });
 }
 
 export const POST: APIRoute = async ({ request, locals }) => {

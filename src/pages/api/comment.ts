@@ -16,6 +16,7 @@ import { isSameOriginRequest } from '@/lib/admin-auth';
 import { eq, and, sql } from 'drizzle-orm';
 import { env } from 'cloudflare:workers';
 import { jsonError } from '@/lib/http';
+import { invalidatePublicCache } from '@/lib/cache';
 
 export const POST: APIRoute = async ({ request, locals }) => {
   const wantsJson = request.headers.get('accept')?.includes('application/json') ?? false;
@@ -284,6 +285,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
   if (!inserted.length) return commentError(wantsJson, 500, '评论保存失败');
   const newCoid = inserted[0].coid;
   commentData.coid = newCoid;
+  if (finalStatus === 'approved') {
+    await invalidatePublicCache(db, { reason: 'comment-visible', domains: [], sharedDomains: ['sidebar'] });
+  }
 
   // Trigger feedback:finishComment hook — plugins can act after comment saved
   // (e.g. email notifications); fire-and-forget via waitUntil.

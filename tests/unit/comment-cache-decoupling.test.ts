@@ -11,11 +11,15 @@ const COMMENT_WRITE_PATHS = [
 ];
 
 describe('API-backed comments and page cache', () => {
-  it('does not invalidate page-cache generations from comment write paths', () => {
+  it('invalidates only shared sidebar data from comment write paths', () => {
     for (const path of COMMENT_WRITE_PATHS) {
       const source = readFileSync(join(process.cwd(), path), 'utf8');
-      expect(source, path).not.toContain('invalidatePublicCache');
       expect(source, path).not.toContain('purgeCommentModerationCache');
+      expect(source, path).not.toMatch(/domains:\s*\['all'\]/);
+      if (source.includes('invalidatePublicCache')) {
+        expect(source, path).toContain('domains: []');
+        expect(source, path).toContain("sharedDomains: ['sidebar']");
+      }
     }
   });
 

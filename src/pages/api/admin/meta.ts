@@ -145,7 +145,7 @@ async function handler({ request, locals, url }: { request: Request; locals: App
       ...(type === 'category' ? { parent: categoryParent } : {}),
     });
 
-    await invalidatePublicCache(db, { reason: 'meta-create', domains: ['all'] });
+    await invalidatePublicCache(db, { reason: 'meta-create', domains: ['all'], sharedDomains: ['sidebar', 'metas'] });
     return new Response(null, { status: 302, headers: { Location: type === 'category' ? categoryRedirect(categoryParent) : redirectTo } });
   }
 
@@ -174,7 +174,7 @@ async function handler({ request, locals, url }: { request: Request; locals: App
 
     await db.update(schema.metas).set(updateData).where(and(eq(schema.metas.mid, mid), eq(schema.metas.type, type)));
 
-    await invalidatePublicCache(db, { reason: 'meta-update', domains: ['all'] });
+    await invalidatePublicCache(db, { reason: 'meta-update', domains: ['all'], sharedDomains: ['sidebar', 'metas'] });
     return new Response(null, { status: 302, headers: { Location: type === 'category' ? categoryRedirect(categoryParent) : redirectTo } });
   }
 
@@ -202,7 +202,7 @@ async function handler({ request, locals, url }: { request: Request; locals: App
       .set({ order: index + 1 })
       .where(and(eq(schema.metas.mid, id), eq(schema.metas.type, 'category')))));
 
-    await invalidatePublicCache(db, { reason: 'category-sort', domains: ['all'] });
+    await invalidatePublicCache(db, { reason: 'category-sort', domains: ['all'], sharedDomains: ['sidebar', 'metas'] });
     return new Response(JSON.stringify({ success: 1, message: '分类排序已经完成' }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -280,7 +280,7 @@ async function handler({ request, locals, url }: { request: Request; locals: App
     await db.update(schema.metas).set({ count: Number(count) || 0 })
       .where(and(eq(schema.metas.mid, targetTag.mid), eq(schema.metas.type, 'tag')));
 
-    await invalidatePublicCache(db, { reason: 'tag-merge', domains: ['all'] });
+    await invalidatePublicCache(db, { reason: 'tag-merge', domains: ['all'], sharedDomains: ['sidebar', 'metas'] });
     return new Response(null, { status: 302, headers: { Location: redirectTo } });
   }
 
@@ -362,7 +362,7 @@ async function handler({ request, locals, url }: { request: Request; locals: App
     await db.update(schema.metas).set({ count: Number(count) || 0 })
       .where(and(eq(schema.metas.mid, targetId), eq(schema.metas.type, 'category')));
 
-    await invalidatePublicCache(db, { reason: 'category-merge', domains: ['all'] });
+    await invalidatePublicCache(db, { reason: 'category-merge', domains: ['all'], sharedDomains: ['sidebar', 'metas'] });
     return new Response(null, { status: 302, headers: { Location: redirectTo } });
   }
 
@@ -448,7 +448,7 @@ async function handler({ request, locals, url }: { request: Request; locals: App
     );
     await runBatch(db, deleteStatements);
 
-    await invalidatePublicCache(db, { reason: 'meta-delete', domains: ['all'] });
+    await invalidatePublicCache(db, { reason: 'meta-delete', domains: ['all'], sharedDomains: ['sidebar', 'metas'] });
     return new Response(null, { status: 302, headers: { Location: redirectTo } });
   }
 
@@ -505,7 +505,7 @@ async function handler({ request, locals, url }: { request: Request; locals: App
       }));
     }
 
-    await invalidatePublicCache(db, { reason: 'meta-refresh', domains: ['all'] });
+    await invalidatePublicCache(db, { reason: 'meta-refresh', domains: ['all'], sharedDomains: ['sidebar', 'metas'] });
     return new Response(null, { status: 302, headers: { Location: redirectTo } });
   }
 

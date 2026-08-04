@@ -11,6 +11,7 @@ import {
   earlyRequestProvider,
   getCacheRuntimeConfig,
   invalidateDomains,
+  invalidateSharedDomains,
   normalizeCacheConfig,
   rewriteResourceUrl,
   setCacheRuntimeConfig,
@@ -129,6 +130,7 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
       return { handled: true, success: false, error: '缓存域无效' };
     }
     await invalidateDomains(kv, [requested as PublicCacheDomain] as PublicCacheDomain[] | ['all']);
+    if (requested === 'all') await invalidateSharedDomains(kv, ['all']);
     return { handled: true, success: true, message: '缓存代际已更新' };
   });
 }

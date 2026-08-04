@@ -596,7 +596,7 @@ export async function prepareCategoryData(
   requestUrl: string,
   locals: Record<string, unknown>,
   url: URL,
-  preloadedCategory?: MetaRow | null,
+  preloadedCategory?: Pick<MetaRow, 'mid' | 'name'> | null,
 ): Promise<ThemeArchiveProps | Response> {
   const category = preloadedCategory === undefined
     ? await ctx.db.query.metas.findFirst({
@@ -619,7 +619,7 @@ export async function prepareTagData(
   requestUrl: string,
   locals: Record<string, unknown>,
   url: URL,
-  preloadedTag?: MetaRow | null,
+  preloadedTag?: Pick<MetaRow, 'mid' | 'name'> | null,
 ): Promise<ThemeArchiveProps | Response> {
   const tag = preloadedTag === undefined
     ? await ctx.db.query.metas.findFirst({

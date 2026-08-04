@@ -4,14 +4,13 @@ import { generateRss2, generateAtom } from '@/lib/feed';
 import { clampFeedItems, buildFeedItem, getFeedRuntime, xmlResponse } from '@/lib/feed-helpers';
 import { eq, and, desc } from 'drizzle-orm';
 import { publishedPostCondition } from '@/lib/content-visibility';
+import { findPublicMeta } from '@/lib/public-metas';
 
 export const GET: APIRoute = async ({ locals, params }) => {
   const slug = params.slug || '';
   const { db, options, urls, pluginCtx } = await getFeedRuntime(locals);
 
-  const cat = await db.query.metas.findFirst({
-    where: and(eq(schema.metas.type, 'category'), eq(schema.metas.slug, slug)),
-  });
+  const cat = await findPublicMeta(db, 'category', slug);
   if (!cat) return new Response('Not Found', { status: 404 });
 
   const limit = clampFeedItems(options.feedItems);

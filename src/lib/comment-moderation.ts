@@ -2,6 +2,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { schema, type Database } from '@/db';
 import { hasPermission } from '@/lib/auth';
 import { doHook, type HookContext } from '@/lib/plugin';
+import { invalidatePublicCache } from '@/lib/cache';
 
 export const COMMENT_ACTIONS = ['approve', 'approved', 'waiting', 'spam', 'delete'] as const;
 export type CommentAction = typeof COMMENT_ACTIONS[number];
@@ -95,6 +96,9 @@ export async function applyCommentAction(
       await decrementCommentCount(db, comment.cid || 0);
     }
     await doHook(ctx, 'comment:action', comment, { action, oldStatus, newStatus: 'deleted', options });
+    if (oldStatus === 'approved') {
+      await invalidatePublicCache(db, { reason: 'comment-visible', domains: [], sharedDomains: ['sidebar'] });
+    }
     return;
   }
 
@@ -110,6 +114,9 @@ export async function applyCommentAction(
   }
 
   await doHook(ctx, 'comment:action', comment, { action, oldStatus, newStatus: nextStatus, options });
+  if ((oldStatus === 'approved') !== (nextStatus === 'approved')) {
+    await invalidatePublicCache(db, { reason: 'comment-visible', domains: [], sharedDomains: ['sidebar'] });
+  }
 }
 
 /** Apply a validated selection in one D1 batch and fire hooks in input order. */
@@ -167,6 +174,9 @@ export async function applyCommentActions(
     const oldStatus = comment.status;
     const newStatus = action === 'delete' ? 'deleted' : action === 'approved' ? 'approved' : action;
     await doHook(ctx, 'comment:action', comment, { action, oldStatus, newStatus, options });
+  }
+  if (comments.some(comment => (comment.status === 'approved') !== (action === 'approved'))) {
+    await invalidatePublicCache(db, { reason: 'comment-visible-batch', domains: [], sharedDomains: ['sidebar'] });
   }
 }
 
