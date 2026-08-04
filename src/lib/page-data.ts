@@ -159,8 +159,10 @@ function mapPostCategories(
 ): CategoryMap {
   const map: CategoryMap = new Map();
   for (const row of rows) {
-    if (!map.has(row.cid)) map.set(row.cid, []);
-    map.get(row.cid)!.push({
+    const cid = Number(row.cid);
+    if (!Number.isSafeInteger(cid)) continue;
+    if (!map.has(cid)) map.set(cid, []);
+    map.get(cid)!.push({
       name: row.name || '',
       slug: row.slug || '',
       permalink: buildCategoryLink(row.slug || '', siteUrl, categoryPattern),
@@ -177,7 +179,8 @@ function toPostListItem(
   permalinkPattern?: string | null,
 ): PostListItem {
   const author = authorMap.get(post.authorId || 0);
-  const categories = categoryMap.get(post.cid) || [];
+  const cid = Number(post.cid);
+  const categories = categoryMap.get(cid) || [];
   const permalink = buildPermalink(
     { cid: post.cid, slug: post.slug, type: post.type, created: post.created, category: categories[0]?.slug },
     siteUrl,

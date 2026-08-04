@@ -100,6 +100,7 @@ describe('archive future-post filtering (G7-5)', () => {
     const titles = props.posts.map((p: any) => p.title);
     expect(titles).toContain('Past Post');
     expect(titles).not.toContain('Future Post');
+    expect(props.posts.find((post: any) => post.title === 'Past Post')?.categories[0]?.name).toBe('Tech');
   });
 
   it('category archive hides future posts', async () => {
