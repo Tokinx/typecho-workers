@@ -7,6 +7,7 @@ import { POST as submitComment } from '@/pages/api/comment';
 import { createTestDb, disposeTestDb, makeAuthCookie, seedAdmin, type TestDatabase } from '../../../tests/helpers';
 import init, {
   extractTopicNames,
+  getNoteForTheme,
   getNotesForTheme,
   NOTES_ADMIN_API_PATH,
   handleNotesRequest,
@@ -52,6 +53,13 @@ describe('typecho-plugin-notes', () => {
     expect(hooks.has('archive:footer')).toBe(false);
     expect(hooks.get('admin:page')!('', { slug: 'other' })).toBe('');
     expect(hooks.get('admin:page')!('', { slug: 'notes', csrfToken: 'token' })).toContain('id="notes-app"');
+  });
+
+  it('allows read-only comment loading for a public note after replies are closed', () => {
+    const hook = collectHooks().get('comment:allowContent')!;
+    const content = { type: 'note', status: 'publish', created: Math.floor(Date.now() / 1000) - 1, allowComment: '0' };
+    expect(hook(false, { content })).toBe(false);
+    expect(hook(false, { content, readOnly: true })).toBe(true);
   });
 
   it('normalizes note content and Unicode topic slugs', () => {
@@ -209,6 +217,8 @@ describe('typecho-plugin-notes', () => {
     expect(loggedInVariables.notes.map(item => item.cid)).toEqual(expect.arrayContaining([noteCid, privateCid]));
     expect(loggedInVariables.notes.some(item => item.source === '草稿笔记')).toBe(false);
     expect(loggedInVariables.notes.some(item => item.source === '他人的私密笔记')).toBe(false);
+    expect((await getNoteForTheme(db as any, privateCid, 'https://example.com', 1))?.cid).toBe(privateCid);
+    expect(await getNoteForTheme(db as any, privateCid, 'https://example.com')).toBeNull();
   });
 
   it('accepts frontend comments on public notes and rejects non-public notes', async () => {

@@ -168,9 +168,12 @@ export function topicSlug(name: string): string {
 }
 
 /** Convert reference text into an anchor after Markdown sanitation. */
-export function renderNoteContent(value: string): string {
+export function renderNoteContent(value: string, topicBaseUrl = ''): string {
   const html = renderMarkdown(value);
   const topics = new Set(extractTopicNames(value).map(topicKey));
+  const topicHref = topicBaseUrl
+    ? `${topicBaseUrl.replace(/\/$/, '')}/?stream=notes&topic=`
+    : '?topic=';
   let protectedDepth = 0;
   return html.split(/(<[^>]+>)/g).map(part => {
     if (part.startsWith('<')) {
@@ -187,7 +190,7 @@ export function renderNoteContent(value: string): string {
     return part
       .replace(HASH_TOPIC_RE, (match, prefix: string, topic: string) => (
         topics.has(topicKey(topic))
-          ? `${prefix}<a class="note-topic-highlight" href="?topic=${encodeURIComponent(topic)}" data-note-topic="${topic}">#${topic}</a>`
+          ? `${prefix}<a class="note-topic-highlight" href="${topicHref}${encodeURIComponent(topic)}" data-note-topic="${topic}">#${topic}</a>`
           : match
       ))
       .replace(NOTE_REFERENCE_RE, (_match, cid: string) => (
@@ -441,7 +444,7 @@ async function listNotesData(db: Database, rawOptions: ListOptions = {}): Promis
           ? `${siteUrl.replace(/\/$/, '')}/archives/${note.cid}/`
           : buildPermalink(note, siteUrl || 'http://localhost', rawOptions.permalinkPattern),
         source,
-        html: isNote ? renderNoteContent(note.text || '') : renderMarkdown(note.text || ''),
+        html: isNote ? renderNoteContent(note.text || '', siteUrl) : renderMarkdown(note.text || ''),
         created: note.created || 0,
         modified: note.modified || 0,
         status: note.status || 'publish',
@@ -496,8 +499,9 @@ export async function getNoteForTheme(
   db: Database,
   cid: number,
   siteUrl = '',
+  viewerUid?: number | null,
 ): Promise<NoteListItem | null> {
-  const result = await listNotesData(db, { cid, pageSize: 1, admin: false, siteUrl });
+  const result = await listNotesData(db, { cid, pageSize: 1, admin: false, siteUrl, viewerUid });
   return result.data[0] || null;
 }
 

@@ -61,11 +61,14 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
   addHook(
     'comment:allowContent',
     pluginId,
-    (allowed: boolean, extra?: { content?: { type?: string | null; status?: string | null; created?: number | null; allowComment?: string | null } }) => {
+    (allowed: boolean, extra?: {
+      content?: { type?: string | null; status?: string | null; created?: number | null; allowComment?: string | null };
+      readOnly?: boolean;
+    }) => {
       const content = extra?.content;
       if (content?.type !== NOTE_TYPE) return allowed;
       return content.status === 'publish' &&
-        content.allowComment === '1' &&
+        (extra?.readOnly || content.allowComment === '1') &&
         (content.created || 0) <= Math.floor(Date.now() / 1000);
     },
   );
