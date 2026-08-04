@@ -12,8 +12,8 @@ import {
   getCacheRuntimeConfig,
   invalidateDomains,
   normalizeCacheConfig,
+  rewriteResourceUrl,
   setCacheRuntimeConfig,
-  setCacheRuntimeEnvForTests,
 } from './cache';
 
 export { earlyRequestProvider };
@@ -25,11 +25,10 @@ function kvBinding(): KVNamespace | null {
 }
 
 async function syncControl(options: Record<string, unknown>): Promise<void> {
-  const kv = kvBinding();
-  if (!kv) return;
-  setCacheRuntimeEnvForTests(env);
   const settings = loadPluginConfig(options, CACHE_PLUGIN_ID);
   setCacheRuntimeConfig(settings);
+  const kv = kvBinding();
+  if (!kv) return;
   const next = buildControlDocument(settings, options);
   const current = await kv.get(CACHE_CONTROL_KEY, { type: 'text', cacheTtl: 60 });
   if (!current) {
@@ -49,8 +48,6 @@ async function syncControl(options: Record<string, unknown>): Promise<void> {
 }
 
 export default function init({ addHook, pluginId }: PluginInitContext): void {
-  setCacheRuntimeEnvForTests(env);
-
   addHook('system:begin', pluginId, async (context?: { options?: Record<string, unknown> }) => {
     if (context?.options) await syncControl(context.options);
   });
@@ -87,6 +84,26 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
     }
     if (config.avatarCdnUrl) addCspSource(directives, 'img-src', [new URL(config.avatarCdnUrl).origin]);
     return directives;
+  });
+
+  addHook('comment:avatarMap', pluginId, (
+    avatars: Record<string, string>,
+    extra?: { request?: Request; options?: Record<string, unknown> },
+  ) => {
+    if (!extra?.options) return avatars;
+    const config = normalizeCacheConfig(loadPluginConfig(extra.options, pluginId));
+    if (!config.avatarCdnUrl) return avatars;
+    const siteUrl = String(extra.options.siteUrl || extra.request?.url || '');
+    let requestOrigin = siteUrl;
+    try {
+      requestOrigin = new URL(extra.request?.url || siteUrl).origin;
+    } catch {
+      return avatars;
+    }
+    return Object.fromEntries(Object.entries(avatars).map(([coid, avatarUrl]) => [
+      coid,
+      rewriteResourceUrl(avatarUrl, config, requestOrigin, siteUrl),
+    ]));
   });
 
   addHook('admin:page', pluginId, (html: string, extra?: { slug?: string; csrfToken?: string }) => {

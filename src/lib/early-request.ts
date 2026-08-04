@@ -15,8 +15,15 @@ export interface EarlyRequestLifecycleEvent {
   options?: Record<string, unknown>;
 }
 
+export interface EarlyRequestSyncContext {
+  request: Request;
+  active: boolean;
+  options: Record<string, unknown>;
+}
+
 export interface EarlyRequestProvider {
   handle(context: EarlyRequestContext, next: EarlyRequestNext): Promise<Response>;
+  sync?(context: EarlyRequestSyncContext): Promise<void> | void;
   invalidate?(event: PublicCacheInvalidation): Promise<boolean>;
   lifecycle?(event: EarlyRequestLifecycleEvent): Promise<void>;
 }
@@ -117,6 +124,23 @@ export async function notifyEarlyRequestInvalidation(event: PublicCacheInvalidat
     }
   }
   return handled;
+}
+
+export async function syncEarlyRequestProviders(
+  request: Request,
+  activatedPluginIds: Iterable<string>,
+  options: Record<string, unknown>,
+): Promise<void> {
+  const activated = new Set(activatedPluginIds);
+  const providers = await loadProviders();
+  await Promise.all(providers.map(async ([pluginId, provider]) => {
+    if (!provider.sync) return;
+    try {
+      await provider.sync({ request, active: activated.has(pluginId), options });
+    } catch (error) {
+      console.error(`[early-request] Runtime sync failed for ${pluginId}:`, error);
+    }
+  }));
 }
 
 export async function notifyEarlyRequestLifecycle(

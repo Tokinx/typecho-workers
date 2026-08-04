@@ -13,7 +13,7 @@ import {
 import { eq, and } from 'drizzle-orm';
 import { env } from 'cloudflare:workers';
 import { publishedPostCondition } from '@/lib/content-visibility';
-import { runEarlyRequestProviders } from '@/lib/early-request';
+import { runEarlyRequestProviders, syncEarlyRequestProviders } from '@/lib/early-request';
 
 // Plugin loader registration (generated at build time by plugin-loader.ts).
 // Statically imported so the lazy plugin loader table exists before the first
@@ -134,8 +134,14 @@ const coreMiddleware = defineMiddleware(async (context, next) => {
     return applySecurityHeaders(new Response('Service unavailable', { status: 500 }), { request: context.request });
   }
 
-  // Resolve custom category patterns only after options are available. Keep
-  // the existing single-pass `next()` flow for paginated requests.
+  const activatedIds = parseActivatedPlugins(options.activatedPlugins as string | undefined);
+  const pluginCtx: HookContext = { activatedPlugins: new Set<string>() };
+  await setActivatedPlugins(pluginCtx, activatedIds);
+  await syncEarlyRequestProviders(context.request, activatedIds, options);
+  setRequestCoreContext(context.locals, { db, options, pluginCtx }, context.request);
+
+  // Resolve custom category patterns only after options and plugin runtime
+  // state are available so paginated HTML gets the same CDN and CSP handling.
   const paginated = await resolvePaginatedPath(
     path,
     url.search,
@@ -144,13 +150,12 @@ const coreMiddleware = defineMiddleware(async (context, next) => {
   );
   if (paginated) {
     context.locals._page = paginated.page;
-    return applySecurityHeaders(await next(paginated.target), { request: context.request });
+    return applySecurityHeaders(
+      await next(paginated.target),
+      { request: context.request },
+      pluginCtx,
+    );
   }
-
-  const activatedIds = parseActivatedPlugins(options.activatedPlugins as string | undefined);
-  const pluginCtx: HookContext = { activatedPlugins: new Set<string>() };
-  await setActivatedPlugins(pluginCtx, activatedIds);
-  setRequestCoreContext(context.locals, { db, options, pluginCtx }, context.request);
 
   const pluginRoute = await applyFilter(pluginCtx, 'route:request', { handled: false }, {
     request: context.request,

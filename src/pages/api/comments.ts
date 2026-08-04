@@ -5,7 +5,13 @@ import { getDb, schema } from '@/db';
 import { loadOptions } from '@/lib/options';
 import { getCookieValue, generateCommentToken, validateUnapprovedCommentToken } from '@/lib/auth';
 import { getRequestCoreContextFromLocals } from '@/lib/context';
-import { applyFilter, parseActivatedPlugins, setActivatedPlugins, type HookContext } from '@/lib/plugin';
+import {
+  applyFilter,
+  applyFilterSafely,
+  parseActivatedPlugins,
+  setActivatedPlugins,
+  type HookContext,
+} from '@/lib/plugin';
 import { loadCommentPage } from '@/lib/comment-page';
 import { buildCommentOptions, buildCommentTree, buildGravatarMap } from '@/lib/page-data';
 import { jsonError, jsonOk } from '@/lib/http';
@@ -65,6 +71,13 @@ export const GET: APIRoute = async ({ request, locals, url }) => {
   const gravatarMap = options.commentsAvatar
     ? await buildGravatarMap(commentPage.rows, options.commentsAvatarRating || 'G')
     : {};
+  const filteredAvatarMap = await applyFilterSafely(pluginCtx, 'comment:avatarMap', gravatarMap, {
+    request,
+    options,
+  });
+  const publicAvatarMap = filteredAvatarMap && typeof filteredAvatarMap === 'object'
+    ? filteredAvatarMap as Record<number, string>
+    : gravatarMap;
   const securityToken = options.commentsAntiSpam
     ? await generateCommentToken(options.secret, cid)
     : '';
@@ -72,7 +85,7 @@ export const GET: APIRoute = async ({ request, locals, url }) => {
 
   return jsonOk({
     comments,
-    gravatarMap,
+    gravatarMap: publicAvatarMap,
     pagination: commentPage.pagination,
     options: { ...buildCommentOptions(options, securityToken), allowComment },
   }, PRIVATE_HEADERS);

@@ -6,7 +6,12 @@
 export type { PluginInitContext, PluginRouteResult, PluginManifest, PluginConfigField } from './plugin';
 export type { AttachmentMeta } from './attachment';
 export type { Database } from '../db/index';
-export type { EarlyRequestProvider, EarlyRequestContext, EarlyRequestLifecycleEvent } from './early-request';
+export type {
+  EarlyRequestProvider,
+  EarlyRequestContext,
+  EarlyRequestLifecycleEvent,
+  EarlyRequestSyncContext,
+} from './early-request';
 export type { PublicCacheDomain, PublicCacheInvalidation } from './cache';
 
 // ── Plugin system ──

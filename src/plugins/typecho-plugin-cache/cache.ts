@@ -3,10 +3,12 @@ import type {
   EarlyRequestLifecycleEvent,
   EarlyRequestNext,
   EarlyRequestProvider,
+  EarlyRequestSyncContext,
 } from '@/lib/early-request';
 import type { PublicCacheDomain, PublicCacheInvalidation } from '@/lib/cache';
 import { env } from 'cloudflare:workers';
 import { compilePermalinkPattern, type PermalinkPatternKind } from '@/lib/permalink-pattern';
+import { loadPluginConfig } from '@/lib/plugin';
 
 export const CACHE_PLUGIN_ID = 'typecho-plugin-cache';
 export const CACHE_CONTROL_KEY = 'typecho:edge-cache:v1:control';
@@ -53,6 +55,7 @@ let controlMemo: Memo<CacheControlDocument | null> | null = null;
 const generationMemo = new Map<string, Memo<string>>();
 const inFlight = new Map<string, Promise<Response>>();
 let runtimeConfig: CachePluginConfig | null = null;
+let requestRuntime = new WeakMap<Request, CacheControlDocument | null>();
 
 function asKv(value: unknown): KVNamespace | null {
   const candidate = value as Partial<KVNamespace> | null | undefined;
@@ -63,10 +66,6 @@ function asKv(value: unknown): KVNamespace | null {
 
 function runtimeKv(): KVNamespace | null {
   return asKv(env.TYPECHO_CACHE);
-}
-
-export function setCacheRuntimeEnvForTests(workerEnv?: CloudflareEnv): void {
-  if (workerEnv) Object.assign(env, workerEnv);
 }
 
 function normalizeUrl(value: unknown): string {
@@ -318,6 +317,15 @@ function joinCdnPath(base: URL, source: URL): string {
   return base.toString();
 }
 
+function joinAvatarCdnPath(base: URL, source: URL): string {
+  const prefix = base.pathname.replace(/\/$/, '');
+  const avatarPrefix = prefix.toLowerCase().endsWith('/avatar') ? '' : '/avatar';
+  base.pathname = `${prefix}${avatarPrefix}${source.pathname.slice('/avatar'.length)}`;
+  base.search = source.search;
+  base.hash = source.hash;
+  return base.toString();
+}
+
 function isGravatarHost(hostname: string): boolean {
   const host = hostname.toLowerCase();
   return host === 'gravatar.com' || host.endsWith('.gravatar.com');
@@ -339,7 +347,7 @@ export function rewriteResourceUrl(
   }
 
   if (config.avatarCdnUrl && isGravatarHost(source.hostname) && source.pathname.startsWith('/avatar/')) {
-    return joinCdnPath(new URL(config.avatarCdnUrl), source);
+    return joinAvatarCdnPath(new URL(config.avatarCdnUrl), source);
   }
 
   if (!config.staticCdnUrl) return raw;
@@ -425,6 +433,24 @@ function shouldBypassRequest(request: Request): boolean {
   return cacheControl.includes('no-cache') || cacheControl.includes('no-store');
 }
 
+async function renderWithRuntimeRewrite(
+  context: EarlyRequestContext,
+  next: EarlyRequestNext,
+): Promise<Response> {
+  const response = await next();
+  const control = requestRuntime.get(context.request);
+  if (!control) return response;
+  try {
+    return withCacheHeader(
+      await rewriteHtmlResponse(response, control.config, context.url.origin, control.options.siteUrl),
+      'BYPASS',
+    );
+  } catch (error) {
+    console.error('[edge-cache] HTML rewrite failed:', error);
+    return withCacheHeader(response, 'BYPASS');
+  }
+}
+
 async function renderAndCache(
   context: EarlyRequestContext,
   next: EarlyRequestNext,
@@ -452,16 +478,16 @@ async function renderAndCache(
 
 async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNext): Promise<Response> {
   const kv = asKv(context.env.TYPECHO_CACHE);
-  if (!kv) return next();
+  if (!kv) return renderWithRuntimeRewrite(context, next);
 
   let control: CacheControlDocument | null;
   try {
     control = await loadControl(kv);
   } catch (error) {
     console.error('[edge-cache] Control read failed:', error);
-    return next();
+    return renderWithRuntimeRewrite(context, next);
   }
-  if (!control) return next();
+  if (!control) return renderWithRuntimeRewrite(context, next);
 
   const domain = classifyCacheDomain(context.url.pathname, control);
   const normalizedUrl = normalizeCacheUrl(context.url, domain);
@@ -503,7 +529,7 @@ async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNex
     }
   } catch (error) {
     console.error('[edge-cache] Cache lookup failed; falling back to D1:', error);
-    return next();
+    return renderWithRuntimeRewrite(context, next);
   }
 
   const existing = inFlight.get(cacheId);
@@ -518,18 +544,33 @@ async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNex
   }
 }
 
+function syncRuntime(context: EarlyRequestSyncContext): void {
+  if (!context.active) {
+    requestRuntime.set(context.request, null);
+    return;
+  }
+  const control = buildControlDocument(
+    loadPluginConfig(context.options, CACHE_PLUGIN_ID),
+    context.options,
+  );
+  requestRuntime.set(context.request, control);
+  runtimeConfig = control.config;
+}
+
 async function lifecycle(event: EarlyRequestLifecycleEvent): Promise<void> {
   const kv = runtimeKv();
-  if (!kv) return;
   if (event.type === 'deactivate') {
-    await kv.delete(CACHE_CONTROL_KEY);
+    if (kv) await kv.delete(CACHE_CONTROL_KEY);
     controlMemo = { value: null, expiresAt: Date.now() + CONTROL_MEMO_TTL_MS };
     generationMemo.clear();
     runtimeConfig = null;
     return;
   }
   if (!event.settings) return;
-  await writeControl(kv, buildControlDocument(event.settings, event.options));
+  const control = buildControlDocument(event.settings, event.options);
+  runtimeConfig = control.config;
+  if (!kv) return;
+  await writeControl(kv, control);
   await invalidateDomains(kv, ['all']);
 }
 
@@ -549,11 +590,17 @@ async function invalidate(event: PublicCacheInvalidation): Promise<boolean> {
   return true;
 }
 
-export const earlyRequestProvider: EarlyRequestProvider = { handle: handleRequest, lifecycle, invalidate };
+export const earlyRequestProvider: EarlyRequestProvider = {
+  handle: handleRequest,
+  sync: syncRuntime,
+  lifecycle,
+  invalidate,
+};
 
 export function resetCacheProviderForTests(): void {
   controlMemo = null;
   generationMemo.clear();
   inFlight.clear();
   runtimeConfig = null;
+  requestRuntime = new WeakMap<Request, CacheControlDocument | null>();
 }

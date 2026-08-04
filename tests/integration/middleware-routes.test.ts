@@ -56,6 +56,7 @@ vi.mock('cloudflare:workers', () => ({
 }));
 
 import { schema } from '@/db';
+import { eq } from 'drizzle-orm';
 import { advanceOptionsSnapshotGeneration } from '@/lib/options-snapshot-generation';
 import { onRequest } from '@/middleware';
 import { env as workerEnv } from 'cloudflare:workers';
@@ -153,6 +154,63 @@ describe('Middleware: no redirect loops when DB is ready', () => {
     expect(next).toHaveBeenCalledWith('/category/guides/?sort=latest');
   });
 
+  it('rewrites paginated public HTML and CSP without a KV binding', async () => {
+    await testDb.insert(schema.options).values([
+      {
+        name: 'activatedPlugins',
+        user: 0,
+        value: JSON.stringify(['typecho-plugin-cache']),
+      },
+      {
+        name: 'plugin:typecho-plugin-cache',
+        user: 0,
+        value: JSON.stringify({
+          cacheScopes: ['home', 'post', 'page', 'note', 'archive', 'other'],
+          l1Ttl: '86400',
+          listTtl: '86400',
+          detailTtl: '604800',
+          staticCdnUrl: 'https://cdn.example.com/assets',
+          staticExtensions: 'jpg,jpeg,png,css,js,zip',
+          avatarCdnUrl: 'https://avatar.example.com/avatar',
+        }),
+      },
+    ]);
+    advanceOptionsSnapshotGeneration(testDb as any);
+    resetCacheProviderForTests();
+
+    try {
+      const request = new Request(`${SITE}/topics/guides/page/2/`);
+      const ctx = {
+        request,
+        url: new URL(request.url),
+        locals: {},
+        redirect: (p: string) => new Response(null, { status: 302, headers: { Location: p } }),
+        rewrite: (p: string) => new Response(null, { status: 302, headers: { Location: p } }),
+      } as any;
+      const next = vi.fn(async () => new Response([
+        '<img src="/usr/uploads/2026/08/avatar.jpeg">',
+        '<img src="https://www.gravatar.com/avatar/hash?s=40">',
+      ].join(''), { headers: { 'Content-Type': 'text/html; charset=utf-8' } }));
+
+      const response = await onRequest(ctx, next) as Response;
+      const html = await response.text();
+      const csp = response.headers.get('Content-Security-Policy') || '';
+
+      expect(ctx.locals._page).toBe(2);
+      expect(next).toHaveBeenCalledWith('/category/guides/');
+      expect(response.headers.get('X-Typecho-Cache')).toBe('BYPASS');
+      expect(html).toContain('https://cdn.example.com/assets/usr/uploads/2026/08/avatar.jpeg');
+      expect(html).toContain('https://avatar.example.com/avatar/hash?s=40');
+      expect(csp).toContain('https://cdn.example.com');
+      expect(csp).toContain('https://avatar.example.com');
+    } finally {
+      await testDb.delete(schema.options).where(eq(schema.options.name, 'activatedPlugins'));
+      await testDb.delete(schema.options).where(eq(schema.options.name, 'plugin:typecho-plugin-cache'));
+      advanceOptionsSnapshotGeneration(testDb as any);
+      resetCacheProviderForTests();
+    }
+  });
+
   it('does not cache public HTML when the cache plugin has no KV control state', async () => {
     const waitUntil = vi.fn();
     const putSpy = vi.spyOn(caches.default, 'put');
@@ -171,7 +229,9 @@ describe('Middleware: no redirect loops when DB is ready', () => {
     ) as Response;
 
     expect(response.status).toBe(200);
-    expect(putSpy).not.toHaveBeenCalled();
+    expect(putSpy.mock.calls.some(([request]) => (
+      request instanceof Request && new URL(request.url).hostname === 'typecho-cache.internal'
+    ))).toBe(false);
     expect(waitUntil).not.toHaveBeenCalled();
     putSpy.mockRestore();
   });

@@ -16,6 +16,7 @@ vi.mock('@/lib/plugin', () => ({
   parseActivatedPlugins: () => [],
   setActivatedPlugins: async () => {},
   applyFilter: mockApplyFilter,
+  applyFilterSafely: mockApplyFilter,
 }));
 
 import { GET } from '@/pages/api/comments';
@@ -115,6 +116,40 @@ describe('GET /api/comments', () => {
     expect(body.comments).toHaveLength(1);
     expect(body.comments[0].text).toContain('有用的评论');
     expect(body.options.securityToken).toBeTruthy();
+  });
+
+  it('filters the public avatar map without making the API cacheable', async () => {
+    await seedOptions({ commentsAvatar: '1' });
+    const post = await seedPost();
+    await testDb.insert(schema.comments).values({
+      cid: post.cid,
+      author: 'Reader',
+      mail: 'reader@example.com',
+      text: 'avatar',
+      type: 'comment',
+      status: 'approved',
+      created: 100,
+      parent: 0,
+    });
+    mockApplyFilter.mockImplementation(async (_ctx: any, hook: string, value: any) => (
+      hook === 'comment:avatarMap'
+        ? Object.fromEntries(Object.keys(value).map(coid => [coid, `https://avatar.example.com/avatar/${coid}`]))
+        : value
+    ));
+
+    const response = await GET(request(String(post.cid)));
+    const body = await response.json() as any;
+
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(Object.values(body.gravatarMap)).toEqual([
+      expect.stringMatching(/^https:\/\/avatar\.example\.com\/avatar\/\d+$/),
+    ]);
+    expect(mockApplyFilter).toHaveBeenCalledWith(
+      expect.anything(),
+      'comment:avatarMap',
+      expect.any(Object),
+      expect.objectContaining({ request: expect.any(Request), options: expect.any(Object) }),
+    );
   });
 
   it('fails closed when a content visibility plugin throws', async () => {

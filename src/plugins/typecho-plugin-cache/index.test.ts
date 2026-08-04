@@ -5,6 +5,7 @@ import type { PluginInitContext } from 'typecho/plugin-sdk';
 import init from './index';
 import {
   CACHE_CONTROL_KEY,
+  CACHE_PLUGIN_ID,
   buildControlDocument,
   classifyCacheDomain,
   earlyRequestProvider,
@@ -206,10 +207,83 @@ describe('typecho-plugin-cache provider', () => {
     const kv = new MemoryKv();
     kv.failGet = true;
     env.TYPECHO_CACHE = kv as any;
-    const next = vi.fn(async () => new Response('fallback'));
-    const response = await earlyRequestProvider.handle(requestContext(), next);
-    expect(await response.text()).toBe('fallback');
+    const context = requestContext();
+    const next = vi.fn(async () => {
+      await earlyRequestProvider.sync!({
+        request: context.request,
+        active: true,
+        options: {
+          siteUrl: 'https://example.com',
+          [`plugin:${CACHE_PLUGIN_ID}`]: JSON.stringify({
+            ...defaultSettings,
+            staticCdnUrl: 'https://cdn.example.com',
+          }),
+        },
+      });
+      return new Response('<img src="/fallback.jpg">', {
+        headers: { 'Content-Type': 'text/html' },
+      });
+    });
+    const response = await earlyRequestProvider.handle(context, next);
+    expect(await response.text()).toContain('https://cdn.example.com/fallback.jpg');
+    expect(response.headers.get('X-Typecho-Cache')).toBe('BYPASS');
     expect(next).toHaveBeenCalledOnce();
+  });
+
+  it('rewrites public HTML from D1 configuration when KV is not bound', async () => {
+    const context = requestContext('http://localhost:4321/article');
+    const settings = {
+      ...defaultSettings,
+      staticCdnUrl: 'https://cdn.example.com/assets',
+      staticExtensions: 'jpg,jpeg,png,css,js,zip',
+      avatarCdnUrl: 'https://avatar.example.com/avatar',
+    };
+    const next = vi.fn(async () => {
+      await earlyRequestProvider.sync!({
+        request: context.request,
+        active: true,
+        options: {
+          siteUrl: 'http://localhost:4321',
+          [`plugin:${CACHE_PLUGIN_ID}`]: JSON.stringify(settings),
+        },
+      });
+      return new Response([
+        '<img src="/usr/uploads/2026/08/avatar.jpeg">',
+        '<img src="http://localhost:4321/usr/uploads/2026/08/avatar.jpeg">',
+        '<img src="https://www.gravatar.com/avatar/hash?d=identicon&amp;s=40">',
+      ].join(''), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    });
+
+    const response = await earlyRequestProvider.handle(context, next);
+    const html = await response.text();
+
+    expect(response.headers.get('X-Typecho-Cache')).toBe('BYPASS');
+    expect(html.match(/https:\/\/cdn\.example\.com\/assets\/usr\/uploads\/2026\/08\/avatar\.jpeg/g))
+      .toHaveLength(2);
+    expect(html).toContain('https://avatar.example.com/avatar/hash?d=identicon&amp;s=40');
+  });
+
+  it('does not rewrite HTML when the plugin is inactive', async () => {
+    const context = requestContext('https://example.com/article');
+    const next = vi.fn(async () => {
+      await earlyRequestProvider.sync!({
+        request: context.request,
+        active: false,
+        options: {
+          [`plugin:${CACHE_PLUGIN_ID}`]: JSON.stringify({
+            ...defaultSettings,
+            staticCdnUrl: 'https://cdn.example.com',
+          }),
+        },
+      });
+      return new Response('<img src="/original.jpg">', {
+        headers: { 'Content-Type': 'text/html' },
+      });
+    });
+
+    const response = await earlyRequestProvider.handle(context, next);
+    expect(await response.text()).toContain('src="/original.jpg"');
+    expect(response.headers.has('X-Typecho-Cache')).toBe(false);
   });
 
   it('never calls the D1 renderer twice after a cache miss has begun', async () => {
@@ -273,6 +347,22 @@ describe('CDN rewriting', () => {
       .toBe('https://avatar.example.com/avatar/hash?s=40');
   });
 
+  it('joins Avatar CDN bases with exactly one avatar path segment', () => {
+    for (const [avatarCdnUrl, expected] of [
+      ['https://avatar.example.com', 'https://avatar.example.com/avatar/hash?s=40'],
+      ['https://avatar.example.com/avatar', 'https://avatar.example.com/avatar/hash?s=40'],
+      ['https://avatar.example.com/images/avatar/', 'https://avatar.example.com/images/avatar/hash?s=40'],
+    ]) {
+      const config = normalizeCacheConfig({ ...defaultSettings, avatarCdnUrl });
+      expect(rewriteResourceUrl(
+        'https://secure.gravatar.com/avatar/hash?s=40',
+        config,
+        'https://example.com',
+        'https://example.com',
+      )).toBe(expected);
+    }
+  });
+
   it('rewrites srcset and resource attributes without changing unrelated markup', () => {
     const config = normalizeCacheConfig({
       ...defaultSettings,
@@ -315,6 +405,7 @@ describe('plugin registration and controls', () => {
       'system:begin',
       'plugin:config:beforeSave',
       'csp:directives',
+      'comment:avatarMap',
       'admin:page',
       'admin:footer',
       'plugin:typecho-plugin-cache:action:auth',
@@ -354,9 +445,8 @@ describe('plugin registration and controls', () => {
     expect([...kv.store.keys()]).toContain('typecho:edge-cache:v1:g:home');
   });
 
-  it('injects configured CDN origins into CSP after runtime config sync', async () => {
-    const kv = new MemoryKv();
-    env.TYPECHO_CACHE = kv as any;
+  it('injects configured CDN origins into CSP without a KV binding', async () => {
+    env.TYPECHO_CACHE = null as any;
     const hooks = collectHooks();
     const settings = {
       ...defaultSettings,
@@ -382,6 +472,26 @@ describe('plugin registration and controls', () => {
     for (const name of ['script-src', 'style-src', 'font-src', 'media-src']) {
       expect(directives[name]).toContain('https://cdn.example.com');
     }
+  });
+
+  it('rewrites avatar URLs returned by the public comments API', () => {
+    const hook = collectHooks().get('comment:avatarMap')!;
+    const avatars = hook({
+      1: 'https://www.gravatar.com/avatar/hash?d=identicon&s=40',
+    }, {
+      request: new Request('https://example.com/api/comments?cid=1'),
+      options: {
+        siteUrl: 'https://example.com',
+        [`plugin:${CACHE_PLUGIN_ID}`]: JSON.stringify({
+          ...defaultSettings,
+          avatarCdnUrl: 'https://avatar.example.com/avatar',
+        }),
+      },
+    });
+
+    expect(avatars).toEqual({
+      1: 'https://avatar.example.com/avatar/hash?d=identicon&s=40',
+    });
   });
 
   it('does not let stale D1 options overwrite a newer KV control document', async () => {

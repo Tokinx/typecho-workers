@@ -201,6 +201,7 @@ addHook('feedback:comment', pluginId, async (commentData: { _rejected?: string }
 | `comment:content` | 评论内容输出 | `(html, comment)` | 过滤评论 HTML |
 | `comment:markdown` | 评论 Markdown | `(markdown, comment)` | 过滤评论原始文本 |
 | `comment:allowContent` | 评论目标验证 | `(allowed, extra)` | 扩展自定义内容类型的评论资格；返回 `true` 前必须自行校验公开状态 |
+| `comment:avatarMap` | 公开评论 API 输出 | `(avatarMap, { request, options })` | 过滤以评论 ID 为键的头像 URL 映射；异常时保留原映射 |
 | `post:write` | 文章保存前 | `(data, extra)` | 过滤文章写入数据 |
 | `page:write` | 页面保存前 | `(data, extra)` | 过滤页面写入数据 |
 | `admin:managePosts:titleActions` | 文章列表标题操作区 | `(html, extra)` | 在每篇文章标题旁追加管理操作 |
