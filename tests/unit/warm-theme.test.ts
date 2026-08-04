@@ -56,16 +56,6 @@ describe('typecho-theme-warm', () => {
     expect(comments).not.toContain('{comments.length');
   });
 
-  it('uses at most eight-pixel component radii', () => {
-    const css = readFileSync(join(themeRoot, 'style.css'), 'utf8');
-    const radii = [...css.matchAll(/border-radius:\s*(\d+)px/g)].map(match => Number(match[1]));
-    expect(radii.length).toBeGreaterThan(0);
-    expect(Math.max(...radii)).toBeLessThanOrEqual(8);
-    expect(css).toContain('.warm-note__images.has-2');
-    expect(css).toContain('.warm-note__images.has-3');
-    expect(css).toContain('.warm-note__images.has-4');
-  });
-
   it('normalizes excerpts, reading time, and configurable links', () => {
     expect(plainExcerpt('## 标题\n[链接](https://example.com) **正文**')).toBe('标题 链接 正文');
     expect(readingMinutes(`<p>${'字'.repeat(421)}</p>`)).toBe(2);

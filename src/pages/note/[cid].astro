@@ -1,0 +1,49 @@
+---
+import { themeTemplates } from 'virtual:theme-templates';
+import { createContextAlongside } from '@/lib/context';
+import { prepareNotFoundData, preparePostData } from '@/lib/page-data';
+import { getCookieValue } from '@/lib/auth';
+import { and, eq } from 'drizzle-orm';
+import { schema } from '@/db';
+
+const { cid } = Astro.params;
+const cidNum = Number.parseInt(cid || '0', 10);
+if (!Number.isSafeInteger(cidNum) || cidNum < 1 || String(cidNum) !== cid) return Astro.redirect('/');
+
+const [ctx, noteRow] = await createContextAlongside(
+  Astro.locals,
+  Astro.request,
+  db => db.query.contents.findFirst({
+    where: and(eq(schema.contents.cid, cidNum), eq(schema.contents.type, 'note')),
+  }),
+);
+
+const activeTheme = ctx.options.theme || 'typecho-theme-minimal';
+const templates = themeTemplates[activeTheme] ?? {};
+const defaultTemplates = themeTemplates['typecho-theme-minimal']!;
+const suppliedPassword = Astro.url.searchParams.get('password');
+const unapprovedCommentToken = getCookieValue(
+  Astro.request.headers.get('cookie'),
+  '__typecho_unapproved_comment',
+);
+
+let result;
+let Component;
+if (!noteRow) {
+  Astro.response.status = 404;
+  result = await prepareNotFoundData(ctx, Astro.request.url);
+  Component = templates.NotFound ?? defaultTemplates.NotFound!;
+} else {
+  result = await preparePostData(ctx, cidNum, Astro.request.url, suppliedPassword, noteRow, unapprovedCommentToken);
+  if (result instanceof Response) {
+    if (result.status !== 404) return result;
+    Astro.response.status = 404;
+    result = await prepareNotFoundData(ctx, Astro.request.url);
+    Component = templates.NotFound ?? defaultTemplates.NotFound!;
+  } else {
+    result.post.permalink = `${ctx.urls.siteUrl.replace(/\/$/, '')}/note/${cidNum}`;
+    Component = templates.Post ?? defaultTemplates.Post!;
+  }
+}
+---
+<Component {...result} />

@@ -70,13 +70,16 @@ describe('typecho-plugin-notes', () => {
     expect(topicSlug(' 日常 / DevOps ')).toBe('日常-devops');
   });
 
-  it('extracts Wing-style Topics and renders safe note reference links', () => {
+  it('extracts Wing-style Topics and renders /note/<cid> references', () => {
     expect(extractTopicNames('记录 #日常 与 #DevOps、#📝日常，再次 #日常；https://example.com/#not-topic')).toEqual(['日常', 'DevOps', '📝日常']);
     expect(extractTopicNames('\\#escaped #有效')).toEqual(['有效']);
-    const html = renderNoteContent('查看 ~/note/42，代码 `~/note/99` 不会成为引用');
+    const html = renderNoteContent('查看 /note/42，旧格式 ~/note/43 和代码 `/note/99` 不会成为引用');
     expect(html).toContain('data-note-ref="42"');
-    expect(html).toContain('href="/archives/42/"');
+    expect(html).toContain('href="/note/42"');
+    expect(html).toContain('>/note/42</a>');
+    expect(html).not.toContain('data-note-ref="43"');
     expect(html).not.toContain('data-note-ref="99"');
+    expect(notesAdminPageHtml('csrf-value')).toContain('insertText("/note/"+Number(button.dataset.quote)');
     expect(renderNoteContent('正文中的 #话题')).toContain('class="note-topic-highlight"');
     expect(renderNoteContent('正文中的 #话题')).toContain('data-note-topic="话题"');
     expect(renderNoteContent('正文中的 #📝日常')).toContain('data-note-topic="📝日常"');
@@ -204,7 +207,7 @@ describe('typecho-plugin-notes', () => {
       permalinkPattern: '/post/{slug}/',
     });
     expect(variables.notes).toHaveLength(1);
-    expect(variables.notes[0]).toMatchObject({ cid: noteCid, type: 'note', permalink: `https://example.com/archives/${noteCid}/` });
+    expect(variables.notes[0]).toMatchObject({ cid: noteCid, type: 'note', permalink: `https://example.com/note/${noteCid}` });
     expect(variables.mixed.map(item => item.type)).toEqual(expect.arrayContaining(['note', 'post']));
     expect(variables.mixed.find(item => item.type === 'post')?.permalink).toBe('https://example.com/post/theme-post/');
     expect(variables.mixed.find(item => item.cid === noteCid)?.topics[0]?.name).toBe('主题开发');
@@ -241,7 +244,7 @@ describe('typecho-plugin-notes', () => {
         headers: {
           'content-type': 'application/x-www-form-urlencoded',
           origin: 'https://example.com',
-          referer: `https://example.com/archives/${cid}/`,
+          referer: `https://example.com/note/${cid}`,
         },
         body: new URLSearchParams({ cid: String(cid), text: '前台评论', author: '访客', mail: 'visitor@example.com' }),
       });
@@ -256,6 +259,7 @@ describe('typecho-plugin-notes', () => {
 
     const accepted = await postComment(publicCid);
     expect(accepted.status).toBe(302);
+    expect(accepted.headers.get('location')).toMatch(new RegExp(`^/note/${publicCid}#comment-\\d+$`));
     const savedComments = await db.query.comments.findMany({
       where: (comment: any, { eq }: any) => eq(comment.cid, publicCid),
     });

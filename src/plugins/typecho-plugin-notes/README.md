@@ -10,7 +10,7 @@ Schema，数据存放在现有的 `typecho_contents`、`typecho_metas`、
 - 自动从正文提取 `#话题` 并同步到 `note_topic`；一次笔记可关联多个话题
 - 编辑、删除笔记，点击评论数查看评论列表并回复；保留旧 `topicMid` 写入参数以兼容早期调用
 - 通过核心上传接口插入图片
-- 对任意 `~/note/<id>` 引用生成指向 Post 详情页的链接
+- 对任意 `/note/<cid>` 引用生成指向笔记详情页的链接
 - 公开笔记复用 Post 详情页和核心评论表单，后台笔记页面可集中查看和回复评论
 - 点赞不属于本插件，后续可由独立 Like 插件实现
 
@@ -43,7 +43,7 @@ const { notes, mixed, topics, pagination } = await getNotesForTheme(
 主题可直接使用 `notes.map(...)` 输出纯笔记列表，或使用 `mixed.map(...)` 输出按发布时间合并的
 文章与笔记列表。列表项目带有 `type: 'note' | 'post'`、`html`、`source`、`topics`、`comments`
 与 `permalink`；话题已经在 `html` 原文中以 `note-topic-highlight` 标记。笔记的 `permalink`
-指向 `/archives/{cid}/`，详情直接复用当前主题的 `Post.astro`。
+指向 `/note/{cid}`，详情直接复用当前主题的 `Post.astro`。
 
 公开笔记默认开启评论，直接复用 Post 详情中的 `/api/comment` 表单、审核设置、反垃圾校验与回复流程。
 私密笔记和草稿关闭评论；后台笔记评论弹窗仍可查看已有评论并以管理员身份回复。
