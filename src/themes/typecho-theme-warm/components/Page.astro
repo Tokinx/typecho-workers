@@ -1,0 +1,46 @@
+---
+import type { ThemePageProps } from '@/lib/theme-props';
+import WarmShell from './WarmShell.astro';
+import WarmComments from './WarmComments.astro';
+import { formatWarmDate, plainExcerpt } from './warm';
+
+type Props = ThemePageProps;
+const {
+  options, urls, user, isLoggedIn, pages, sidebarData, currentPath, pluginCtx,
+  page, commentPagination, commentOptions,
+} = Astro.props;
+const isAbout = page.slug.toLowerCase() === 'about' || page.title === '关于';
+const password = page.hasPassword && page.passwordVerified ? Astro.url.searchParams.get('password') || '' : '';
+---
+<WarmShell
+  title={page.title}
+  description={plainExcerpt(page.content, 160)}
+  options={options}
+  urls={urls}
+  user={user}
+  isLoggedIn={isLoggedIn}
+  pages={pages}
+  sidebarData={sidebarData}
+  currentPath={currentPath}
+  pluginCtx={pluginCtx}
+  section={isAbout ? 'about' : 'none'}
+>
+  <article class="warm-article warm-page" itemscope itemtype="https://schema.org/Article">
+    <header class="warm-article__header">
+      <div class="warm-item-meta"><span>独立页面</span><span aria-hidden="true">·</span><time>{formatWarmDate(page.created)}</time></div>
+      <h1 itemprop="headline">{page.title}</h1>
+    </header>
+    <div class="warm-prose" itemprop="articleBody" set:html={page.content} />
+  </article>
+
+  {(page.allowComment || commentPagination.totalComments > 0) && (
+    <WarmComments
+      cid={page.cid}
+      commentPagination={commentPagination}
+      commentOptions={commentOptions}
+      user={user}
+      isLoggedIn={isLoggedIn}
+      password={password}
+    />
+  )}
+</WarmShell>

@@ -1,0 +1,28 @@
+{
+  "id": "typecho-theme-warm",
+  "name": "Typecho Warm",
+  "description": "静谧温润的单栏写作主题，支持文章与笔记混合时间线。",
+  "author": "Typecho-CF",
+  "version": "1.0.0",
+  "stylesheet": "style.css",
+  "homepage": "https://github.com/eslizn/typecho-cf",
+  "license": "MIT",
+  "tags": ["warm", "minimal", "notes", "single-column"],
+  "config": {
+    "githubUrl": {
+      "type": "text",
+      "label": "GitHub 地址",
+      "default": ""
+    },
+    "socialUrl": {
+      "type": "text",
+      "label": "社交主页地址",
+      "default": ""
+    },
+    "email": {
+      "type": "text",
+      "label": "联系邮箱",
+      "default": ""
+    }
+  }
+}

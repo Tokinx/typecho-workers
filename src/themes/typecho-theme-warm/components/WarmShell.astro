@@ -1,0 +1,113 @@
+---
+import Base from '@/layouts/Base.astro';
+import type { ThemeBaseProps } from '@/lib/theme-props';
+import { warmSettings, type WarmSection } from './warm';
+import { instantClickSource } from './instantclick';
+
+interface Props extends ThemeBaseProps {
+  title?: string;
+  description?: string;
+  section?: WarmSection;
+}
+
+const {
+  title,
+  description,
+  section = 'none',
+  options,
+  urls,
+  user,
+  isLoggedIn,
+  page,
+  pages,
+  sidebarData,
+  pluginCtx,
+  currentPath
+} = Astro.props;
+
+const settings = warmSettings(options);
+const categories = sidebarData.categories.slice(0, 8);
+const homeUrl = `${urls.siteUrl.replace(/\/$/, '')}/`;
+const notesEnabled = pluginCtx.activatedPlugins.has('typecho-plugin-notes');
+const socialLinks = [
+  { label: 'RSS', href: urls.feedUrl },
+  { label: 'GitHub', href: settings.githubUrl },
+  { label: '社交主页', href: settings.socialUrl },
+  { label: 'Email', href: settings.email ? `mailto:${settings.email}` : '' },
+].filter(link => link.href);
+---
+<Base
+  title={title}
+  description={description}
+  options={options}
+  urls={urls}
+  user={user}
+  isLoggedIn={isLoggedIn}
+  pluginCtx={pluginCtx}
+  bodyClass="warm-theme"
+>
+  <header class="warm-header">
+    <div class="warm-header__inner">
+      <a href={homeUrl} class="warm-brand" aria-label={`${options.title} 首页`}>
+        <span class="warm-brand__title">{options.title}<i aria-hidden="true">.</i></span>
+      </a>
+
+      <nav class="warm-nav" aria-label="主导航">
+        <a class:list={["warm-nav__link", { "is-active": section === 'home' }]} href={homeUrl}>首页</a>
+        <details class:list={["warm-nav__dropdown", { "is-active": section === 'articles' }]}> 
+          <summary>
+            <a class:list={["warm-nav__link", { "is-active": section === 'articles' }]} href={`${homeUrl}?stream=posts`}>文章</a>
+          </summary>
+          {categories.length > 0 && (
+            <div class="warm-nav__menu">
+              {categories.map(category => (<a href={category.permalink}>{category.name}</a>))}
+            </div>
+          )}
+        </details>
+        {notesEnabled && (
+          <a class:list={["warm-nav__link", { "is-active": section === 'notes' }]} href={`${homeUrl}?stream=notes`}>笔记</a>
+        )}
+        {pages.map((page) => (
+          <a class:list={["warm-nav__link", { "is-active": currentPath != '/' && page.permalink.includes(currentPath) }]} href={page.permalink}>{page.title}</a>
+        ))}
+      </nav>
+    </div>
+  </header>
+
+  <main class="warm-main">
+    <slot />
+  </main>
+
+  <footer class="warm-footer">
+    <div class="warm-footer__statement">
+      <strong>{options.description}<i aria-hidden="true">.</i></strong>
+    </div>
+    <div class="warm-footer__meta">
+      <span>© {new Date().getFullYear()} {options.title}.</span>
+      <nav aria-label="页脚链接">
+        {socialLinks.map(link => <a href={link.href}>{link.label}</a>)}
+      </nav>
+    </div>
+  </footer>
+  <script is:inline>
+    (() => {
+      const hoverCapable = window.matchMedia('(hover: hover) and (pointer: fine)');
+      document.querySelectorAll('.warm-nav__dropdown').forEach(dropdown => {
+        dropdown.addEventListener('mouseenter', () => {
+          if (hoverCapable.matches) dropdown.open = true;
+        });
+        dropdown.addEventListener('mouseleave', () => {
+          if (hoverCapable.matches) dropdown.open = false;
+        });
+      });
+    })();
+  </script>
+  <Fragment slot="head">
+    <script is:inline data-instant-track data-no-instant set:html={instantClickSource}></script>
+  </Fragment>
+  <script is:inline data-no-instant>
+    (() => {
+      if (window.InstantClick?.supported) window.InstantClick.init('mousedown');
+    })();
+  </script>
+</Base>

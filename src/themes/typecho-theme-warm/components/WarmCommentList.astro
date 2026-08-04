@@ -1,0 +1,45 @@
+---
+import type { CommentNode, CommentOptions } from '@/lib/theme-props';
+import { formatWarmDate } from './warm';
+
+interface Props {
+  comments: CommentNode[];
+  commentOptions: CommentOptions;
+  gravatarMap: Record<number, string>;
+  depth?: number;
+}
+
+const { comments, commentOptions, gravatarMap, depth = 0 } = Astro.props;
+---
+{comments.map(comment => (
+  <article class="warm-comment" id={`comment-${comment.coid}`} data-comment-id={comment.coid} style={`--comment-depth:${Math.min(depth, 3)}`}>
+    <div class="warm-comment__header">
+      <div class="warm-comment__identity">
+        {commentOptions.showAvatar && gravatarMap[comment.coid] ? (
+          <img src={gravatarMap[comment.coid]} width="36" height="36" alt="" loading="lazy" />
+        ) : (
+          <span class="warm-comment__avatar" aria-hidden="true">{comment.author.slice(0, 1).toUpperCase()}</span>
+        )}
+        <div>
+          {comment.url && commentOptions.showUrl ? (
+            <a href={comment.url} rel={commentOptions.urlNofollow ? 'external nofollow' : 'external'}>{comment.author}</a>
+          ) : <strong>{comment.author}</strong>}
+          <time datetime={new Date(comment.created * 1000).toISOString()}>{formatWarmDate(comment.created, true)}</time>
+        </div>
+      </div>
+      {commentOptions.allowComment && <button type="button" class="warm-comment__reply" data-reply-to={comment.coid} data-reply-author={comment.author}>回复</button>}
+    </div>
+    {comment.status !== 'approved' && <p class="warm-comment__status">评论待审核，仅你可见</p>}
+    <div class="warm-comment__content" set:html={comment.text} />
+    {comment.children.length > 0 && (
+      <div class="warm-comment__children">
+        <Astro.self
+          comments={comment.children}
+          commentOptions={commentOptions}
+          gravatarMap={gravatarMap}
+          depth={depth + 1}
+        />
+      </div>
+    )}
+  </article>
+))}

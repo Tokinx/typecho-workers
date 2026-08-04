@@ -47,6 +47,9 @@ importers:
       typecho-theme-minimal:
         specifier: file:src/themes/typecho-theme-minimal
         version: file:src/themes/typecho-theme-minimal
+      typecho-theme-warm:
+        specifier: file:src/themes/typecho-theme-warm
+        version: file:src/themes/typecho-theme-warm
     devDependencies:
       '@libsql/client':
         specifier: ^0.17.4
@@ -94,6 +97,8 @@ importers:
   src/plugins/typecho-plugin-wechat-publisher: {}
 
   src/themes/typecho-theme-minimal: {}
+
+  src/themes/typecho-theme-warm: {}
 
 packages:
 
@@ -2447,6 +2452,9 @@ packages:
   typecho-theme-minimal@file:src/themes/typecho-theme-minimal:
     resolution: {directory: src/themes/typecho-theme-minimal, type: directory}
 
+  typecho-theme-warm@file:src/themes/typecho-theme-warm:
+    resolution: {directory: src/themes/typecho-theme-warm, type: directory}
+
   typescript@7.0.2:
     resolution: {integrity: sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA==}
     engines: {node: '>=16.20.0'}
@@ -4774,6 +4782,8 @@ snapshots:
   typecho-plugin-wechat-publisher@file:src/plugins/typecho-plugin-wechat-publisher: {}
 
   typecho-theme-minimal@file:src/themes/typecho-theme-minimal: {}
+
+  typecho-theme-warm@file:src/themes/typecho-theme-warm: {}
 
   typescript@7.0.2:
     optionalDependencies:

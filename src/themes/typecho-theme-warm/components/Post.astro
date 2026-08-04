@@ -1,0 +1,100 @@
+---
+import { env } from 'cloudflare:workers';
+import { getDb } from 'typecho/db';
+import { getNoteForTheme } from 'typecho-plugin-notes';
+import type { ThemePostProps } from '@/lib/theme-props';
+import WarmShell from './WarmShell.astro';
+import WarmComments from './WarmComments.astro';
+import { formatWarmDate, plainExcerpt, readingMinutes } from './warm';
+
+type Props = ThemePostProps;
+
+const {
+  options, urls, user, isLoggedIn, pages, sidebarData, currentPath, pluginCtx,
+  post, author, categories, tags, commentPagination, commentOptions,
+  prevPost, nextPost,
+} = Astro.props;
+
+const note = pluginCtx.activatedPlugins.has('typecho-plugin-notes')
+  ? await getNoteForTheme(getDb(env.DB), post.cid, urls.siteUrl, user?.uid)
+  : null;
+const isNote = note?.type === 'note';
+const displayContent = isNote ? note.html : post.content;
+const description = plainExcerpt(isNote ? note.source : post.content, 160);
+const password = post.hasPassword && post.passwordVerified ? Astro.url.searchParams.get('password') || '' : '';
+---
+<WarmShell
+  title={isNote ? '笔记' : post.title}
+  description={description}
+  options={options}
+  urls={urls}
+  user={user}
+  isLoggedIn={isLoggedIn}
+  pages={pages}
+  sidebarData={sidebarData}
+  currentPath={currentPath}
+  pluginCtx={pluginCtx}
+  section={isNote ? 'notes' : 'articles'}
+>
+  <article class:list={["warm-article", { "is-note": isNote }]} itemscope itemtype="https://schema.org/BlogPosting">
+    <header class="warm-article__header">
+      <div class="warm-item-meta">
+        {isNote ? (
+          <span class="warm-note-label">笔记</span>
+        ) : categories[0] ? (
+          <a class="warm-category" href={categories[0].permalink}>{categories[0].name}</a>
+        ) : (
+          <span>文章</span>
+        )}
+        <span aria-hidden="true">·</span>
+        <time datetime={new Date(post.created * 1000).toISOString()} itemprop="datePublished">{formatWarmDate(post.created)}</time>
+        {!isNote && <><span aria-hidden="true">·</span><span>约 {readingMinutes(post.content)} 分钟阅读</span></>}
+        {note?.status === 'private' && <span class="warm-private">私密</span>}
+      </div>
+      {!isNote && <h1 itemprop="headline">{post.title}</h1>}
+    </header>
+
+    <div class:list={["warm-prose", { "warm-note-prose": isNote }]} itemprop="articleBody" set:html={displayContent} />
+
+    {isNote && note.images.length > 0 && (
+      <div class:list={["warm-note__images", "warm-note__images--detail", `has-${Math.min(note.images.length, 4)}`]}>
+        {note.images.slice(0, 4).map(image => <img src={image.url} alt={image.name || '笔记配图'} loading="lazy" />)}
+      </div>
+    )}
+
+    {!isNote && tags.length > 0 && (
+      <footer class="warm-article__tags">
+        <span>标签：</span>
+        {tags.map(tag => <a href={tag.permalink}># {tag.name}</a>)}
+      </footer>
+    )}
+
+    {!isNote && author && (
+      <aside class="warm-author">
+        <span class="warm-author__mark" aria-hidden="true">{(author.screenName || author.name || options.title).slice(0, 1)}</span>
+        <div>
+          <strong>{author.screenName || author.name}</strong>
+          <p>{options.description || '记录关于设计、代码与日常思考。'}</p>
+        </div>
+      </aside>
+    )}
+  </article>
+
+  {(post.allowComment || commentPagination.totalComments > 0) && (
+    <WarmComments
+      cid={post.cid}
+      commentPagination={commentPagination}
+      commentOptions={commentOptions}
+      user={user}
+      isLoggedIn={isLoggedIn}
+      password={password}
+    />
+  )}
+
+  {!isNote && (prevPost || nextPost) && (
+    <nav class="warm-post-nav" aria-label="相邻文章">
+      {prevPost ? <a href={prevPost.permalink}><span>← 上一篇</span><strong>{prevPost.title}</strong></a> : <span></span>}
+      {nextPost ? <a href={nextPost.permalink}><span>下一篇 →</span><strong>{nextPost.title}</strong></a> : <span></span>}
+    </nav>
+  )}
+</WarmShell>

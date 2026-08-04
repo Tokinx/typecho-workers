@@ -1,0 +1,218 @@
+---
+import type { CommentOptions } from '@/lib/theme-props';
+import type { CommentPagination } from '@/lib/comment-page';
+import type { UserRow } from '@/lib/context';
+
+interface Props {
+  cid: number;
+  commentPagination: CommentPagination;
+  commentOptions: CommentOptions;
+  user: UserRow | null;
+  isLoggedIn: boolean;
+  password?: string;
+}
+
+const {
+  cid,
+  commentPagination,
+  commentOptions,
+  user,
+  isLoggedIn,
+  password = '',
+} = Astro.props;
+---
+<section
+  class="warm-comments"
+  id="comments"
+  data-comments-root
+  data-cid={cid}
+  data-current-page={commentPagination.currentPage}
+>
+  <div class="warm-comments__heading">
+    <h2>讨论与交流 <span data-comment-total></span></h2>
+    <p>欢迎分享你的思考</p>
+  </div>
+
+  {commentOptions.allowComment ? (
+    <form class="warm-comment-form" method="post" action="/api/comment" data-comment-form>
+      <input type="hidden" name="cid" value={cid} />
+      <input type="hidden" name="parent" value="0" data-comment-parent />
+      <input type="hidden" name="_" value={commentOptions.securityToken} data-comment-token />
+      {password && <input type="hidden" name="password" value={password} />}
+
+      <div class="warm-replying" data-replying hidden>
+        <span>回复 <strong data-replying-author></strong></span>
+        <button type="button" data-cancel-reply>取消</button>
+      </div>
+
+      {isLoggedIn ? (
+        <p class="warm-comment-form__identity">以 <strong>{user?.screenName || user?.name}</strong> 的身份评论</p>
+      ) : (
+        <div class="warm-form-grid">
+          <label>
+            <span>昵称 / 姓名 <i>*</i></span>
+            <input name="author" type="text" autocomplete="name" required placeholder="你的称呼" />
+          </label>
+          <label>
+            <span>电子邮箱 {commentOptions.requireMail && <i>*</i>}</span>
+            <input name="mail" type="email" autocomplete="email" required={commentOptions.requireMail} placeholder="不会公开" />
+          </label>
+          {commentOptions.showUrl && (
+            <label class="warm-form-grid__wide">
+              <span>个人网站</span>
+              <input name="url" type="url" autocomplete="url" placeholder="https://" />
+            </label>
+          )}
+        </div>
+      )}
+
+      <label class="warm-comment-form__content">
+        <span>留言内容 <i>*</i></span>
+        <textarea name="text" rows="5" required maxlength="10000" placeholder="静水流深，留下你的想法..."></textarea>
+      </label>
+      <div class="warm-comment-form__actions">
+        <span>{commentOptions.markdown ? '支持 Markdown 语法' : '良言善语'}</span>
+        <button type="submit">发送评论</button>
+      </div>
+      <p class="warm-comment-form__message" data-comment-message role="status" aria-live="polite"></p>
+    </form>
+  ) : (
+    <p class="warm-comments__closed">评论已关闭。</p>
+  )}
+
+  <div class="warm-comment-list" data-comment-list aria-live="polite">
+    <p class="warm-comments__empty" data-comment-loading>正在加载评论...</p>
+  </div>
+
+</section>
+
+<script is:inline>
+  (() => {
+    const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, character => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    })[character]);
+
+    const renderComment = (comment, options, avatars, depth = 0) => {
+      const author = escapeHtml(comment.author || '匿名');
+      const avatar = options.showAvatar && avatars[comment.coid]
+        ? `<img src="${escapeHtml(avatars[comment.coid])}" width="36" height="36" alt="" loading="lazy">`
+        : `<span class="warm-comment__avatar" aria-hidden="true">${author.slice(0, 1).toUpperCase()}</span>`;
+      const authorHtml = comment.url && options.showUrl
+        ? `<a href="${escapeHtml(comment.url)}" rel="${options.urlNofollow ? 'external nofollow' : 'external'}">${author}</a>`
+        : `<strong>${author}</strong>`;
+      const date = new Intl.DateTimeFormat('zh-CN', {
+        month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+      }).format(new Date(comment.created * 1000));
+      const children = (comment.children || []).map(child => renderComment(child, options, avatars, depth + 1)).join('');
+      return `<article class="warm-comment" id="comment-${comment.coid}" data-comment-id="${comment.coid}" style="--comment-depth:${Math.min(depth, 3)}">
+        <div class="warm-comment__header"><div class="warm-comment__identity">${avatar}<div>${authorHtml}<time>${escapeHtml(date)}</time></div></div>
+        ${options.allowComment ? `<button type="button" class="warm-comment__reply" data-reply-to="${comment.coid}" data-reply-author="${author}">回复</button>` : ''}</div>
+        ${comment.status !== 'approved' ? '<p class="warm-comment__status">评论待审核，仅你可见</p>' : ''}
+        <div class="warm-comment__content">${comment.text}</div>
+        ${children ? `<div class="warm-comment__children">${children}</div>` : ''}
+      </article>`;
+    };
+
+    document.querySelectorAll('[data-comments-root]').forEach(root => {
+      const cid = root.dataset.cid;
+      const list = root.querySelector('[data-comment-list]');
+      const total = root.querySelector('[data-comment-total]');
+      const form = root.querySelector('[data-comment-form]');
+      const message = root.querySelector('[data-comment-message]');
+      const parentInput = root.querySelector('[data-comment-parent]');
+      const tokenInput = root.querySelector('[data-comment-token]');
+      const replying = root.querySelector('[data-replying]');
+      const replyingAuthor = root.querySelector('[data-replying-author]');
+      let page = Number(root.dataset.currentPage || 1);
+
+      const renderPagination = pagination => {
+        let nav = root.querySelector('[data-comment-pagination]');
+        if (!pagination.enabled || pagination.totalPages <= 1) {
+          if (nav) nav.remove();
+          return;
+        }
+        if (!nav) {
+          nav = document.createElement('nav');
+          nav.className = 'warm-comment-pagination';
+          nav.dataset.commentPagination = '';
+          nav.setAttribute('aria-label', '评论分页');
+          root.appendChild(nav);
+        }
+        nav.innerHTML = pagination.pages.map(number =>
+          `<a href="?commentPage=${number}#comments" class="${number === pagination.currentPage ? 'is-current' : ''}" data-comment-page="${number}">${number}</a>`
+        ).join('');
+      };
+
+      const loadComments = async requestedPage => {
+        if (!list) return;
+        list.setAttribute('aria-busy', 'true');
+        try {
+          const response = await fetch(`/api/comments?cid=${encodeURIComponent(cid)}&commentPage=${requestedPage}`, {
+            credentials: 'same-origin',
+            headers: { Accept: 'application/json' },
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || '评论加载失败');
+          page = data.pagination.currentPage;
+          list.innerHTML = data.comments.length
+            ? data.comments.map(comment => renderComment(comment, data.options, data.gravatarMap)).join('')
+            : '<p class="warm-comments__empty">还没有评论，来留下第一句话吧。</p>';
+          if (total) total.textContent = String(data.pagination.totalComments);
+          if (tokenInput) tokenInput.value = data.options.securityToken || '';
+          renderPagination(data.pagination);
+        } catch (error) {
+          if (message) message.textContent = error instanceof Error ? error.message : '评论加载失败';
+        } finally {
+          list.removeAttribute('aria-busy');
+        }
+      };
+
+      root.addEventListener('click', event => {
+        const target = event.target instanceof Element ? event.target.closest('[data-reply-to], [data-cancel-reply], [data-comment-page]') : null;
+        if (!target) return;
+        if (target.hasAttribute('data-comment-page')) {
+          event.preventDefault();
+          loadComments(Number(target.getAttribute('data-comment-page') || 1));
+          return;
+        }
+        if (!parentInput || !replying || !replyingAuthor) return;
+        if (target.hasAttribute('data-cancel-reply')) {
+          parentInput.value = '0';
+          replying.hidden = true;
+          return;
+        }
+        parentInput.value = target.getAttribute('data-reply-to') || '0';
+        replyingAuthor.textContent = target.getAttribute('data-reply-author') || '';
+        replying.hidden = false;
+        form?.querySelector('textarea')?.focus();
+      });
+
+      form?.addEventListener('submit', async event => {
+        event.preventDefault();
+        const submit = form.querySelector('button[type="submit"]');
+        if (submit) submit.disabled = true;
+        if (message) message.textContent = '正在发送...';
+        try {
+          const response = await fetch(form.action, {
+            method: 'POST', body: new FormData(form), credentials: 'same-origin',
+            headers: { Accept: 'application/json' },
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(data.error || '评论发送失败');
+          const textarea = form.querySelector('textarea');
+          if (textarea) textarea.value = '';
+          if (parentInput) parentInput.value = '0';
+          if (replying) replying.hidden = true;
+          if (message) message.textContent = data.status === 'approved' ? '评论已发布。' : '评论已提交，等待审核。';
+          await loadComments(page);
+        } catch (error) {
+          if (message) message.textContent = error instanceof Error ? error.message : '评论发送失败';
+        } finally {
+          if (submit) submit.disabled = false;
+        }
+      });
+
+      loadComments(page);
+    });
+  })();
+</script>

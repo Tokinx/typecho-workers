@@ -1,0 +1,208 @@
+---
+import { env } from 'cloudflare:workers';
+import { getDb, schema } from 'typecho/db';
+import { getNotesForTheme, type NoteListItem } from 'typecho-plugin-notes';
+import { and, eq, inArray } from 'drizzle-orm';
+import type { ThemeIndexProps, PostListItem } from '@/lib/theme-props';
+import { buildCategoryLink } from '@/lib/content';
+import WarmShell from './WarmShell.astro';
+import { formatWarmDate, plainExcerpt } from './warm';
+
+type Props = ThemeIndexProps;
+type WarmPostItem = {
+  type: 'post';
+  cid: number;
+  title: string;
+  permalink: string;
+  excerpt: string;
+  created: number;
+  comments: number;
+  categories: PostListItem['categories'];
+};
+type WarmNoteItem = NoteListItem & { type: 'note' };
+
+const {
+  options, urls, user, isLoggedIn, pages, sidebarData, currentPath, pluginCtx,
+  posts, pagination,
+} = Astro.props;
+
+const notesEnabled = pluginCtx.activatedPlugins.has('typecho-plugin-notes');
+const requestedStream = Astro.url.searchParams.get('stream');
+const topic = Astro.url.searchParams.get('topic');
+const stream = !notesEnabled
+  ? 'posts'
+  : topic || requestedStream === 'notes'
+    ? 'notes'
+    : requestedStream === 'posts'
+      ? 'posts'
+      : 'mixed';
+
+const corePosts = new Map(posts.map(post => [Number(post.cid), post]));
+const toCoreItem = (post: PostListItem): WarmPostItem => ({
+  type: 'post',
+  cid: post.cid,
+  title: post.title,
+  permalink: post.permalink,
+  excerpt: plainExcerpt(post.excerpt),
+  created: post.created,
+  comments: post.commentsNum,
+  categories: post.categories,
+});
+
+let items: Array<WarmPostItem | WarmNoteItem> = posts.map(toCoreItem);
+let currentPage = pagination.currentPage;
+let totalPages = pagination.totalPages;
+
+if (notesEnabled && stream !== 'posts') {
+  const notesDb = getDb(env.DB);
+  const variables = await getNotesForTheme(
+    notesDb,
+    {
+      page: pagination.currentPage,
+      pageSize: pagination.pageSize,
+      topic,
+      viewerUid: user?.uid,
+    },
+    { siteUrl: urls.siteUrl, permalinkPattern: options.permalinkPattern },
+  );
+  const result = stream === 'notes' ? variables.notes : variables.mixed;
+  const resultPagination = stream === 'notes' ? variables.pagination.notes : variables.pagination.mixed;
+  const mixedPostIds = result
+    .filter((item): item is NoteListItem & { type: 'post' } => item.type === 'post')
+    .map(item => Number(item.cid))
+    .filter(cid => Number.isSafeInteger(cid) && !corePosts.has(cid));
+  const mixedCategories = new Map<number, PostListItem['categories']>();
+  if (mixedPostIds.length > 0) {
+    const categoryRows = await notesDb
+      .select({
+        cid: schema.relationships.cid,
+        name: schema.metas.name,
+        slug: schema.metas.slug,
+      })
+      .from(schema.relationships)
+      .innerJoin(schema.metas, eq(schema.relationships.mid, schema.metas.mid))
+      .where(and(
+        inArray(schema.relationships.cid, mixedPostIds),
+        eq(schema.metas.type, 'category'),
+      ));
+    for (const row of categoryRows) {
+      const cid = Number(row.cid);
+      if (!Number.isSafeInteger(cid)) continue;
+      const categories = mixedCategories.get(cid) || [];
+      categories.push({
+        name: row.name || '',
+        slug: row.slug || '',
+        permalink: buildCategoryLink(
+          row.slug || '',
+          urls.siteUrl,
+          options.categoryPattern as string | undefined,
+        ),
+      });
+      mixedCategories.set(cid, categories);
+    }
+  }
+  items = result.map(item => {
+    if (item.type === 'note') return item as WarmNoteItem;
+    const cid = Number(item.cid);
+    const core = corePosts.get(cid);
+    return core ? toCoreItem(core) : {
+      type: 'post',
+      cid: item.cid,
+      title: item.title,
+      permalink: item.permalink,
+      excerpt: plainExcerpt(item.source),
+      created: item.created,
+      comments: item.comments,
+      categories: mixedCategories.get(cid) || [],
+    };
+  });
+  currentPage = resultPagination.page;
+  totalPages = resultPagination.totalPages;
+}
+
+const activeSection = stream === 'notes' ? 'notes' : stream === 'posts' ? 'articles' : 'home';
+const heading = stream === 'notes' ? '笔记' : stream === 'posts' ? '文章' : '';
+const baseUrl = `${urls.siteUrl.replace(/\/$/, '')}/`;
+const pageUrl = (page: number) => {
+  const params = new URLSearchParams();
+  if (stream !== 'mixed') params.set('stream', stream);
+  if (topic) params.set('topic', topic);
+  const path = page > 1 ? `page/${page}/` : '';
+  const query = params.toString();
+  return `${baseUrl}${path}${query ? `?${query}` : ''}`;
+};
+const visiblePages = Array.from({ length: totalPages }, (_, index) => index + 1)
+  .filter(page => page === 1 || page === totalPages || Math.abs(page - currentPage) <= 2);
+---
+<WarmShell
+  options={options}
+  urls={urls}
+  user={user}
+  isLoggedIn={isLoggedIn}
+  pages={pages}
+  sidebarData={sidebarData}
+  currentPath={currentPath}
+  pluginCtx={pluginCtx}
+  section={activeSection}
+  title={heading || undefined}
+>
+  {stream === 'notes' && topic && (
+    <div class="warm-topic-filter">
+      <span>话题：#{topic}</span>
+      <a href={`${baseUrl}?stream=notes`}>清除筛选</a>
+    </div>
+  )}
+
+  <div class="warm-stream">
+    {items.length === 0 ? (
+      <section class="warm-empty">
+        <h1>这里还很安静</h1>
+        <p>{stream === 'notes' ? '暂时没有符合条件的笔记。' : '第一篇文章正在路上。'}</p>
+      </section>
+    ) : items.map(item => item.type === 'note' ? (
+      <article class="warm-stream-item warm-note" data-content-type="note">
+        <a class="warm-stream-item__hit" href={item.permalink} aria-label="查看这则笔记"></a>
+        <div class="warm-item-meta">
+          <span class="warm-note-label">笔记</span>
+          <span aria-hidden="true">·</span>
+          <time datetime={new Date(item.created * 1000).toISOString()}>{formatWarmDate(item.created, true)}</time>
+          {item.status === 'private' && <span class="warm-private">私密</span>}
+        </div>
+        <div class="warm-note__content" set:html={item.html} />
+        {item.images.length > 0 && (
+          <div class:list={["warm-note__images", `has-${Math.min(item.images.length, 4)}`]}>
+            {item.images.slice(0, 4).map(image => (
+              <img src={image.url} alt={image.name || '笔记配图'} loading="lazy" />
+            ))}
+          </div>
+        )}
+        {item.comments > 0 && <a class="warm-comment-count" href={`${item.permalink}#comments`}>{item.comments} 条讨论</a>}
+      </article>
+    ) : (
+      <article class="warm-stream-item warm-post-card" data-content-type="post">
+        <a class="warm-stream-item__hit" href={item.permalink} aria-label={`阅读：${item.title}`}></a>
+        <div class="warm-item-meta">
+          {item.categories[0] ? <a class="warm-category" href={item.categories[0].permalink}>{item.categories[0].name}</a> : null}
+          {item.categories[0] ? <span aria-hidden="true">·</span> : null}
+          <time datetime={new Date(item.created * 1000).toISOString()}>{formatWarmDate(item.created)}</time>
+        </div>
+        <h2><a href={item.permalink}>{item.title}</a></h2>
+        {item.excerpt && <p>{item.excerpt}</p>}
+        <a class="warm-read-more" href={item.permalink}>阅读全文 <span aria-hidden="true">→</span></a>
+      </article>
+    ))}
+  </div>
+
+  {totalPages > 1 && (
+    <nav class="warm-pagination" aria-label="内容分页">
+      {currentPage > 1 && <a href={pageUrl(currentPage - 1)} rel="prev" aria-label="上一页">←</a>}
+      {visiblePages.map((page, index) => (
+        <>
+          {index > 0 && page - visiblePages[index - 1] > 1 && <span aria-hidden="true">…</span>}
+          <a class:list={{ "is-current": page === currentPage }} href={pageUrl(page)} aria-current={page === currentPage ? 'page' : undefined}>{page}</a>
+        </>
+      ))}
+      {currentPage < totalPages && <a href={pageUrl(currentPage + 1)} rel="next" aria-label="下一页">→</a>}
+    </nav>
+  )}
+</WarmShell>

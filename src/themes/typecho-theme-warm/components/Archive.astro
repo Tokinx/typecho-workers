@@ -1,0 +1,54 @@
+---
+import type { ThemeArchiveProps } from '@/lib/theme-props';
+import WarmShell from './WarmShell.astro';
+import { formatWarmDate, plainExcerpt } from './warm';
+
+type Props = ThemeArchiveProps;
+const {
+  options, urls, user, isLoggedIn, pages, sidebarData, currentPath, pluginCtx,
+  archiveTitle, posts, pagination,
+} = Astro.props;
+---
+<WarmShell
+  title={archiveTitle}
+  options={options}
+  urls={urls}
+  user={user}
+  isLoggedIn={isLoggedIn}
+  pages={pages}
+  sidebarData={sidebarData}
+  currentPath={currentPath}
+  pluginCtx={pluginCtx}
+  section="articles"
+>
+  <div class="warm-stream">
+    {posts.length > 0 ? posts.map(post => (
+      <article class="warm-stream-item warm-post-card">
+        <a class="warm-stream-item__hit" href={post.permalink} aria-label={`阅读：${post.title}`}></a>
+        <div class="warm-item-meta">
+          {post.categories[0] ? <a class="warm-category" href={post.categories[0].permalink}>{post.categories[0].name}</a> : null}
+          {post.categories[0] ? <span aria-hidden="true">·</span> : null}
+          <time datetime={new Date(post.created * 1000).toISOString()}>{formatWarmDate(post.created)}</time>
+        </div>
+        <h2><a href={post.permalink}>{post.title}</a></h2>
+        <p>{plainExcerpt(post.excerpt)}</p>
+        <a class="warm-read-more" href={post.permalink}>阅读全文 <span aria-hidden="true">→</span></a>
+      </article>
+    )) : <section class="warm-empty"><h2>没有找到内容</h2><p>换个分类或关键词再看看。</p></section>}
+  </div>
+
+  {pagination.totalPages > 1 && (
+    <nav class="warm-pagination" aria-label="归档分页">
+      {pagination.hasPrev && <a href={pagination.prevUrl!} rel="prev">←</a>}
+      {pagination.pages.map(page => {
+        const href = page === pagination.currentPage
+          ? Astro.url.toString()
+          : page === 1
+            ? pagination.prevUrl?.replace(/page\/\d+\/?$/, '') || `${urls.siteUrl}/`
+            : `${currentPath.replace(/page\/\d+\/?$/, '').replace(/\/$/, '')}/page/${page}/`;
+        return <a class:list={{ "is-current": page === pagination.currentPage }} href={href} aria-current={page === pagination.currentPage ? 'page' : undefined}>{page}</a>;
+      })}
+      {pagination.hasNext && <a href={pagination.nextUrl!} rel="next">→</a>}
+    </nav>
+  )}
+</WarmShell>
