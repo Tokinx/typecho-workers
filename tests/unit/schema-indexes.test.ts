@@ -26,6 +26,11 @@ describe('schema-sql index emission (G4-1)', () => {
     expect(index).toContain('typecho_comments_status_owner');
   });
 
+  it('emits comment list and thread traversal indexes', () => {
+    expect(index).toContain('typecho_comments_cid_status_created');
+    expect(index).toContain('typecho_comments_cid_parent_status');
+  });
+
   it('emits the user.group index', () => {
     expect(index).toContain('typecho_users_group');
   });

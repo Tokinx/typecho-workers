@@ -57,7 +57,7 @@ export function resetIsolateBoot(): void {
 // runtime password-reset upgrade or generated index set changes. A stable
 // database needs one query per cold isolate instead of probing every table,
 // column and index.
-const RUNTIME_SCHEMA_VERSION = '20260730';
+const RUNTIME_SCHEMA_VERSION = '20260804';
 const RUNTIME_SCHEMA_VERSION_KEY = 'runtimeSchemaVersion';
 
 export async function ensureDatabaseReady(d1: D1Database): Promise<void> {

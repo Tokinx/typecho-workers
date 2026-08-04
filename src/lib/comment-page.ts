@@ -110,8 +110,8 @@ export async function loadCommentPage(
   );
   const order = options.commentsOrder === 'DESC' ? 'DESC' : 'ASC';
   const orderExpression = order === 'DESC'
-    ? desc(schema.comments.created)
-    : asc(schema.comments.created);
+    ? [desc(schema.comments.created), desc(schema.comments.coid)]
+    : [asc(schema.comments.created), asc(schema.comments.coid)];
   const rawPage = new URL(requestUrl).searchParams.get('commentPage');
   const parsedPage = rawPage ? Number.parseInt(rawPage, 10) : Number.NaN;
   const requestedPage = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : null;
@@ -158,7 +158,7 @@ export async function loadCommentPage(
         .select()
         .from(schema.comments)
         .where(visibleForContent)
-        .orderBy(orderExpression)
+        .orderBy(...orderExpression)
         .limit(COMMENT_UNPAGED_MAX),
     ]);
     const totalComments = Number(countResult[0]?.count || 0);
@@ -214,13 +214,51 @@ export async function loadCommentPage(
       .select()
       .from(schema.comments)
       .where(visibleForContent)
-      .orderBy(orderExpression)
+      .orderBy(...orderExpression)
       .limit(pageSize)
       .offset(offset);
     return { rows, pagination };
   }
 
   const orderSql = order === 'DESC' ? sql`DESC` : sql`ASC`;
+
+  // Anonymous readers are the high-volume path. The ordered index limits root
+  // selection to this content's visible comments; the parent index constrains
+  // recursive expansion to the selected thread. Capability-based pending
+  // comment reads keep the general predicate below.
+  if (!unapprovedCommentId) {
+    const rows = await db.all<CommentRow>(sql`
+      WITH RECURSIVE selected_roots(coid) AS (
+        SELECT candidate.coid
+        FROM ${schema.comments} AS candidate INDEXED BY typecho_comments_cid_status_created
+        LEFT JOIN ${schema.comments} AS parent_comment
+          ON parent_comment.coid = candidate.parent
+          AND parent_comment.cid = ${cid}
+          AND parent_comment.status = 'approved'
+        WHERE candidate.cid = ${cid}
+          AND candidate.status = 'approved'
+          AND (candidate.parent = 0 OR parent_comment.coid IS NULL)
+        ORDER BY candidate.created ${orderSql}, candidate.coid ${orderSql}
+        LIMIT ${pageSize} OFFSET ${offset}
+      ),
+      thread AS (
+        SELECT comment.*
+        FROM ${schema.comments} AS comment
+        INNER JOIN selected_roots AS root ON root.coid = comment.coid
+        UNION ALL
+        SELECT child.*
+        FROM ${schema.comments} AS child INDEXED BY typecho_comments_cid_parent_status
+        INNER JOIN thread AS parent_comment ON child.parent = parent_comment.coid
+        WHERE child.cid = ${cid}
+          AND child.status = 'approved'
+      )
+      SELECT *
+      FROM thread
+      ORDER BY created ${orderSql}, coid ${orderSql}
+    `);
+    return { rows, pagination };
+  }
+
   const candidateStatus = unapprovedCommentId
     ? sql`(candidate.status = 'approved' OR candidate.coid = ${unapprovedCommentId})`
     : sql`candidate.status = 'approved'`;
@@ -243,7 +281,7 @@ export async function loadCommentPage(
               AND ${visibleParentStatus}
           )
         )
-      ORDER BY candidate.created ${orderSql}
+      ORDER BY candidate.created ${orderSql}, candidate.coid ${orderSql}
       LIMIT ${pageSize} OFFSET ${offset}
     ),
     thread AS (
@@ -259,7 +297,7 @@ export async function loadCommentPage(
     )
     SELECT *
     FROM thread
-    ORDER BY created ${orderSql}
+    ORDER BY created ${orderSql}, coid ${orderSql}
   `);
   return { rows, pagination };
 }

@@ -53,6 +53,8 @@ describe('generateCreateSQL', () => {
     expect(plainIndexes.some(s => s.includes('typecho_contents_author_type_status_created'))).toBe(true);
     expect(plainIndexes.some(s => s.includes('typecho_contents_type_status_order'))).toBe(true);
     expect(plainIndexes.some(s => s.includes('typecho_comments_cid_status_parent_created'))).toBe(true);
+    expect(plainIndexes.some(s => s.includes('typecho_comments_cid_status_created'))).toBe(true);
+    expect(plainIndexes.some(s => s.includes('typecho_comments_cid_parent_status'))).toBe(true);
     expect(plainIndexes.some(s => s.includes('typecho_comments_status_created'))).toBe(true);
     expect(plainIndexes.some(s => s.includes('typecho_relationships_mid_cid'))).toBe(true);
   });

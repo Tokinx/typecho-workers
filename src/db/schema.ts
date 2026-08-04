@@ -82,6 +82,20 @@ export const comments = sqliteTable('typecho_comments', {
     table.parent,
     table.created,
   ),
+  // Public comment pages filter by cid/status and then order by creation.
+  index('typecho_comments_cid_status_created').on(
+    table.cid,
+    table.status,
+    table.created,
+    table.coid,
+  ),
+  // Recursive thread expansion probes visible children by their parent.
+  index('typecho_comments_cid_parent_status').on(
+    table.cid,
+    table.parent,
+    table.status,
+    table.coid,
+  ),
   index('typecho_comments_status_created').on(table.status, table.created),
   // G4-1: moderation queries filter by status (and ownerId for editors).
   index('typecho_comments_status_owner').on(table.status, table.ownerId),
