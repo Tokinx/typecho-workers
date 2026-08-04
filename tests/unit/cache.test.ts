@@ -58,7 +58,7 @@ describe('invalidatePublicCache()', () => {
     expect(row?.value).toBe('7');
   });
 
-  it('falls back to one D1 cacheVersion write when the provider cannot invalidate', async () => {
+  it('does not write D1 cacheVersion when no page-cache provider can invalidate', async () => {
     const db = await createTestDb() as any;
     await db.insert(schema.options).values({ name: 'cacheVersion', user: 0, value: '7' });
     registerEarlyRequestLoaders({
@@ -71,10 +71,10 @@ describe('invalidatePublicCache()', () => {
     });
 
     await expect(invalidatePublicCache(db, { reason: 'post-update', domains: ['all'] }))
-      .resolves.toBe('legacy');
+      .resolves.toBe('none');
     const row = await db.query.options.findFirst({
       where: (options: any, { and, eq }: any) => and(eq(options.name, 'cacheVersion'), eq(options.user, 0)),
     });
-    expect(row?.value).toBe('8');
+    expect(row?.value).toBe('7');
   });
 });

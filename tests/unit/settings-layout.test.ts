@@ -17,15 +17,15 @@ function optionBlocks(source: string): RegExpMatchArray[] {
 describe('Typecho 1.3 settings option layout', () => {
   it('gives every basic setting its own option list', () => {
     const source = readPage('options-general');
-    expect(optionBlocks(source)).toHaveLength(11);
+    expect(optionBlocks(source)).toHaveLength(10);
     expect(source).not.toContain('<ul class="typecho-option">');
     expect(source).toContain('typecho-option-item-title-0');
     expect(source).toContain('typecho-option-item-siteUrl-1');
     expect(source).toContain('typecho-option-item-allowXmlRpc-5');
     expect(source).toContain('name="attachmentTypes[]"');
     expect(source).toContain('name="attachmentTypesOther"');
-    expect(source).toContain('typecho-option-item-submit-10');
-    expect(source).toContain('name="cacheEnabled"');
+    expect(source).toContain('typecho-option-item-submit-9');
+    expect(source).not.toContain('name="cacheEnabled"');
     expect(source).toContain('name="robotsTxt"');
     expect(source).not.toContain('name="mailEnabled"');
   });

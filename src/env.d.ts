@@ -145,8 +145,6 @@ declare namespace App {
      * middleware.ts. Read by page-data prepareArchive* functions.
      */
     _page?: number;
-    /** Set by an early provider when it owns page-cache persistence. */
-    _typechoEarlyCacheManaged?: boolean;
     /** Astro Cloudflare adapter attaches this at runtime. */
     runtime?: {
       ctx?: { waitUntil?(promise: Promise<unknown>): void };

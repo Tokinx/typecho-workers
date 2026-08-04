@@ -153,7 +153,7 @@ describe('Middleware: no redirect loops when DB is ready', () => {
     expect(next).toHaveBeenCalledWith('/category/guides/?sort=latest');
   });
 
-  it('schedules edge cache persistence through the bound ExecutionContext', async () => {
+  it('does not cache public HTML when the cache plugin has no KV control state', async () => {
     const waitUntil = vi.fn();
     const putSpy = vi.spyOn(caches.default, 'put');
     const request = new Request(`${SITE}/cache-write`, { method: 'GET' });
@@ -171,8 +171,8 @@ describe('Middleware: no redirect loops when DB is ready', () => {
     ) as Response;
 
     expect(response.status).toBe(200);
-    expect(putSpy).toHaveBeenCalledOnce();
-    expect(waitUntil).toHaveBeenCalledWith(putSpy.mock.results[0].value);
+    expect(putSpy).not.toHaveBeenCalled();
+    expect(waitUntil).not.toHaveBeenCalled();
     putSpy.mockRestore();
   });
 
@@ -220,15 +220,14 @@ describe('Middleware: no redirect loops when DB is ready', () => {
       type: 'activate',
       settings: {
         cacheScopes: ['other'],
-        l1Ttl: '300',
-        listTtl: '300',
-        detailTtl: '3600',
+        l1Ttl: '86400',
+        listTtl: '86400',
+        detailTtl: '604800',
         staticCdnUrl: '',
         staticExtensions: 'css,js,png',
         avatarCdnUrl: '',
       },
       options: {
-        cacheEnabled: 1,
         siteUrl: SITE,
         permalinkPattern: '/archives/{cid}/',
         pagePattern: '/{slug}.html',

@@ -126,24 +126,15 @@ const attachmentChecked = (value: string) => attachmentSet.has(value)
           <p class="description">用逗号 "," 将后缀名隔开, 例如: <code>cpp, h, mak</code></p>
         </li>
       </ul>
-      <ul class="typecho-option" id="typecho-option-item-cacheEnabled-8">
+      <ul class="typecho-option" id="typecho-option-item-robotsTxt-8">
         <li>
-          <label class="typecho-label">
-            <input type="checkbox" id="cacheEnabled-0-8" name="cacheEnabled" value="1" checked={options.cacheEnabled !== 0} />
-            启用页面缓存
-          </label>
-          <p class="description">启用后，未登录用户访问的页面将在边缘节点缓存 5 分钟，可大幅减少数据库查询。管理员操作会自动清除相关缓存</p>
-        </li>
-      </ul>
-      <ul class="typecho-option" id="typecho-option-item-robotsTxt-9">
-        <li>
-          <label class="typecho-label" for="robotsTxt-0-10">robots.txt 内容</label>
-          <textarea id="robotsTxt-0-10" name="robotsTxt" rows="5">{options.robotsTxt || ''}</textarea>
+          <label class="typecho-label" for="robotsTxt-0-9">robots.txt 内容</label>
+          <textarea id="robotsTxt-0-9" name="robotsTxt" rows="5">{options.robotsTxt || ''}</textarea>
           <p class="description">留空使用默认规则（Allow / Disallow /admin/ /api/ Sitemap）</p>
         </li>
       </ul>
 
-      <ul class="typecho-option typecho-option-submit" id="typecho-option-item-submit-10">
+      <ul class="typecho-option typecho-option-submit" id="typecho-option-item-submit-9">
         <li>
           <button type="submit" class="btn primary">保存设置</button>
         </li>

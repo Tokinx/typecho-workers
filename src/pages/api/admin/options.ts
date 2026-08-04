@@ -23,7 +23,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       'commentsAutoClose', 'commentsPostIntervalEnable',
       'commentsAntiSpam', 'commentsHTMLTagAllowed', 'commentsAvatar',
       'commentsAvatarRating', 'commentsShowCommentOnly',
-    'frontArchive', 'cacheEnabled',
+    'frontArchive',
     'loginFailBanEnabled', 'loginFailBanWindowSeconds',
     'loginFailBanMaxFailures', 'loginFailBanSeconds',
     'feedItems', 'robotsTxt',
@@ -130,7 +130,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   const checkboxFieldsByPage: Record<string, string[]> = {
     '/admin/options-general': [
-      'allowRegister', 'cacheEnabled',
+      'allowRegister',
     ],
     '/admin/options-discussion': [
       'commentsShowCommentOnly', 'commentsAvatar', 'commentsShowUrl',

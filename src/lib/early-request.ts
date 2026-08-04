@@ -5,7 +5,6 @@ export interface EarlyRequestContext {
   url: URL;
   env: Record<string, unknown>;
   waitUntil?: (promise: Promise<unknown>) => void;
-  markPageCacheManaged(): void;
 }
 
 export type EarlyRequestNext = () => Promise<Response>;
@@ -81,7 +80,7 @@ function isEligibleEarlyRequest(request: Request): boolean {
 }
 
 export async function runEarlyRequestProviders(
-  context: Omit<EarlyRequestContext, 'markPageCacheManaged'> & { locals: App.Locals },
+  context: EarlyRequestContext,
   next: EarlyRequestNext,
 ): Promise<Response> {
   if (!isEligibleEarlyRequest(context.request) || providerLoaders.size === 0) return next();
@@ -100,9 +99,6 @@ export async function runEarlyRequestProviders(
       url: context.url,
       env: context.env,
       waitUntil: context.waitUntil,
-      markPageCacheManaged: () => {
-        context.locals._typechoEarlyCacheManaged = true;
-      },
     }, () => dispatch(position + 1));
   };
 

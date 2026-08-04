@@ -118,17 +118,15 @@ export async function bumpCacheVersion(
 }
 
 /**
- * Invalidate public HTML without writing D1 when an activated early provider
- * successfully advances its own cross-PoP generation. The legacy D1 version
- * remains the fail-open fallback when the provider is absent or unavailable.
+ * Invalidate public HTML through the activated page-cache provider. With no
+ * provider, there is no page cache to invalidate and no D1 write is needed.
  */
 export async function invalidatePublicCache(
-  db: Database,
+  _db: Database,
   event: PublicCacheInvalidation,
-): Promise<'early' | 'legacy'> {
+): Promise<'early' | 'none'> {
   if (await notifyEarlyRequestInvalidation(event)) return 'early';
-  await writeCacheVersion(db);
-  return 'legacy';
+  return 'none';
 }
 
 /**

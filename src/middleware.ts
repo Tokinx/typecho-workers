@@ -3,7 +3,6 @@ import { getDb } from '@/db';
 import { schema } from '@/db';
 import { loadOptions, ensureSecret } from '@/lib/options';
 import { applyFilter, isPluginAdminPath, parseActivatedPlugins, setActivatedPlugins, type HookContext } from '@/lib/plugin';
-import { hasAuthCookies } from '@/lib/auth';
 import { applySecurityHeaders } from '@/lib/security-headers';
 import { setRequestCoreContext } from '@/lib/context';
 import { compilePermalinkPattern } from '@/lib/permalink-pattern';
@@ -172,30 +171,6 @@ const coreMiddleware = defineMiddleware(async (context, next) => {
     }
   }
 
-  // ── Edge Cache Layer ──────────────────────────────────────────────────────
-  const isGetRequest = context.request.method === 'GET';
-  const hasAuth = hasAuthCookies(context.request.headers.get('cookie'));
-  const isCacheable =
-    options.cacheEnabled &&
-    !context.locals._typechoEarlyCacheManaged &&
-    isGetRequest &&
-    !hasAuth &&
-    !path.startsWith('/admin') &&
-    !path.startsWith('/api/') &&
-    !path.startsWith('/usr/');
-
-  // Reuse a single Request for both cache.match and cache.put
-  const cacheKey = isCacheable
-    ? new Request(withCacheVersion(context.request.url, options.cacheVersion), { method: 'GET' })
-    : null;
-
-  if (cacheKey) {
-    const cached = await caches.default.match(cacheKey);
-    if (cached) {
-      return await applySecurityHeaders(cached, { request: context.request }, pluginCtx);
-    }
-  }
-
   // ── Permalink URL Rewriting ────────────────────────────────────────────────
   // After a rewrite the middleware runs again on the NEW path.
   // To avoid infinite loops, skip rewriting for paths that already
@@ -333,62 +308,17 @@ const coreMiddleware = defineMiddleware(async (context, next) => {
     allowSameOriginFrame: path === '/admin/preview',
   }, pluginCtx);
 
-  // ── Write response to edge cache ──────────────────────────────────────────
-  if (cacheKey && response.status === 200) {
-    const cacheHeaders = new Headers(response.headers);
-    if (!cacheHeaders.has('Cache-Control')) {
-      cacheHeaders.set('Cache-Control', 'public, s-maxage=300');
-    }
-    // G5-1: signal that cookies / encoding affect the cached response
-    // even though logged-in requests already bypass the cache. Belt-
-    // and-braces protects future readers who add cookie-bound state.
-    cacheHeaders.set('Vary', mergeVary(cacheHeaders.get('Vary'), ['Cookie', 'Accept-Encoding']));
-    // G5-2: never persist Set-Cookie (the Cache API ignores entries
-    // with cookies anyway, but stripping makes the intent explicit and
-    // avoids leaking auth tokens through future cache backends).
-    cacheHeaders.delete('Set-Cookie');
-
-    const cacheable = new Response(response.clone().body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: cacheHeaders,
-    });
-
-    const cacheWrite = caches.default.put(cacheKey, cacheable);
-    const executionContext = context.locals.cfContext;
-    if (executionContext) {
-      // Keep cache persistence off the response path. Call through the
-      // ExecutionContext object so Workers receives the correct `this`.
-      executionContext.waitUntil(cacheWrite);
-    } else {
-      // Astro's Node test/dev adapter does not always provide an execution
-      // context, so preserve deterministic writes there.
-      await cacheWrite;
-    }
-  }
-
   return response;
 });
 
 export const onRequest = defineMiddleware((context, next) => runEarlyRequestProviders({
   request: context.request,
   url: context.url,
-  locals: context.locals,
   env: env as unknown as Record<string, unknown>,
   waitUntil: context.locals.cfContext
     ? promise => context.locals.cfContext!.waitUntil(promise)
     : undefined,
 }, () => coreMiddleware(context, next) as Promise<Response>));
-
-/** Merge a comma-separated Vary header with additional fields, deduped. */
-function mergeVary(existing: string | null, additions: string[]): string {
-  const tokens = new Set<string>();
-  if (existing) {
-    for (const tok of existing.split(',')) tokens.add(tok.trim());
-  }
-  for (const tok of additions) tokens.add(tok);
-  return Array.from(tokens).filter(Boolean).join(', ');
-}
 
 /**
  * Paths that plugins MUST NOT be able to claim via route:request.
@@ -403,10 +333,4 @@ function isReservedCorePath(path: string): boolean {
   if (path === '/api/admin' || path.startsWith('/api/admin/')) return true;
   if (path === '/api/users/login' || path === '/api/users/logout' || path === '/api/users/register') return true;
   return false;
-}
-
-function withCacheVersion(requestUrl: string, cacheVersion?: number): string {
-  const url = new URL(requestUrl);
-  url.searchParams.set('__typecho_cache', String(cacheVersion || 0));
-  return url.toString();
 }

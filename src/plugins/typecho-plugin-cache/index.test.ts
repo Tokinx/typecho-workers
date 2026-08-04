@@ -36,9 +36,9 @@ class MemoryKv implements KVNamespace {
 
 const defaultSettings = {
   cacheScopes: ['home', 'post', 'page', 'note', 'archive', 'other'],
-  l1Ttl: '300',
-  listTtl: '300',
-  detailTtl: '3600',
+  l1Ttl: '86400',
+  listTtl: '86400',
+  detailTtl: '604800',
   staticCdnUrl: '',
   staticExtensions: 'jpg,png,css,js,zip',
   avatarCdnUrl: '',
@@ -50,7 +50,6 @@ async function activate(kv: MemoryKv, settings: Record<string, unknown> = defaul
     type: 'activate',
     settings,
     options: {
-      cacheEnabled: 1,
       siteUrl: 'https://example.com',
       permalinkPattern: '/archives/{cid}/',
       pagePattern: '/{slug}.html',
@@ -65,7 +64,6 @@ function requestContext(url = 'https://example.com/') {
     request,
     url: new URL(url),
     env: { TYPECHO_CACHE: env.TYPECHO_CACHE },
-    markPageCacheManaged: vi.fn(),
   };
 }
 
@@ -95,7 +93,7 @@ describe('typecho-plugin-cache provider', () => {
 
   it('serves L2 and refills L1 after the local edge cache is cold', async () => {
     const kv = new MemoryKv();
-    await activate(kv, { ...defaultSettings, l1Ttl: '60' });
+    await activate(kv, { ...defaultSettings, l1Ttl: '259200' });
     const next = vi.fn(async () => new Response('<html>from d1</html>', {
       headers: { 'Content-Type': 'text/html' },
     }));
@@ -104,13 +102,13 @@ describe('typecho-plugin-cache provider', () => {
 
     const response = await earlyRequestProvider.handle(requestContext('https://example.com/archives/1/'), next);
     expect(response.headers.get('X-Typecho-Cache')).toBe('L2');
-    expect(response.headers.get('Cache-Control')).toContain('s-maxage=60');
+    expect(response.headers.get('Cache-Control')).toContain('s-maxage=259200');
     expect(await response.text()).toContain('from d1');
     expect(next).toHaveBeenCalledTimes(1);
 
     const refilled = await earlyRequestProvider.handle(requestContext('https://example.com/archives/1/'), next);
     expect(refilled.headers.get('X-Typecho-Cache')).toBe('L1');
-    expect(refilled.headers.get('Cache-Control')).toContain('s-maxage=60');
+    expect(refilled.headers.get('Cache-Control')).toContain('s-maxage=259200');
   });
 
   it('advances a generation so the next request renders again', async () => {
@@ -165,7 +163,6 @@ describe('typecho-plugin-cache provider', () => {
     for (const context of [cookie, password, unknown]) {
       const response = await earlyRequestProvider.handle(context, next);
       expect(response.headers.get('X-Typecho-Cache')).toBe('BYPASS');
-      expect(context.markPageCacheManaged).toHaveBeenCalledOnce();
     }
     expect(next).toHaveBeenCalledTimes(3);
   });
@@ -252,6 +249,14 @@ describe('cache domain classification', () => {
 });
 
 describe('CDN rewriting', () => {
+  it('defaults page-cache TTLs to one day for lists and seven days for details', () => {
+    expect(normalizeCacheConfig({})).toMatchObject({
+      l1Ttl: 86_400,
+      listTtl: 86_400,
+      detailTtl: 604_800,
+    });
+  });
+
   it('rewrites selected same-origin assets and Gravatar while preserving other URLs', () => {
     const config = normalizeCacheConfig({
       ...defaultSettings,
@@ -360,7 +365,6 @@ describe('plugin registration and controls', () => {
     };
     await hooks.get('system:begin')!({
       options: {
-        cacheEnabled: 1,
         siteUrl: 'https://example.com',
         [`plugin:typecho-plugin-cache`]: JSON.stringify(settings),
       },
@@ -388,7 +392,6 @@ describe('plugin registration and controls', () => {
 
     await hooks.get('system:begin')!({
       options: {
-        cacheEnabled: 1,
         siteUrl: 'https://example.com',
         [`plugin:typecho-plugin-cache`]: JSON.stringify({
           ...defaultSettings,

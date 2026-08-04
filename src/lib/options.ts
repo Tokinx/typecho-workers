@@ -66,7 +66,6 @@ export interface SiteOptions {
   installed: number;
   editorSize: number;
   autoSave: number;
-  cacheEnabled: number;
   cacheVersion: number;
   activatedPlugins: string;
   permalinkPattern: string;
@@ -128,7 +127,6 @@ const defaultOptions: Partial<SiteOptions> = {
   commentsAntiSpam: 1,
   commentsHTMLTagAllowed: null,
   attachmentTypes: '@image@',
-  cacheEnabled: 1,
   cacheVersion: 0,
   installed: 0,
   editorSize: 350,
@@ -254,7 +252,7 @@ async function loadOptionsFresh(db: Database): Promise<SiteOptions> {
     'commentsCheckReferer', 'commentsAutoClose', 'commentsPostIntervalEnable',
     'commentsPostInterval', 'commentsShowCommentOnly', 'commentsAvatar',
     'commentsAntiSpam', 'installed', 'editorSize', 'autoSave',
-    'gzip', 'cacheEnabled', 'cacheVersion',
+    'gzip', 'cacheVersion',
     'loginFailBanEnabled', 'loginFailBanWindowSeconds',
     'loginFailBanMaxFailures', 'loginFailBanSeconds',
     'feedItems',

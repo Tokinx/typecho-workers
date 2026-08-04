@@ -34,7 +34,6 @@ export interface CacheControlDocument {
   active: true;
   config: CachePluginConfig;
   options: {
-    cacheEnabled: number;
     siteUrl: string;
     permalinkPattern: string;
     pagePattern: string;
@@ -97,9 +96,9 @@ export function normalizeCacheConfig(settings: Record<string, unknown> | CachePl
   const cacheScopes = ALL_DOMAINS.filter(domain => requestedScopes.includes(domain));
   return {
     cacheScopes,
-    l1Ttl: ttl(settings.l1Ttl, [60, 300, 600], 300),
-    listTtl: ttl(settings.listTtl, [60, 300, 600], 300),
-    detailTtl: ttl(settings.detailTtl, [900, 1800, 3600], 3600),
+    l1Ttl: ttl(settings.l1Ttl, [86_400, 259_200, 604_800], 86_400),
+    listTtl: ttl(settings.listTtl, [86_400, 259_200, 604_800], 86_400),
+    detailTtl: ttl(settings.detailTtl, [86_400, 259_200, 604_800], 604_800),
     staticCdnUrl: normalizeUrl(settings.staticCdnUrl),
     staticExtensions: normalizeExtensions(settings.staticExtensions),
     avatarCdnUrl: normalizeUrl(settings.avatarCdnUrl),
@@ -117,7 +116,6 @@ export function getCacheRuntimeConfig(): CachePluginConfig {
 
 function optionsForControl(options: Record<string, unknown> = {}): CacheControlDocument['options'] {
   return {
-    cacheEnabled: Number(options.cacheEnabled ?? 1) === 0 ? 0 : 1,
     siteUrl: String(options.siteUrl || ''),
     permalinkPattern: String(options.permalinkPattern || '/archives/{cid}/'),
     pagePattern: String(options.pagePattern || '/{slug}.html'),
@@ -467,10 +465,9 @@ async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNex
 
   const domain = classifyCacheDomain(context.url.pathname, control);
   const normalizedUrl = normalizeCacheUrl(context.url, domain);
-  const cacheEnabled = control.options.cacheEnabled !== 0 && control.config.cacheScopes.includes(domain);
+  const domainEnabled = control.config.cacheScopes.includes(domain);
   const bypass = shouldBypassRequest(context.request) || !normalizedUrl;
-  if (!cacheEnabled || bypass) {
-    context.markPageCacheManaged();
+  if (!domainEnabled || bypass) {
     const response = await next();
     const rewritten = await rewriteHtmlResponse(response, control.config, context.url.origin, control.options.siteUrl)
       .catch(() => response);
@@ -511,7 +508,6 @@ async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNex
 
   const existing = inFlight.get(cacheId);
   if (existing) return (await existing).clone();
-  context.markPageCacheManaged();
   const l2Ttl = DETAIL_DOMAINS.has(domain) ? control.config.detailTtl : control.config.listTtl;
   const pending = renderAndCache(context, next, control, kv, l1Key, l2Key, l2Ttl);
   inFlight.set(cacheId, pending);
