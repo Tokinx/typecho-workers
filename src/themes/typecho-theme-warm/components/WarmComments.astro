@@ -2,7 +2,7 @@
 import type { CommentOptions } from '@/lib/theme-props';
 import type { CommentPagination } from '@/lib/comment-page';
 import type { UserRow } from '@/lib/context';
-import type { WarmCommentInitialLoadMode, WarmContinuousLoadMode } from './warm';
+import type { WarmCommentInitialLoadMode } from './warm';
 
 interface Props {
   cid: number;
@@ -11,7 +11,6 @@ interface Props {
   user: UserRow | null;
   isLoggedIn: boolean;
   password?: string;
-  continuousLoadMode: WarmContinuousLoadMode;
   initialLoadMode: WarmCommentInitialLoadMode;
 }
 
@@ -22,7 +21,6 @@ const {
   user,
   isLoggedIn,
   password = '',
-  continuousLoadMode,
   initialLoadMode,
 } = Astro.props;
 const requestedCommentPage = Astro.url.searchParams.get('commentPage');
@@ -33,7 +31,6 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
   data-comments-root
   data-cid={cid}
   data-current-page={requestedCommentPage || undefined}
-  data-comment-load-mode={continuousLoadMode}
   data-comment-initial-load={initialLoadMode}
 >
   <div class="warm-comments__heading">
@@ -89,7 +86,7 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
   )}
 
   <div class="warm-comment-list" data-comment-list aria-live="polite">
-    <div class:list={["warm-comment-deferred", { "is-loading": initialLoadMode === 'auto' }]} data-comment-deferred>
+    <div class:list={["warm-comment-deferred", { "is-loading": initialLoadMode === 'auto-first' || initialLoadMode === 'infinite' }]} data-comment-deferred>
       <span class="warm-comments__empty" data-comment-loading data-comment-deferred-message aria-live="polite"></span>
       <button type="button" data-comment-load-initial hidden={initialLoadMode !== 'manual'}>加载评论</button>
     </div>
@@ -136,8 +133,7 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
       const deferred = root.querySelector('[data-comment-deferred]');
       const deferredMessage = root.querySelector('[data-comment-deferred-message]');
       const initialButton = root.querySelector('[data-comment-load-initial]');
-      const initialMode = root.dataset.commentInitialLoad || 'auto';
-      const continuousMode = root.dataset.commentLoadMode || 'manual';
+      const initialMode = root.dataset.commentInitialLoad || 'auto-first';
       const parsedPage = Number(root.dataset.currentPage);
       // A forward-only stream must begin at page one. Explicit legacy page
       // links keep their requested position, while successful submissions use
@@ -153,7 +149,7 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
       let dwellTimer = null;
       let dwellVisible = false;
 
-      const autoLimit = continuousMode === 'auto-2' ? 2 : continuousMode === 'infinite' ? Infinity : 0;
+      const autoLimit = initialMode === 'dwell-auto-2' ? 2 : initialMode === 'infinite' ? Infinity : 0;
 
       const setDeferredPrompt = (text, showButton, loadingState) => {
         if (!deferred) return;
@@ -322,7 +318,7 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
 
       if (initialMode === 'manual') {
         setDeferredPrompt('', true, false);
-      } else if (initialMode === 'dwell' && 'IntersectionObserver' in window) {
+      } else if ((initialMode === 'dwell' || initialMode === 'dwell-auto-2') && 'IntersectionObserver' in window) {
         setDeferredPrompt('', false, false);
         initialObserver = new IntersectionObserver(entries => {
           dwellVisible = entries.some(entry => entry.isIntersecting);
@@ -340,6 +336,8 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
           }, 3_000);
         }, { threshold: 0.15 });
         initialObserver.observe(deferred || root);
+      } else if (initialMode === 'auto-first') {
+        loadComments(1);
       } else {
         loadComments(page);
       }

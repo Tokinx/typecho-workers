@@ -28,22 +28,24 @@
     "continuousLoadMode": {
       "type": "select",
       "label": "连续加载",
-      "description": "控制首页、归档、笔记和评论后续页的加载方式。",
+      "description": "控制首页、分类和笔记列表后续页的加载方式。",
       "default": "manual",
       "options": {
         "manual": "手动加载",
-        "auto-2": "自动加载 2 次，之后手动加载",
+        "auto-2": "自动加载 2 次",
         "infinite": "无限自动加载"
       }
     },
     "commentInitialLoadMode": {
       "type": "select",
       "label": "评论列表首次加载",
-      "default": "auto",
+      "default": "auto-first",
       "options": {
         "manual": "手动加载评论列表",
-        "dwell": "停留在评论区 3 秒后加载",
-        "auto": "自动加载评论列表"
+        "auto-first": "自动加载第一页",
+        "dwell": "停留 3 秒加载",
+        "dwell-auto-2": "停留 3 秒加载（后续自动加载 2 次）",
+        "infinite": "无限自动加载"
       }
     }
   }

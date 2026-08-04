@@ -5,7 +5,7 @@ export const WARM_THEME_ID = 'typecho-theme-warm';
 
 export type WarmSection = 'home' | 'articles' | 'notes' | 'about' | 'none';
 export type WarmContinuousLoadMode = 'manual' | 'auto-2' | 'infinite';
-export type WarmCommentInitialLoadMode = 'manual' | 'dwell' | 'auto';
+export type WarmCommentInitialLoadMode = 'manual' | 'auto-first' | 'dwell' | 'dwell-auto-2' | 'infinite';
 
 export interface WarmSettings {
   githubUrl: string;
@@ -32,7 +32,10 @@ export function normalizeContinuousLoadMode(value: unknown): WarmContinuousLoadM
 }
 
 export function normalizeCommentInitialLoadMode(value: unknown): WarmCommentInitialLoadMode {
-  return value === 'manual' || value === 'dwell' ? value : 'auto';
+  return value === 'manual' || value === 'auto-first' || value === 'dwell'
+    || value === 'dwell-auto-2' || value === 'infinite'
+    ? value
+    : 'auto-first';
 }
 
 export function safeExternalUrl(value: unknown): string {

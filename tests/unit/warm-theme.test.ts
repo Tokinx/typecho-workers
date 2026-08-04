@@ -26,8 +26,14 @@ describe('typecho-theme-warm', () => {
       options: expect.objectContaining({ manual: expect.any(String), 'auto-2': expect.any(String), infinite: expect.any(String) }),
     });
     expect(manifest.config.commentInitialLoadMode).toMatchObject({
-      type: 'select', default: 'auto',
-      options: expect.objectContaining({ manual: expect.any(String), dwell: expect.any(String), auto: expect.any(String) }),
+      type: 'select', default: 'auto-first',
+      options: expect.objectContaining({
+        manual: expect.any(String),
+        'auto-first': expect.any(String),
+        dwell: expect.any(String),
+        'dwell-auto-2': expect.any(String),
+        infinite: expect.any(String),
+      }),
     });
   });
 
@@ -74,10 +80,10 @@ describe('typecho-theme-warm', () => {
     expect(shell).toContain('data-no-instant');
     const post = readFileSync(join(themeRoot, 'components/Post.astro'), 'utf8');
     expect(post).not.toContain('warm-back');
-    expect(post).toContain('continuousLoadMode={settings.continuousLoadMode}');
+    expect(post).not.toContain('continuousLoadMode={settings.continuousLoadMode}');
     expect(post).toContain('initialLoadMode={settings.commentInitialLoadMode}');
     const page = readFileSync(join(themeRoot, 'components/Page.astro'), 'utf8');
-    expect(page).toContain('continuousLoadMode={settings.continuousLoadMode}');
+    expect(page).not.toContain('continuousLoadMode={settings.continuousLoadMode}');
     expect(page).toContain('initialLoadMode={settings.commentInitialLoadMode}');
     const css = readFileSync(join(themeRoot, 'style.css'), 'utf8');
     expect(css).not.toContain('.warm-list-heading');
@@ -88,9 +94,16 @@ describe('typecho-theme-warm', () => {
     expect(comments).toContain('data-comment-loading');
     expect(comments).not.toContain('data-comment-total');
     expect(comments).toContain('data-comment-initial-load');
+    expect(comments).not.toContain('continuousLoadMode');
+    expect(comments).not.toContain('data-comment-load-mode');
     expect(comments).toContain('data-comment-load-initial');
     expect(comments).toContain('data-comment-load-more');
     expect(comments).toContain('data-comment-load-sentinel');
+    expect(comments).toContain("initialMode === 'auto-first'");
+    expect(comments).toContain('loadComments(1)');
+    expect(comments).toContain("initialMode === 'dwell-auto-2' ? 2");
+    expect(comments).toContain("initialMode === 'infinite' ? Infinity");
+    expect(comments).toContain("initialMode === 'dwell' || initialMode === 'dwell-auto-2'");
     expect(comments).toContain('commentsLoaded = true');
     expect(comments.indexOf('commentsLoaded = true')).toBeLessThan(comments.indexOf('renderPagination(activePagination)'));
     expect(comments).toContain('3_000');
@@ -120,6 +133,10 @@ describe('typecho-theme-warm', () => {
     expect(normalizeContinuousLoadMode('auto-2')).toBe('auto-2');
     expect(normalizeContinuousLoadMode('invalid')).toBe('manual');
     expect(normalizeCommentInitialLoadMode('dwell')).toBe('dwell');
-    expect(normalizeCommentInitialLoadMode('invalid')).toBe('auto');
+    expect(normalizeCommentInitialLoadMode('auto-first')).toBe('auto-first');
+    expect(normalizeCommentInitialLoadMode('dwell-auto-2')).toBe('dwell-auto-2');
+    expect(normalizeCommentInitialLoadMode('infinite')).toBe('infinite');
+    expect(normalizeCommentInitialLoadMode('auto')).toBe('auto-first');
+    expect(normalizeCommentInitialLoadMode('invalid')).toBe('auto-first');
   });
 });
