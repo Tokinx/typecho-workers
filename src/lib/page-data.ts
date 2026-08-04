@@ -14,7 +14,7 @@ import {
   buildCategoryLink, buildTagLink, buildSearchLink,
 } from '@/lib/content';
 import { renderCommentText, renderContentExcerpt, renderMarkdownFiltered } from '@/lib/markdown';
-import { paginate } from '@/lib/pagination';
+import { paginate, paginateLookahead } from '@/lib/pagination';
 import { generateCommentToken, validateUnapprovedCommentToken } from '@/lib/auth';
 import { buildGravatarUrl } from '@/lib/gravatar';
 import { buildCommentPaginationSummary, loadCommentPage, type CommentPage } from '@/lib/comment-page';
@@ -222,7 +222,9 @@ function toPostListItem(
 
 // ─── Shared archive query ───────────────────────────────────────────────
 // All five list pages (index, category, tag, author, search) share this
-// pattern: count → paginated query → batch fetch authors+categories → map.
+// pattern: pageSize + 1 query → batch fetch authors+categories → map.
+// Public archives deliberately do not count every matching row just to
+// produce numeric page links.
 
 interface ArchiveParams {
   archiveTitle: string;
@@ -241,11 +243,11 @@ async function prepareArchiveData(
   locals: Record<string, unknown>,
   url: URL,
   params: ArchiveParams,
-): Promise<ThemeArchiveProps> {
+): Promise<ThemeArchiveProps | Response> {
   const { db, options, urls } = ctx;
   const commonPromise = loadCommon(ctx, requestUrl);
   const page = getPage(locals, url);
-  const pageSize = options.pageSize || 5;
+  const pageSize = Math.max(1, Math.floor(Number(options.pageSize) || 5));
 
   // G7-5: every archive (index, category, tag, author, search) hides
   // posts whose `created` is in the future. The legacy code only
@@ -258,11 +260,6 @@ async function prepareArchiveData(
 
   const hasJoin = params.joinMid !== undefined;
 
-  const countBase = hasJoin
-    ? db.select({ count: sql<number>`count(*)` }).from(schema.contents)
-        .innerJoin(schema.relationships, eq(schema.contents.cid, schema.relationships.cid))
-    : db.select({ count: sql<number>`count(*)` }).from(schema.contents);
-
   const countWhere = hasJoin
     ? and(eq(schema.relationships.mid, params.joinMid!), ...baseConditions)
     : and(...baseConditions);
@@ -272,27 +269,27 @@ async function prepareArchiveData(
         .innerJoin(schema.relationships, eq(schema.contents.cid, schema.relationships.cid))
         .where(countWhere)
         .orderBy(desc(schema.contents.created))
-        .limit(pageSize)
+        .limit(pageSize + 1)
         .offset(offset)
     : db.select().from(schema.contents)
         .where(countWhere)
         .orderBy(desc(schema.contents.created))
-        .limit(pageSize)
+        .limit(pageSize + 1)
         .offset(offset);
 
-  const requestedPage = Math.max(1, page);
-  const [common, [countResult, initialPosts]] = await Promise.all([
+  const requestedPage = Math.max(1, Math.floor(page));
+  const [common, initialPosts] = await Promise.all([
     commonPromise,
-    db.batch([
-      countBase.where(countWhere),
-      makeListStatement((requestedPage - 1) * pageSize),
-    ]),
+    makeListStatement((requestedPage - 1) * pageSize),
   ]);
-  const totalPosts = countResult[0]?.count || 0;
-  const pg = paginate(totalPosts, page, pageSize, params.baseUrl);
-  const posts = pg.currentPage === requestedPage
-    ? initialPosts
-    : await makeListStatement((pg.currentPage - 1) * pageSize);
+  const posts = initialPosts.slice(0, pageSize);
+
+  // The first empty page keeps the normal empty-state UI. Any later empty
+  // page is outside the stream and must not silently clamp to the last page.
+  if (requestedPage > 1 && posts.length === 0) {
+    return new Response('Not Found', { status: 404 });
+  }
+  const pg = paginateLookahead(requestedPage, pageSize, params.baseUrl, initialPosts.length > pageSize);
 
   const rawPosts: ContentRow[] = hasJoin
     ? (posts as { content: ContentRow }[]).map(p => p.content)
@@ -362,7 +359,7 @@ export async function prepareIndexData(
   requestUrl: string,
   locals: Record<string, unknown>,
   url: URL,
-): Promise<ThemeIndexProps> {
+): Promise<ThemeIndexProps | Response> {
   return prepareArchiveData(ctx, requestUrl, locals, url, {
     archiveTitle: '',
     archiveType: 'index',
@@ -680,7 +677,7 @@ export async function prepareSearchData(
   requestUrl: string,
   locals: Record<string, unknown>,
   url: URL,
-): Promise<ThemeArchiveProps> {
+): Promise<ThemeArchiveProps | Response> {
   // G4-5: bound keyword length both as a UX guard (single chars match
   // huge swaths of LIKE) and as a cheap rate-limit on D1 LIKE scans.
   const trimmed = keywords.trim().slice(0, 50);

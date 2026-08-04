@@ -97,6 +97,7 @@ describe('archive future-post filtering (G7-5)', () => {
     await seedArchive();
     const ctx = buildCtx();
     const props = await prepareIndexData(ctx as any, 'https://example.com/', {}, new URL('https://example.com/'));
+    if (props instanceof Response) throw new Error('expected ThemeIndexProps');
     const titles = props.posts.map((p: any) => p.title);
     expect(titles).toContain('Past Post');
     expect(titles).not.toContain('Future Post');

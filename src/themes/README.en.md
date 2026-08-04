@@ -133,7 +133,7 @@ interface ThemeBaseProps {
 ```typescript
 interface ThemeIndexProps extends ThemeBaseProps {
   posts: PostListItem[];         // Post list
-  pagination: PaginationInfo;    // Pagination info (currentPage, totalPages, hasPrev, hasNext)
+  pagination: PaginationInfo;    // Lookahead pagination (previous/next only)
 }
 ```
 
@@ -195,6 +195,15 @@ interface ThemeArchiveProps extends ThemeBaseProps {
   pagination: PaginationInfo;
 }
 ```
+
+### Public archive pagination
+
+The public `Index.astro` and `Archive.astro` streams use a `pageSize + 1`
+lookahead query. Their `pagination` object has `totalsExact: false`, and both
+`totalItems` and `totalPages` are `null`. Render only `hasPrev` / `prevUrl`
+and `hasNext` / `nextUrl`; do not render numeric page links or infer a total
+from the current page. A direct request beyond the final page is rendered by
+the active theme's `NotFound.astro` with HTTP 404.
 
 ### NotFound.astro (ThemeNotFoundProps)
 

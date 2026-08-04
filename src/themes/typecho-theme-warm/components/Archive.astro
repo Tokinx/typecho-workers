@@ -37,17 +37,9 @@ const {
     )) : <section class="warm-empty"><h2>没有找到内容</h2><p>换个分类或关键词再看看。</p></section>}
   </div>
 
-  {pagination.totalPages > 1 && (
+  {(pagination.hasPrev || pagination.hasNext) && (
     <nav class="warm-pagination" aria-label="归档分页">
       {pagination.hasPrev && <a href={pagination.prevUrl!} rel="prev">←</a>}
-      {pagination.pages.map(page => {
-        const href = page === pagination.currentPage
-          ? Astro.url.toString()
-          : page === 1
-            ? pagination.prevUrl?.replace(/page\/\d+\/?$/, '') || `${urls.siteUrl}/`
-            : `${currentPath.replace(/page\/\d+\/?$/, '').replace(/\/$/, '')}/page/${page}/`;
-        return <a class:list={{ "is-current": page === pagination.currentPage }} href={href} aria-current={page === pagination.currentPage ? 'page' : undefined}>{page}</a>;
-      })}
       {pagination.hasNext && <a href={pagination.nextUrl!} rel="next">→</a>}
     </nav>
   )}

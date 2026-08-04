@@ -51,7 +51,8 @@ const toCoreItem = (post: PostListItem): WarmPostItem => ({
 
 let items: Array<WarmPostItem | WarmNoteItem> = posts.map(toCoreItem);
 let currentPage = pagination.currentPage;
-let totalPages = pagination.totalPages;
+let hasPrev = pagination.hasPrev;
+let hasNext = pagination.hasNext;
 
 if (notesEnabled && stream !== 'posts') {
   const notesDb = getDb(env.DB);
@@ -117,7 +118,8 @@ if (notesEnabled && stream !== 'posts') {
     };
   });
   currentPage = resultPagination.page;
-  totalPages = resultPagination.totalPages;
+  hasPrev = resultPagination.page > 1;
+  hasNext = resultPagination.page < resultPagination.totalPages;
 }
 
 const activeSection = stream === 'notes' ? 'notes' : stream === 'posts' ? 'articles' : 'home';
@@ -131,8 +133,6 @@ const pageUrl = (page: number) => {
   const query = params.toString();
   return `${baseUrl}${path}${query ? `?${query}` : ''}`;
 };
-const visiblePages = Array.from({ length: totalPages }, (_, index) => index + 1)
-  .filter(page => page === 1 || page === totalPages || Math.abs(page - currentPage) <= 2);
 ---
 <WarmShell
   options={options}
@@ -193,16 +193,10 @@ const visiblePages = Array.from({ length: totalPages }, (_, index) => index + 1)
     ))}
   </div>
 
-  {totalPages > 1 && (
+  {(hasPrev || hasNext) && (
     <nav class="warm-pagination" aria-label="内容分页">
-      {currentPage > 1 && <a href={pageUrl(currentPage - 1)} rel="prev" aria-label="上一页">←</a>}
-      {visiblePages.map((page, index) => (
-        <>
-          {index > 0 && page - visiblePages[index - 1] > 1 && <span aria-hidden="true">…</span>}
-          <a class:list={{ "is-current": page === currentPage }} href={pageUrl(page)} aria-current={page === currentPage ? 'page' : undefined}>{page}</a>
-        </>
-      ))}
-      {currentPage < totalPages && <a href={pageUrl(currentPage + 1)} rel="next" aria-label="下一页">→</a>}
+      {hasPrev && <a href={pageUrl(currentPage - 1)} rel="prev" aria-label="上一页">←</a>}
+      {hasNext && <a href={pageUrl(currentPage + 1)} rel="next" aria-label="下一页">→</a>}
     </nav>
   )}
 </WarmShell>

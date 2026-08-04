@@ -100,7 +100,7 @@ const themeSettings = loadMinimalThemeSettings(options);
             ))
           )}
 
-          {pagination.totalPages > 1 && (
+          {(pagination.hasPrev || pagination.hasNext) && (
             <nav class="page-navigator">
               {pagination.hasPrev && (
                 <a class="prev" href={pagination.prevUrl!}>&laquo; 前一页</a>

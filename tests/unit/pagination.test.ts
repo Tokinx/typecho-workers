@@ -4,7 +4,7 @@
  * Tests pagination calculation, edge cases, and the pageSize <= 0 guard.
  */
 import { describe, it, expect } from 'vitest';
-import { paginate } from '@/lib/pagination';
+import { paginate, paginateLookahead } from '@/lib/pagination';
 
 describe('paginate()', () => {
   // ── Basic pagination ──
@@ -12,6 +12,7 @@ describe('paginate()', () => {
     const result = paginate(50, 1, 10, '/');
     expect(result.totalPages).toBe(5);
     expect(result.totalItems).toBe(50);
+    expect(result.totalsExact).toBe(true);
     expect(result.pageSize).toBe(10);
   });
 
@@ -122,5 +123,33 @@ describe('paginate()', () => {
   it('rounds up total pages for non-exact division', () => {
     const result = paginate(51, 1, 10, '/');
     expect(result.totalPages).toBe(6); // ceil(51/10) = 6
+  });
+});
+
+describe('paginateLookahead()', () => {
+  it('exposes only previous/next state without pretending totals are exact', () => {
+    const result = paginateLookahead(2, 10, '/blog/', true);
+
+    expect(result).toMatchObject({
+      currentPage: 2,
+      pageSize: 10,
+      totalsExact: false,
+      totalPages: null,
+      totalItems: null,
+      hasPrev: true,
+      hasNext: true,
+      prevUrl: '/blog/',
+      nextUrl: '/blog/page/3/',
+      pages: [],
+    });
+  });
+
+  it('clamps invalid page values and omits a next URL for the final page', () => {
+    const result = paginateLookahead(0, 0, '/blog', false);
+
+    expect(result.currentPage).toBe(1);
+    expect(result.pageSize).toBe(1);
+    expect(result.hasPrev).toBe(false);
+    expect(result.nextUrl).toBeNull();
   });
 });

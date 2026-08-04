@@ -1,7 +1,7 @@
 ---
 import { themeTemplates } from 'virtual:theme-templates';
 import { createContext } from '@/lib/context';
-import { prepareIndexData } from '@/lib/page-data';
+import { prepareIndexData, prepareNotFoundData } from '@/lib/page-data';
 import { buildPermalink, getRedirectPathIfDifferent } from '@/lib/content';
 import { schema } from '@/db';
 import { and, eq } from 'drizzle-orm';
@@ -47,13 +47,17 @@ if (options.frontPage && options.frontPage !== 'recent') {
   }
 }
 
-// Prepare data
-const data = await prepareIndexData(ctx, Astro.request.url, Astro.locals, Astro.url);
-
 // Select theme component
 const activeTheme = options.theme || 'typecho-theme-minimal';
 const templates = themeTemplates[activeTheme] ?? {};
 const defaultTemplates = themeTemplates['typecho-theme-minimal']!;
-const IndexComponent = templates.Index ?? defaultTemplates.Index!;
+let Component = templates.Index ?? defaultTemplates.Index!;
+let data = await prepareIndexData(ctx, Astro.request.url, Astro.locals, Astro.url);
+if (data instanceof Response) {
+  if (data.status !== 404) return data;
+  Astro.response.status = 404;
+  data = await prepareNotFoundData(ctx, Astro.request.url);
+  Component = templates.NotFound ?? defaultTemplates.NotFound!;
+}
 ---
-<IndexComponent {...data} />
+<Component {...data} />

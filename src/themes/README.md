@@ -146,7 +146,7 @@ interface ThemeBaseProps {
 ```typescript
 interface ThemeIndexProps extends ThemeBaseProps {
   posts: PostListItem[];         // 文章列表
-  pagination: PaginationInfo;    // 分页信息（currentPage, totalPages, hasPrev, hasNext）
+  pagination: PaginationInfo;    // 前看分页（仅上一页/下一页）
 }
 ```
 
@@ -208,6 +208,14 @@ interface ThemeArchiveProps extends ThemeBaseProps {
   pagination: PaginationInfo;
 }
 ```
+
+### 公开归档分页
+
+公开的 `Index.astro` 与 `Archive.astro` 使用 `pageSize + 1` 前看查询。
+此时 `pagination.totalsExact` 为 `false`，`totalItems` 和 `totalPages`
+均为 `null`。主题只能根据 `hasPrev` / `prevUrl` 与 `hasNext` / `nextUrl`
+渲染上一页、下一页，不能渲染数字页码或推算总页数。直接访问末页之后的
+页面会由当前主题的 `NotFound.astro` 渲染为 HTTP 404。
 
 ### NotFound.astro（ThemeNotFoundProps）
 

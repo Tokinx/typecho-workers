@@ -34,6 +34,7 @@ describe('search keyword guard (G4-5)', () => {
 
     const ctx = await buildCtx();
     const props = await prepareSearchData(ctx, 'x', 'https://example.com/search/x/', {}, new URL('https://example.com/search/x/'));
+    if (props instanceof Response) throw new Error('expected ThemeArchiveProps');
     expect(props.posts).toHaveLength(0);
   });
 
@@ -60,6 +61,7 @@ describe('search keyword guard (G4-5)', () => {
 
     const ctx = await buildCtx();
     const props = await prepareSearchData(ctx, 'astro', 'https://example.com/search/astro/', {}, new URL('https://example.com/search/astro/'));
+    if (props instanceof Response) throw new Error('expected ThemeArchiveProps');
     expect(props.posts).toHaveLength(1);
     expect(props.posts[0].title).toBe('astro hello');
   });
@@ -69,6 +71,7 @@ describe('search keyword guard (G4-5)', () => {
     const long = 'astro' + 'a'.repeat(100);
     const ctx = await buildCtx();
     const props = await prepareSearchData(ctx, long, `https://example.com/search/${encodeURIComponent(long)}/`, {}, new URL(`https://example.com/search/${encodeURIComponent(long)}/`));
+    if (props instanceof Response) throw new Error('expected ThemeArchiveProps');
     // Title rendering uses the trimmed value.
     expect(props.archiveTitle.length).toBeLessThan(80);
   });
