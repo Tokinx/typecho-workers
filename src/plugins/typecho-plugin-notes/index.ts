@@ -9,6 +9,7 @@ export {
   extractTopicNames,
   getNoteForTheme,
   getNotesForTheme,
+  getNotesStreamForTheme,
   handleNotesRequest,
   normalizeNoteInput,
   renderNoteContent,
@@ -24,6 +25,8 @@ export type {
   NoteTopic,
   ThemeNotesOptions,
   ThemeNotesQuery,
+  ThemeNotesStream,
+  ThemeNotesStreamMode,
 } from './service';
 export { notesAdminPageHtml } from './admin';
 

@@ -235,6 +235,8 @@ interface ArchiveParams {
   /** If set, INNER JOIN relationships and filter on this meta ID */
   joinMid?: number;
   authorOverride?: AuthorMap;
+  /** A theme-owned stream will decide whether an empty page is out of range. */
+  allowEmptyPage?: boolean;
 }
 
 async function prepareArchiveData(
@@ -286,7 +288,7 @@ async function prepareArchiveData(
 
   // The first empty page keeps the normal empty-state UI. Any later empty
   // page is outside the stream and must not silently clamp to the last page.
-  if (requestedPage > 1 && posts.length === 0) {
+  if (requestedPage > 1 && posts.length === 0 && !params.allowEmptyPage) {
     return new Response('Not Found', { status: 404 });
   }
   const pg = paginateLookahead(requestedPage, pageSize, params.baseUrl, initialPosts.length > pageSize);
@@ -359,11 +361,13 @@ export async function prepareIndexData(
   requestUrl: string,
   locals: Record<string, unknown>,
   url: URL,
+  behavior: { allowEmptyPage?: boolean } = {},
 ): Promise<ThemeIndexProps | Response> {
   return prepareArchiveData(ctx, requestUrl, locals, url, {
     archiveTitle: '',
     archiveType: 'index',
     baseUrl: ctx.urls.siteUrl + '/',
+    allowEmptyPage: behavior.allowEmptyPage,
     // G7-5: future-post filter is shared by prepareArchiveData now, no
     // need to duplicate it here.
   });

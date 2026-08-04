@@ -3,6 +3,7 @@ import type { Database } from 'typecho/db';
 import { buildPermalink, renderMarkdown } from 'typecho/plugin-sdk';
 import { invalidatePublicCache } from '@/lib/cache';
 import { getClientIp } from '@/lib/context';
+import { loadEarlyRequestSharedData } from '@/lib/early-request';
 import { renderCommentText } from '@/lib/markdown';
 import { parseAttachmentMeta } from '@/lib/attachment';
 import { jsonError, jsonOk } from '@/lib/http';
@@ -13,7 +14,8 @@ export const NOTE_TOPIC_TYPE = 'note_topic';
 export const NOTE_REFERENCE_PATTERN = '/note/<cid>';
 
 type NoteStatus = 'publish' | 'private' | 'draft';
-type ListMode = 'notes' | 'mixed';
+export type ThemeNotesStreamMode = 'notes' | 'mixed';
+type ListMode = ThemeNotesStreamMode;
 
 export interface NotesActionContext {
   db: Database;
@@ -85,6 +87,17 @@ export interface NotesThemeVariables {
   };
 }
 
+export interface ThemeNotesStream {
+  items: NoteListItem[];
+  pagination: {
+    page: number;
+    pageSize: number;
+    totalsExact: false;
+    hasPrev: boolean;
+    hasNext: boolean;
+  };
+}
+
 interface NoteInput {
   content: string;
   status: NoteStatus;
@@ -100,6 +113,10 @@ interface ListOptions extends ThemeNotesQuery {
   siteUrl?: string;
   permalinkPattern?: string | null;
 }
+
+type NoteListRow = Pick<typeof schema.contents.$inferSelect,
+  'cid' | 'title' | 'slug' | 'type' | 'text' | 'created' | 'modified' | 'status' | 'commentsNum' | 'allowComment'
+>;
 
 const HASH_TOPIC_RE = /(^|[^\p{L}\p{N}_/])#([\p{L}\p{N}\p{Extended_Pictographic}\p{Regional_Indicator}][\p{L}\p{N}_\p{Extended_Pictographic}\p{Regional_Indicator}\p{Emoji_Modifier}\uFE0F\u200D-]{0,39})/gu;
 const NOTE_REFERENCE_RE = /(^|[^\p{L}\p{N}_/~])\/note\/([1-9]\d*)\b/gu;
@@ -284,6 +301,97 @@ async function resolveTopicMid(db: Database, topic: number | string | null | und
   return row?.mid || null;
 }
 
+const noteListSelect = {
+  cid: schema.contents.cid,
+  title: schema.contents.title,
+  slug: schema.contents.slug,
+  type: schema.contents.type,
+  text: schema.contents.text,
+  created: schema.contents.created,
+  modified: schema.contents.modified,
+  status: schema.contents.status,
+  commentsNum: schema.contents.commentsNum,
+  allowComment: schema.contents.allowComment,
+};
+
+async function hydrateThemeNoteItems(
+  db: Database,
+  notes: NoteListRow[],
+  options: Pick<ListOptions, 'siteUrl' | 'permalinkPattern'>,
+): Promise<NoteListItem[]> {
+  const cids = notes.map(note => note.cid);
+  const noteCids = notes.filter(note => note.type === NOTE_TYPE).map(note => note.cid);
+  const [fieldRows, topicRows] = await Promise.all([
+    noteCids.length
+      ? db.select().from(schema.fields).where(and(
+        inArray(schema.fields.cid, noteCids),
+        eq(schema.fields.name, 'note_images'),
+      ))
+      : Promise.resolve([]),
+    cids.length
+      ? db.select({ cid: schema.relationships.cid, mid: schema.metas.mid, name: schema.metas.name, slug: schema.metas.slug })
+        .from(schema.relationships).innerJoin(schema.metas, eq(schema.relationships.mid, schema.metas.mid))
+        .where(and(inArray(schema.relationships.cid, cids), eq(schema.metas.type, NOTE_TOPIC_TYPE)))
+      : Promise.resolve([]),
+  ]);
+
+  const imageIdsByCid = new Map<number, number[]>();
+  const allImageIds = new Set<number>();
+  for (const field of fieldRows) {
+    if (field.name === 'note_images' && field.str_value) {
+      try {
+        const ids = JSON.parse(field.str_value);
+        if (!Array.isArray(ids)) continue;
+        const normalizedIds = ids.map(Number).filter(id => Number.isInteger(id) && id > 0);
+        imageIdsByCid.set(field.cid, normalizedIds);
+        normalizedIds.forEach(id => allImageIds.add(id));
+      } catch {
+        // Optional image metadata must never make a note unreadable.
+      }
+    }
+  }
+
+  const attachmentRows = allImageIds.size
+    ? await db.select({ cid: schema.contents.cid, text: schema.contents.text, title: schema.contents.title })
+      .from(schema.contents).where(and(inArray(schema.contents.cid, [...allImageIds]), eq(schema.contents.type, 'attachment')))
+    : [];
+  const attachments = new Map(attachmentRows.map(attachment => {
+    const meta = parseAttachmentMeta(attachment.text);
+    return [attachment.cid, { cid: attachment.cid, name: meta.name || attachment.title || '', url: meta.url || '' }];
+  }));
+  const topicsByCid = new Map<number, NoteTopic[]>();
+  for (const row of topicRows) {
+    const entries = topicsByCid.get(row.cid) || [];
+    entries.push({ mid: row.mid, name: row.name || '', slug: row.slug || '' });
+    topicsByCid.set(row.cid, entries);
+  }
+
+  const siteUrl = options.siteUrl || '';
+  return notes.map(note => {
+    const isNote = note.type === NOTE_TYPE;
+    const noteTopics = topicsByCid.get(note.cid) || [];
+    const source = stripMarkdownMarker(note.text || '');
+    return {
+      cid: note.cid,
+      type: isNote ? 'note' : 'post',
+      title: note.title || (isNote ? '' : '无标题'),
+      permalink: isNote
+        ? `${siteUrl.replace(/\/$/, '')}/note/${note.cid}`
+        : buildPermalink(note, siteUrl || 'http://localhost', options.permalinkPattern),
+      source,
+      html: isNote ? renderNoteContent(note.text || '', siteUrl) : renderMarkdown(note.text || ''),
+      created: note.created || 0,
+      modified: note.modified || 0,
+      status: note.status || 'publish',
+      comments: note.commentsNum || 0,
+      allowComment: note.allowComment === '1',
+      topics: noteTopics,
+      topic: noteTopics[0] || null,
+      images: isNote ? (imageIdsByCid.get(note.cid) || []).map(id => attachments.get(id)).filter(Boolean) as Array<{ cid: number; name: string; url: string }> : [],
+    };
+  });
+}
+
 async function listNotesData(db: Database, rawOptions: ListOptions = {}): Promise<NotesListResult> {
   const admin = !!rawOptions.admin;
   const mode: ListMode = rawOptions.mode === 'mixed' ? 'mixed' : 'notes';
@@ -332,35 +440,21 @@ async function listNotesData(db: Database, rawOptions: ListOptions = {}): Promis
   if (cid) conditions.push(eq(schema.contents.cid, cid));
   if (keywords) conditions.push(like(schema.contents.text, `%${keywords}%`));
 
-  const baseSelect = {
-    cid: schema.contents.cid,
-    title: schema.contents.title,
-    slug: schema.contents.slug,
-    type: schema.contents.type,
-    text: schema.contents.text,
-    created: schema.contents.created,
-    modified: schema.contents.modified,
-    status: schema.contents.status,
-    commentsNum: schema.contents.commentsNum,
-    allowComment: schema.contents.allowComment,
-  };
   const offset = (page - 1) * pageSize;
   const where = topicMid
     ? and(...conditions, eq(schema.relationships.mid, topicMid))
     : and(...conditions);
   const notes = topicMid
-    ? await db.select(baseSelect).from(schema.contents)
+    ? await db.select(noteListSelect).from(schema.contents)
       .innerJoin(schema.relationships, eq(schema.contents.cid, schema.relationships.cid))
       .where(where).orderBy(desc(schema.contents.created), desc(schema.contents.cid)).limit(pageSize).offset(offset)
-    : await db.select(baseSelect).from(schema.contents)
+    : await db.select(noteListSelect).from(schema.contents)
       .where(where).orderBy(desc(schema.contents.created), desc(schema.contents.cid)).limit(pageSize).offset(offset);
   const totalRows = topicMid
     ? await db.select({ value: count() }).from(schema.contents)
       .innerJoin(schema.relationships, eq(schema.contents.cid, schema.relationships.cid)).where(where)
     : await db.select({ value: count() }).from(schema.contents).where(where);
 
-  const cids = notes.map(note => note.cid);
-  const noteCids = notes.filter(note => note.type === NOTE_TYPE).map(note => note.cid);
   const topicCatalogPromise = admin
     ? db.select({ mid: schema.metas.mid, name: schema.metas.name, slug: schema.metas.slug, count: schema.metas.count })
       .from(schema.metas).where(and(eq(schema.metas.type, NOTE_TOPIC_TYPE), gt(schema.metas.count, 0)))
@@ -372,18 +466,8 @@ async function listNotesData(db: Database, rawOptions: ListOptions = {}): Promis
       .where(and(eq(schema.metas.type, NOTE_TOPIC_TYPE), visibleNoteCondition))
       .groupBy(schema.metas.mid, schema.metas.name, schema.metas.slug)
       .orderBy(desc(count()), schema.metas.name);
-  const [fieldRows, topicRows, topics, noteCountRows, postCountRows, firstRows] = await Promise.all([
-    noteCids.length
-      ? db.select().from(schema.fields).where(and(
-        inArray(schema.fields.cid, noteCids),
-        eq(schema.fields.name, 'note_images'),
-      ))
-      : Promise.resolve([]),
-    cids.length
-      ? db.select({ cid: schema.relationships.cid, mid: schema.metas.mid, name: schema.metas.name, slug: schema.metas.slug })
-        .from(schema.relationships).innerJoin(schema.metas, eq(schema.relationships.mid, schema.metas.mid))
-        .where(and(inArray(schema.relationships.cid, cids), eq(schema.metas.type, NOTE_TOPIC_TYPE)))
-      : Promise.resolve([]),
+  const [data, topics, noteCountRows, postCountRows, firstRows] = await Promise.all([
+    hydrateThemeNoteItems(db, notes, rawOptions),
     topicCatalogPromise,
     db.select({ value: count() }).from(schema.contents).where(admin
       ? eq(schema.contents.type, NOTE_TYPE)
@@ -396,84 +480,134 @@ async function listNotesData(db: Database, rawOptions: ListOptions = {}): Promis
       : or(publicPostCondition, visibleNoteCondition)),
   ]);
 
-  const imageIdsByCid = new Map<number, number[]>();
-  const allImageIds = new Set<number>();
-  for (const field of fieldRows) {
-    if (field.name === 'note_images' && field.str_value) {
-      try {
-        const ids = JSON.parse(field.str_value);
-        if (!Array.isArray(ids)) continue;
-        const normalizedIds = ids.map(Number).filter(id => Number.isInteger(id) && id > 0);
-        imageIdsByCid.set(field.cid, normalizedIds);
-        normalizedIds.forEach(id => allImageIds.add(id));
-      } catch {
-        // Optional image metadata must never make a note unreadable.
-      }
-    }
-  }
-
-  const attachmentRows = allImageIds.size
-    ? await db.select({ cid: schema.contents.cid, text: schema.contents.text, title: schema.contents.title })
-      .from(schema.contents).where(and(inArray(schema.contents.cid, [...allImageIds]), eq(schema.contents.type, 'attachment')))
-    : [];
-  const attachments = new Map(attachmentRows.map(attachment => {
-    const meta = parseAttachmentMeta(attachment.text);
-    return [attachment.cid, { cid: attachment.cid, name: meta.name || attachment.title || '', url: meta.url || '' }];
-  }));
-  const topicsByCid = new Map<number, NoteTopic[]>();
-  for (const row of topicRows) {
-    const entries = topicsByCid.get(row.cid) || [];
-    entries.push({ mid: row.mid, name: row.name || '', slug: row.slug || '' });
-    topicsByCid.set(row.cid, entries);
-  }
-
   const firstCreated = Number(firstRows[0]?.value || 0);
   const days = firstCreated > 0 ? Math.max(1, Math.floor((Date.now() / 1000 - firstCreated) / 86_400) + 1) : 0;
   const total = Number(totalRows[0]?.value || 0);
-  const siteUrl = rawOptions.siteUrl || '';
   return {
-    data: notes.map(note => {
-      const isNote = note.type === NOTE_TYPE;
-      const noteTopics = topicsByCid.get(note.cid) || [];
-      const source = stripMarkdownMarker(note.text || '');
-      return {
-        cid: note.cid,
-        type: isNote ? 'note' : 'post',
-        title: note.title || (isNote ? '' : '无标题'),
-        permalink: isNote
-          ? `${siteUrl.replace(/\/$/, '')}/note/${note.cid}`
-          : buildPermalink(note, siteUrl || 'http://localhost', rawOptions.permalinkPattern),
-        source,
-        html: isNote ? renderNoteContent(note.text || '', siteUrl) : renderMarkdown(note.text || ''),
-        created: note.created || 0,
-        modified: note.modified || 0,
-        status: note.status || 'publish',
-        comments: note.commentsNum || 0,
-        allowComment: note.allowComment === '1',
-        topics: noteTopics,
-        topic: noteTopics[0] || null,
-        images: isNote ? (imageIdsByCid.get(note.cid) || []).map(id => attachments.get(id)).filter(Boolean) as Array<{ cid: number; name: string; url: string }> : [],
-      };
-    }),
+    data,
     topics: topics.map(topic => ({ mid: topic.mid, name: topic.name || '', slug: topic.slug || '', count: topic.count || 0 })),
     pagination: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
     stats: { days, notes: Number(noteCountRows[0]?.value || 0), posts: Number(postCountRows[0]?.value || 0) },
   };
 }
 
+function resolveThemeOptions(themeOptions: ThemeNotesOptions | string): ThemeNotesOptions {
+  return typeof themeOptions === 'string' ? { siteUrl: themeOptions } : themeOptions;
+}
+
+async function listThemeNotesStreamData(
+  db: Database,
+  mode: ThemeNotesStreamMode,
+  query: ThemeNotesQuery,
+  themeOptions: ThemeNotesOptions,
+): Promise<ThemeNotesStream> {
+  const page = clampInteger(query.page, 1, 1, 100_000);
+  const pageSize = clampInteger(query.pageSize, 12, 1, 50);
+  const viewerUid = clampInteger(query.viewerUid, 0, 0, Number.MAX_SAFE_INTEGER);
+  const topicMid = await resolveTopicMid(db, query.topic);
+  if (topicMid === null) {
+    return {
+      items: [],
+      pagination: { page, pageSize, totalsExact: false, hasPrev: page > 1, hasNext: false },
+    };
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const publicNoteCondition = and(
+    eq(schema.contents.type, NOTE_TYPE),
+    eq(schema.contents.status, 'publish'),
+    lte(schema.contents.created, now),
+  );
+  const visibleNoteCondition = viewerUid > 0
+    ? and(
+      eq(schema.contents.type, NOTE_TYPE),
+      lte(schema.contents.created, now),
+      or(
+        eq(schema.contents.status, 'publish'),
+        and(eq(schema.contents.status, 'private'), eq(schema.contents.authorId, viewerUid)),
+      ),
+    )
+    : publicNoteCondition;
+  const publicPostCondition = and(
+    eq(schema.contents.type, 'post'),
+    eq(schema.contents.status, 'publish'),
+    lte(schema.contents.created, now),
+  );
+  const where = topicMid
+    ? and(
+      mode === 'mixed' ? or(publicPostCondition, visibleNoteCondition) : visibleNoteCondition,
+      eq(schema.relationships.mid, topicMid),
+    )
+    : mode === 'mixed' ? or(publicPostCondition, visibleNoteCondition) : visibleNoteCondition;
+  const offset = (page - 1) * pageSize;
+  const listed = topicMid
+    ? await db.select(noteListSelect).from(schema.contents)
+      .innerJoin(schema.relationships, eq(schema.contents.cid, schema.relationships.cid))
+      .where(where).orderBy(desc(schema.contents.created), desc(schema.contents.cid)).limit(pageSize + 1).offset(offset)
+    : await db.select(noteListSelect).from(schema.contents)
+      .where(where).orderBy(desc(schema.contents.created), desc(schema.contents.cid)).limit(pageSize + 1).offset(offset);
+  const items = await hydrateThemeNoteItems(db, listed.slice(0, pageSize), {
+    siteUrl: themeOptions.siteUrl || '',
+    permalinkPattern: themeOptions.permalinkPattern,
+  });
+  return {
+    items,
+    pagination: {
+      page,
+      pageSize,
+      totalsExact: false,
+      hasPrev: page > 1,
+      hasNext: listed.length > pageSize,
+    },
+  };
+}
+
+function themeNotesStreamCacheKey(
+  mode: ThemeNotesStreamMode,
+  query: ThemeNotesQuery,
+  themeOptions: ThemeNotesOptions,
+): string {
+  return JSON.stringify({
+    version: 1,
+    stream: mode,
+    page: clampInteger(query.page, 1, 1, 100_000),
+    pageSize: clampInteger(query.pageSize, 12, 1, 50),
+    topic: query.topic === undefined || query.topic === null ? '' : String(query.topic),
+    siteUrl: themeOptions.siteUrl || '',
+    permalinkPattern: themeOptions.permalinkPattern || '',
+  });
+}
+
 /**
- * Theme-facing server data. A theme receives both arrays in one server-side
- * call and can iterate `notes` or `mixed` exactly as it iterates its `posts`
- * prop. No browser request or core theme-prop change is required.
+ * Load exactly one Notes stream for a theme. Anonymous public streams use the
+ * shared `notes` cache domain; a viewer's private-note view always goes to D1.
+ */
+export async function getNotesStreamForTheme(
+  db: Database,
+  mode: ThemeNotesStreamMode,
+  query: ThemeNotesQuery = {},
+  themeOptions: ThemeNotesOptions | string = {},
+): Promise<ThemeNotesStream> {
+  const resolvedOptions = resolveThemeOptions(themeOptions);
+  const load = () => listThemeNotesStreamData(db, mode, query, resolvedOptions);
+  if (clampInteger(query.viewerUid, 0, 0, Number.MAX_SAFE_INTEGER) > 0) return load();
+  return loadEarlyRequestSharedData(
+    'notes',
+    themeNotesStreamCacheKey(mode, query, resolvedOptions),
+    async () => load(),
+  );
+}
+
+/**
+ * Compatibility API for themes that still need both exact-count streams.
+ * New public list templates should use getNotesStreamForTheme instead.
  */
 export async function getNotesForTheme(
   db: Database,
   query: ThemeNotesQuery = {},
   themeOptions: ThemeNotesOptions | string = {},
 ): Promise<NotesThemeVariables> {
-  const resolvedOptions = typeof themeOptions === 'string'
-    ? { siteUrl: themeOptions }
-    : themeOptions;
+  const resolvedOptions = resolveThemeOptions(themeOptions);
   const common = {
     ...query,
     admin: false,

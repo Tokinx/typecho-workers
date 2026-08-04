@@ -52,7 +52,13 @@ const activeTheme = options.theme || 'typecho-theme-minimal';
 const templates = themeTemplates[activeTheme] ?? {};
 const defaultTemplates = themeTemplates['typecho-theme-minimal']!;
 let Component = templates.Index ?? defaultTemplates.Index!;
-let data = await prepareIndexData(ctx, Astro.request.url, Astro.locals, Astro.url);
+const requestedStream = Astro.url.searchParams.get('stream');
+const isWarmNotesStream = activeTheme === 'typecho-theme-warm' &&
+  ctx.pluginCtx.activatedPlugins.has('typecho-plugin-notes') &&
+  (Astro.url.searchParams.has('topic') || requestedStream !== 'posts');
+let data = await prepareIndexData(ctx, Astro.request.url, Astro.locals, Astro.url, {
+  allowEmptyPage: isWarmNotesStream,
+});
 if (data instanceof Response) {
   if (data.status !== 404) return data;
   Astro.response.status = 404;

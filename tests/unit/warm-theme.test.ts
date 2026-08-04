@@ -21,8 +21,11 @@ describe('typecho-theme-warm', () => {
       expect(readFileSync(join(themeRoot, 'components', `${name}.astro`), 'utf8')).toBeTruthy();
     }
     const index = readFileSync(join(themeRoot, 'components/Index.astro'), 'utf8');
-    expect(index).toContain('getNotesForTheme');
-    expect(index).toContain('variables.mixed');
+    expect(index).toContain('getNotesStreamForTheme');
+    expect(index).toContain('result.items');
+    expect(index).not.toContain('getNotesForTheme');
+    expect(index).toContain('isNotesStreamOutOfRange');
+    expect(index).toContain('Astro.response.status = 404');
     expect(index).toContain('mixedCategories');
     expect(index).toContain('inArray(schema.relationships.cid, mixedPostIds)');
     expect(index).not.toContain('categories: [],');

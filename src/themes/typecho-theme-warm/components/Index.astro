@@ -1,10 +1,11 @@
 ---
 import { env } from 'cloudflare:workers';
 import { getDb, schema } from 'typecho/db';
-import { getNotesForTheme, type NoteListItem } from 'typecho-plugin-notes';
+import { getNotesStreamForTheme, type NoteListItem } from 'typecho-plugin-notes';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { ThemeIndexProps, PostListItem } from '@/lib/theme-props';
 import { buildCategoryLink } from '@/lib/content';
+import NotFound from './NotFound.astro';
 import WarmShell from './WarmShell.astro';
 import { formatWarmDate, plainExcerpt } from './warm';
 
@@ -56,8 +57,9 @@ let hasNext = pagination.hasNext;
 
 if (notesEnabled && stream !== 'posts') {
   const notesDb = getDb(env.DB);
-  const variables = await getNotesForTheme(
+  const result = await getNotesStreamForTheme(
     notesDb,
+    stream,
     {
       page: pagination.currentPage,
       pageSize: pagination.pageSize,
@@ -66,10 +68,8 @@ if (notesEnabled && stream !== 'posts') {
     },
     { siteUrl: urls.siteUrl, permalinkPattern: options.permalinkPattern },
   );
-  const result = stream === 'notes' ? variables.notes : variables.mixed;
-  const resultPagination = stream === 'notes' ? variables.pagination.notes : variables.pagination.mixed;
   const mixedPostIds = result
-    .filter((item): item is NoteListItem & { type: 'post' } => item.type === 'post')
+    .items.filter((item): item is NoteListItem & { type: 'post' } => item.type === 'post')
     .map(item => Number(item.cid))
     .filter(cid => Number.isSafeInteger(cid) && !corePosts.has(cid));
   const mixedCategories = new Map<number, PostListItem['categories']>();
@@ -102,7 +102,7 @@ if (notesEnabled && stream !== 'posts') {
       mixedCategories.set(cid, categories);
     }
   }
-  items = result.map(item => {
+  items = result.items.map(item => {
     if (item.type === 'note') return item as WarmNoteItem;
     const cid = Number(item.cid);
     const core = corePosts.get(cid);
@@ -117,9 +117,9 @@ if (notesEnabled && stream !== 'posts') {
       categories: mixedCategories.get(cid) || [],
     };
   });
-  currentPage = resultPagination.page;
-  hasPrev = resultPagination.page > 1;
-  hasNext = resultPagination.page < resultPagination.totalPages;
+  currentPage = result.pagination.page;
+  hasPrev = result.pagination.hasPrev;
+  hasNext = result.pagination.hasNext;
 }
 
 const activeSection = stream === 'notes' ? 'notes' : stream === 'posts' ? 'articles' : 'home';
@@ -133,8 +133,24 @@ const pageUrl = (page: number) => {
   const query = params.toString();
   return `${baseUrl}${path}${query ? `?${query}` : ''}`;
 };
+const isNotesStreamOutOfRange = notesEnabled && stream !== 'posts' && currentPage > 1 && items.length === 0;
+if (isNotesStreamOutOfRange) Astro.response.status = 404;
 ---
-<WarmShell
+{isNotesStreamOutOfRange ? (
+  <NotFound
+    options={options}
+    urls={urls}
+    user={user}
+    isLoggedIn={isLoggedIn}
+    pages={pages}
+    sidebarData={sidebarData}
+    currentPath={currentPath}
+    pluginCtx={pluginCtx}
+    statusCode={404}
+    errorTitle="404 - 页面没找到"
+  />
+) : (
+  <WarmShell
   options={options}
   urls={urls}
   user={user}
@@ -199,4 +215,5 @@ const pageUrl = (page: number) => {
       {hasNext && <a href={pageUrl(currentPage + 1)} rel="next" aria-label="下一页">→</a>}
     </nav>
   )}
-</WarmShell>
+  </WarmShell>
+)}

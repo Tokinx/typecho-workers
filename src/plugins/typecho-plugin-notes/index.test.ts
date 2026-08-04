@@ -3,12 +3,20 @@ import { generateSecurityToken } from '@/lib/auth';
 import { loadOptions } from '@/lib/options';
 import { setRequestCoreContext } from '@/lib/context';
 import { addHook, removePluginHooks } from '@/lib/plugin';
+import {
+  notifyEarlyRequestInvalidation,
+  registerEarlyRequestLoaders,
+  resetEarlyRequestProvidersForTests,
+} from '@/lib/early-request';
+import type { EarlyRequestProvider, SharedDataRead } from '@/lib/early-request';
+import type { SharedCacheDomain } from '@/lib/cache';
 import { POST as submitComment } from '@/pages/api/comment';
 import { createTestDb, disposeTestDb, makeAuthCookie, seedAdmin, type TestDatabase } from '../../../tests/helpers';
 import init, {
   extractTopicNames,
   getNoteForTheme,
   getNotesForTheme,
+  getNotesStreamForTheme,
   NOTES_ADMIN_API_PATH,
   handleNotesRequest,
   normalizeNoteInput,
@@ -23,12 +31,14 @@ const AUTH_CODE = 'notes-test-auth';
 const COMMENT_PLUGIN_ID = 'typecho-plugin-notes-comment-test';
 
 beforeEach(async () => {
+  resetEarlyRequestProvidersForTests();
   db = await createTestDb();
   await seedAdmin(db, { secret: SECRET, authCode: AUTH_CODE });
   await db.insert((await import('@/db/schema')).options).values({ name: 'siteUrl', user: 0, value: 'https://example.com' });
 });
 
 afterEach(async () => {
+  resetEarlyRequestProvidersForTests();
   removePluginHooks(COMMENT_PLUGIN_ID);
   await disposeTestDb(db);
 });
@@ -222,6 +232,118 @@ describe('typecho-plugin-notes', () => {
     expect(loggedInVariables.notes.some(item => item.source === '他人的私密笔记')).toBe(false);
     expect((await getNoteForTheme(db as any, privateCid, 'https://example.com', 1))?.cid).toBe(privateCid);
     expect(await getNoteForTheme(db as any, privateCid, 'https://example.com')).toBeNull();
+  });
+
+  it('loads one lookahead stream, caches only public data, and honors Notes invalidation', async () => {
+    const stored = new Map<string, unknown>();
+    const cacheKeys: string[] = [];
+    let reads = 0;
+    let writes = 0;
+    const provider: EarlyRequestProvider = {
+      handle: async (_context, next) => next(),
+      readSharedData: async <T,>(domain: SharedCacheDomain, key: string): Promise<SharedDataRead<T>> => {
+        if (domain !== 'notes') return { handled: false, value: null };
+        reads++;
+        return { handled: true, value: (stored.get(key) as T | undefined) ?? null };
+      },
+      writeSharedData: async (domain, key, value) => {
+        if (domain !== 'notes') return false;
+        writes++;
+        cacheKeys.push(key);
+        stored.set(key, value);
+        return true;
+      },
+      invalidate: async event => {
+        const domains = event.sharedDomains;
+        if (!domains || !(domains[0] === 'all' || (domains as readonly string[]).includes('notes'))) return false;
+        stored.clear();
+        return true;
+      },
+    };
+    registerEarlyRequestLoaders({
+      'notes-test-cache': async () => provider,
+    });
+
+    const { contents } = await import('@/db/schema');
+    const now = Math.floor(Date.now() / 1000);
+    await db.insert(contents).values([
+      ...[1, 2, 3].map(index => ({
+        slug: `public-stream-note-${index}`,
+        text: `<!--markdown-->公开笔记 ${index}`,
+        created: now - index,
+        modified: now - index,
+        authorId: 1,
+        type: 'note' as const,
+        status: 'publish' as const,
+        allowComment: '1' as const,
+      })),
+      {
+        slug: 'private-stream-note',
+        text: '<!--markdown-->私密笔记',
+        created: now - 10,
+        modified: now - 10,
+        authorId: 1,
+        type: 'note',
+        status: 'private',
+        allowComment: '0',
+      },
+      {
+        title: 'Mixed stream post',
+        slug: 'mixed-stream-post',
+        text: '<!--markdown-->文章',
+        created: now - 20,
+        modified: now - 20,
+        authorId: 1,
+        type: 'post',
+        status: 'publish',
+        allowComment: '1',
+      },
+    ]);
+
+    const publicNotes = await getNotesStreamForTheme(db as any, 'notes', { pageSize: 2 }, {
+      siteUrl: 'https://example.com', permalinkPattern: '/post/{slug}/',
+    });
+    expect(publicNotes.items).toHaveLength(2);
+    expect(publicNotes.pagination).toEqual({
+      page: 1, pageSize: 2, totalsExact: false, hasPrev: false, hasNext: true,
+    });
+    expect(writes).toBe(1);
+    expect(JSON.parse(cacheKeys[0]!)).toMatchObject({
+      stream: 'notes', page: 1, pageSize: 2, topic: '',
+      siteUrl: 'https://example.com', permalinkPattern: '/post/{slug}/',
+    });
+
+    await getNotesStreamForTheme(db as any, 'notes', { pageSize: 2 }, {
+      siteUrl: 'https://example.com', permalinkPattern: '/post/{slug}/',
+    });
+    expect(writes).toBe(1);
+
+    const finalPublicPage = await getNotesStreamForTheme(db as any, 'notes', { page: 2, pageSize: 2 }, {
+      siteUrl: 'https://example.com', permalinkPattern: '/post/{slug}/',
+    });
+    expect(finalPublicPage.items).toHaveLength(1);
+    expect(finalPublicPage.pagination.hasNext).toBe(false);
+    expect(writes).toBe(2);
+
+    const mixed = await getNotesStreamForTheme(db as any, 'mixed', { pageSize: 5 }, {
+      siteUrl: 'https://example.com', permalinkPattern: '/post/{slug}/',
+    });
+    expect(mixed.items.some(item => item.type === 'post')).toBe(true);
+    expect(writes).toBe(3);
+
+    const readsBeforePrivateLoad = reads;
+    const privateNotes = await getNotesStreamForTheme(db as any, 'notes', { pageSize: 5, viewerUid: 1 }, {
+      siteUrl: 'https://example.com', permalinkPattern: '/post/{slug}/',
+    });
+    expect(privateNotes.items.some(item => item.status === 'private')).toBe(true);
+    expect(reads).toBe(readsBeforePrivateLoad);
+    expect(writes).toBe(3);
+
+    await notifyEarlyRequestInvalidation({ reason: 'note-update', domains: [], sharedDomains: ['notes'] });
+    await getNotesStreamForTheme(db as any, 'notes', { pageSize: 2 }, {
+      siteUrl: 'https://example.com', permalinkPattern: '/post/{slug}/',
+    });
+    expect(writes).toBe(4);
   });
 
   it('accepts frontend comments on public notes and rejects non-public notes', async () => {
