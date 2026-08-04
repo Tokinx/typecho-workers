@@ -72,6 +72,11 @@ describe('typecho-theme-warm', () => {
     expect(shell).toContain('data-no-instant');
     const post = readFileSync(join(themeRoot, 'components/Post.astro'), 'utf8');
     expect(post).not.toContain('warm-back');
+    expect(post).toContain('continuousLoadMode={settings.continuousLoadMode}');
+    expect(post).toContain('initialLoadMode={settings.commentInitialLoadMode}');
+    const page = readFileSync(join(themeRoot, 'components/Page.astro'), 'utf8');
+    expect(page).toContain('continuousLoadMode={settings.continuousLoadMode}');
+    expect(page).toContain('initialLoadMode={settings.commentInitialLoadMode}');
     const css = readFileSync(join(themeRoot, 'style.css'), 'utf8');
     expect(css).not.toContain('.warm-list-heading');
     expect(css).not.toContain('.warm-back');
@@ -79,6 +84,15 @@ describe('typecho-theme-warm', () => {
     const comments = readFileSync(join(themeRoot, 'components/WarmComments.astro'), 'utf8');
     expect(comments).toContain('/api/comments');
     expect(comments).toContain('data-comment-loading');
+    expect(comments).toContain('data-comment-initial-load');
+    expect(comments).toContain('data-comment-load-initial');
+    expect(comments).toContain('data-comment-load-more');
+    expect(comments).toContain('data-comment-load-sentinel');
+    expect(comments).toContain('commentsLoaded = true');
+    expect(comments.indexOf('commentsLoaded = true')).toBeLessThan(comments.indexOf('renderPagination(activePagination)'));
+    expect(comments).toContain('3_000');
+    expect(comments).toContain('dwellTimer');
+    expect(comments).toContain('setupPaginationObserver');
     expect(comments).not.toContain('WarmCommentList');
     expect(comments).not.toContain('{comments.length');
   });

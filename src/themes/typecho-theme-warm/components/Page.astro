@@ -2,7 +2,7 @@
 import type { ThemePageProps } from '@/lib/theme-props';
 import WarmShell from './WarmShell.astro';
 import WarmComments from './WarmComments.astro';
-import { formatWarmDate, plainExcerpt } from './warm';
+import { formatWarmDate, plainExcerpt, warmSettings } from './warm';
 
 type Props = ThemePageProps;
 const {
@@ -10,6 +10,7 @@ const {
   page, commentPagination, commentOptions,
 } = Astro.props;
 const isAbout = page.slug.toLowerCase() === 'about' || page.title === '关于';
+const settings = warmSettings(options);
 const password = page.hasPassword && page.passwordVerified ? Astro.url.searchParams.get('password') || '' : '';
 ---
 <WarmShell
@@ -41,6 +42,8 @@ const password = page.hasPassword && page.passwordVerified ? Astro.url.searchPar
       user={user}
       isLoggedIn={isLoggedIn}
       password={password}
+      continuousLoadMode={settings.continuousLoadMode}
+      initialLoadMode={settings.commentInitialLoadMode}
     />
   )}
 </WarmShell>

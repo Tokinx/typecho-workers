@@ -5,7 +5,7 @@ import { getNoteForTheme } from 'typecho-plugin-notes';
 import type { ThemePostProps } from '@/lib/theme-props';
 import WarmShell from './WarmShell.astro';
 import WarmComments from './WarmComments.astro';
-import { formatWarmDate, plainExcerpt, readingMinutes } from './warm';
+import { formatWarmDate, plainExcerpt, readingMinutes, warmSettings } from './warm';
 
 type Props = ThemePostProps;
 
@@ -19,6 +19,7 @@ const note = pluginCtx.activatedPlugins.has('typecho-plugin-notes')
   ? await getNoteForTheme(getDb(env.DB), post.cid, urls.siteUrl, user?.uid)
   : null;
 const isNote = note?.type === 'note';
+const settings = warmSettings(options);
 const displayContent = isNote ? note.html : post.content;
 const description = plainExcerpt(isNote ? note.source : post.content, 160);
 const password = post.hasPassword && post.passwordVerified ? Astro.url.searchParams.get('password') || '' : '';
@@ -88,6 +89,8 @@ const password = post.hasPassword && post.passwordVerified ? Astro.url.searchPar
       user={user}
       isLoggedIn={isLoggedIn}
       password={password}
+      continuousLoadMode={settings.continuousLoadMode}
+      initialLoadMode={settings.commentInitialLoadMode}
     />
   )}
 
