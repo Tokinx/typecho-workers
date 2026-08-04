@@ -168,6 +168,30 @@ describe('POST /api/comment', () => {
     expect(res.headers.get('location')).toMatch(/#comment-\d+$/);
   });
 
+  it('returns structured JSON when requested by an API client', async () => {
+    await seedOptions(testDb);
+    const content = await seedContent(testDb);
+    const req = makeCommentRequest({
+      cid: String(content.cid),
+      text: 'Submitted without a page reload',
+      author: 'Alice',
+    }, { accept: 'application/json' });
+    const res = await POST({ request: req, locals: {} } as any);
+    expect(res.status).toBe(201);
+    expect(res.headers.get('content-type')).toContain('application/json');
+    const body = await res.json();
+    expect(body).toMatchObject({ success: true, status: 'approved' });
+    expect(body.location).toMatch(/#comment-\d+$/);
+  });
+
+  it('returns a JSON error to an API client without changing HTML form errors', async () => {
+    await seedOptions(testDb);
+    const req = makeCommentRequest({ text: 'Missing cid' }, { accept: 'application/json' });
+    const res = await POST({ request: req, locals: {} } as any);
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({ error: '评论内容不能为空' });
+  });
+
   it('stores comment with correct IP from CF-Connecting-IP', async () => {
     await seedOptions(testDb);
     const content = await seedContent(testDb);

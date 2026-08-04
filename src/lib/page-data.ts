@@ -60,7 +60,7 @@ function getPage(locals: Record<string, unknown>, url: URL): number {
   return raw ? (typeof raw === 'number' ? raw : parseInt(raw, 10) || 1) : 1;
 }
 
-function buildCommentTree(allComments: CommentRow[], options: SiteOptions): CommentNode[] {
+export function buildCommentTree(allComments: CommentRow[], options: SiteOptions): CommentNode[] {
   const map = new Map<number, CommentNode>();
   const roots: CommentNode[] = [];
 
@@ -96,7 +96,7 @@ function buildCommentTree(allComments: CommentRow[], options: SiteOptions): Comm
   return roots;
 }
 
-async function buildGravatarMap(allComments: CommentRow[], avatarRating: string): Promise<Record<number, string>> {
+export async function buildGravatarMap(allComments: CommentRow[], avatarRating: string): Promise<Record<number, string>> {
   const urlsByEmail = new Map<string, Promise<string>>();
   const entries = await Promise.all(
     allComments.map(async (c) => {
@@ -116,7 +116,7 @@ async function buildGravatarMap(allComments: CommentRow[], avatarRating: string)
   return Object.fromEntries(entries);
 }
 
-function buildCommentOptions(options: SiteOptions, securityToken: string): CommentOptions {
+export function buildCommentOptions(options: SiteOptions, securityToken: string): CommentOptions {
   return {
     allowComment: true,
     requireMail: !!options.commentsRequireMail,

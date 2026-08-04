@@ -17,18 +17,20 @@ import { normalizeHttpUrl } from '@/lib/url';
 import { isSameOriginRequest } from '@/lib/admin-auth';
 import { eq, and, sql } from 'drizzle-orm';
 import { env } from 'cloudflare:workers';
+import { jsonError } from '@/lib/http';
 
 export const POST: APIRoute = async ({ request, locals }) => {
+  const wantsJson = request.headers.get('accept')?.includes('application/json') ?? false;
   const core = getRequestCoreContextFromLocals(locals);
   const db = core?.db ?? getDb(env.DB);
   const options = core?.options ?? await loadOptions(db);
 
   if (!isSameOriginRequest(request, options.siteUrl || '')) {
-    return new Response('Forbidden', { status: 403 });
+    return commentError(wantsJson, 403, 'Forbidden');
   }
   const requestReferer = request.headers.get('referer');
   if (requestReferer && !isTrustedCommentReferer(requestReferer, options.siteUrl || '')) {
-    return new Response('评论来源页 URL 不合法', { status: 403 });
+    return commentError(wantsJson, 403, '评论来源页 URL 不合法');
   }
 
   // Load activated plugins
@@ -47,12 +49,12 @@ export const POST: APIRoute = async ({ request, locals }) => {
   let url = formData.get('url')?.toString()?.trim() || '';
 
   if (!cid || !text) {
-    return new Response('评论内容不能为空', { status: 400 });
+    return commentError(wantsJson, 400, '评论内容不能为空');
   }
 
   // Limit comment text length
   if (text.length > 10000) {
-    return new Response('评论内容过长', { status: 400 });
+    return commentError(wantsJson, 400, '评论内容过长');
   }
 
   // Content lookup and optional session validation are independent.
@@ -66,7 +68,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   ]);
 
   if (!content) {
-    return new Response('文章不存在', { status: 404 });
+    return commentError(wantsJson, 404, '文章不存在');
   }
 
   const corePublicContent =
@@ -83,14 +85,14 @@ export const POST: APIRoute = async ({ request, locals }) => {
     });
   } catch (error) {
     console.error('[comment] comment:allowContent filter threw:', error);
-    return new Response('插件处理评论目标时出错，请稍后重试', { status: 503 });
+    return commentError(wantsJson, 503, '插件处理评论目标时出错，请稍后重试');
   }
   if (!isPublicContent) {
-    return new Response('评论目标不可用', { status: 403 });
+    return commentError(wantsJson, 403, '评论目标不可用');
   }
 
   if (content.allowComment !== '1') {
-    return new Response('评论已关闭', { status: 403 });
+    return commentError(wantsJson, 403, '评论已关闭');
   }
 
   // Encrypted-post gate: allow commenting only when the submitter has
@@ -101,7 +103,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   if (content.password) {
     const suppliedPassword = formData.get('password')?.toString() || '';
     if (!timeSafeEqual(suppliedPassword, content.password)) {
-      return new Response('评论加密文章需要正确密码', { status: 403 });
+      return commentError(wantsJson, 403, '评论加密文章需要正确密码');
     }
   }
 
@@ -109,7 +111,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   if (options.commentsAutoClose && options.commentsPostTimeout && content.created) {
     const ageSeconds = Math.floor(Date.now() / 1000) - content.created;
     if (ageSeconds > options.commentsPostTimeout) {
-      return new Response('评论已关闭（文章发布时间过长）', { status: 403 });
+      return commentError(wantsJson, 403, '评论已关闭（文章发布时间过长）');
     }
   }
 
@@ -126,24 +128,24 @@ export const POST: APIRoute = async ({ request, locals }) => {
   // Validate for anonymous users
   if (!userId) {
     if (!author) {
-      return new Response('请填写称呼', { status: 400 });
+      return commentError(wantsJson, 400, '请填写称呼');
     }
     if (options.commentsRequireMail && !mail) {
-      return new Response('请填写邮箱', { status: 400 });
+      return commentError(wantsJson, 400, '请填写邮箱');
     }
     if (options.commentsRequireURL && !url) {
-      return new Response('请填写网站地址', { status: 400 });
+      return commentError(wantsJson, 400, '请填写网站地址');
     }
     // Basic email format validation
     if (mail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) {
-      return new Response('邮箱格式不正确', { status: 400 });
+      return commentError(wantsJson, 400, '邮箱格式不正确');
     }
   }
 
   if (url) {
     const normalizedUrl = normalizeHttpUrl(url);
     if (normalizedUrl === null) {
-      return new Response('网站地址格式不正确', { status: 400 });
+      return commentError(wantsJson, 400, '网站地址格式不正确');
     }
     url = normalizedUrl;
   }
@@ -151,7 +153,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   // Check referer URL matches the content's URL (anti-spam: ensure comment came from a real page view)
   if (options.commentsCheckReferer) {
     if (!isTrustedCommentReferer(request.headers.get('referer'), options.siteUrl || '')) {
-      return new Response('评论来源页 URL 不合法', { status: 403 });
+      return commentError(wantsJson, 403, '评论来源页 URL 不合法');
     }
   }
 
@@ -193,7 +195,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   if (options.commentsPostIntervalEnable && !userId && recentComment[0]) {
       const elapsed = Math.floor(Date.now() / 1000) - (recentComment[0].created || 0);
       if (elapsed < (options.commentsPostInterval || 60)) {
-        return new Response(`评论过于频繁，请等待 ${options.commentsPostInterval - elapsed} 秒后再试`, { status: 429 });
+        return commentError(wantsJson, 429, `评论过于频繁，请等待 ${options.commentsPostInterval - elapsed} 秒后再试`);
       }
   }
 
@@ -209,7 +211,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   }
 
   if (parent > 0 && !parentComment) {
-    return new Response('父评论不存在', { status: 400 });
+    return commentError(wantsJson, 400, '父评论不存在');
   }
 
   const now = Math.floor(Date.now() / 1000);
@@ -242,7 +244,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       ? await validateCommentToken(submittedToken, options.secret as string, cid)
       : false;
     if (!valid) {
-      return new Response('评论来源验证失败', { status: 403 });
+      return commentError(wantsJson, 403, '评论来源验证失败');
     }
   }
 
@@ -255,19 +257,19 @@ export const POST: APIRoute = async ({ request, locals }) => {
     });
   } catch (err) {
     console.error('[comment] feedback:comment filter threw:', err);
-    return new Response('插件处理评论时出错，请稍后重试', { status: 503 });
+    return commentError(wantsJson, 503, '插件处理评论时出错，请稍后重试');
   }
 
   // Check if any plugin rejected the comment (e.g. captcha verification failed)
   if (commentData._rejected) {
     const reason = String(commentData._rejected);
     delete commentData._rejected;
-    return new Response(reason, { status: 403 });
+    return commentError(wantsJson, 403, reason);
   }
 
   const finalStatus = commentData.status;
   if (finalStatus !== 'approved' && finalStatus !== 'waiting' && finalStatus !== 'spam') {
-    return new Response('插件返回了无效的评论状态', { status: 400 });
+    return commentError(wantsJson, 400, '插件返回了无效的评论状态');
   }
 
   const writeStatements: any[] = [
@@ -281,7 +283,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     );
   }
   const [inserted] = await db.batch(writeStatements as [any, ...any[]]);
-  if (!inserted.length) return new Response('评论保存失败', { status: 500 });
+  if (!inserted.length) return commentError(wantsJson, 500, '评论保存失败');
   const newCoid = inserted[0].coid;
   commentData.coid = newCoid;
 
@@ -323,11 +325,24 @@ export const POST: APIRoute = async ({ request, locals }) => {
     const secureFlag = shouldUseSecureCookie(request) ? '; Secure' : '';
     headers.append('Set-Cookie', `__typecho_unapproved_comment=${encodeURIComponent(token)}; Path=/; HttpOnly${secureFlag}; SameSite=Lax`);
   }
+  if (wantsJson) {
+    headers.set('Content-Type', 'application/json');
+    return new Response(JSON.stringify({
+      success: true,
+      coid: newCoid,
+      status: finalStatus,
+      location: redirectUrl,
+    }), { status: 201, headers });
+  }
   return new Response(null, {
     status: 302,
     headers,
   });
 };
+
+function commentError(wantsJson: boolean, status: number, message: string): Response {
+  return wantsJson ? jsonError(status, message) : new Response(message, { status });
+}
 
 function isTrustedCommentReferer(referer: string | null, siteUrl: string): boolean {
   if (!referer || !siteUrl) return false;
