@@ -18,6 +18,12 @@ export default defineConfig({
   }),
   security: {
     checkOrigin: false,
+    // Permit the two local origins to fetch each other's assets when one is
+    // used as a development-only CDN host. Production origins stay excluded.
+    allowedDomains: [
+      { protocol: 'http', hostname: 'localhost', port: '4321' },
+      { protocol: 'http', hostname: '127.0.0.1', port: '4321' },
+    ],
   },
   integrations: [themeLoader(), pluginLoader(), clientLoader()],
   vite: {

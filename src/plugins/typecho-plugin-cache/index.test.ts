@@ -347,6 +347,28 @@ describe('CDN rewriting', () => {
       .toBe('https://avatar.example.com/avatar/hash?s=40');
   });
 
+  it('does not rewrite Astro and Vite development internals', () => {
+    const config = normalizeCacheConfig({
+      ...defaultSettings,
+      staticCdnUrl: 'https://cdn.example.com',
+    });
+    for (const internalUrl of [
+      '/@id/astro/runtime/client/dev-toolbar/entrypoint.js',
+      '/@vite/client.js',
+      '/__open-in-editor.js',
+      '/node_modules/.vite/deps/client.js?v=1',
+    ]) {
+      expect(rewriteResourceUrl(internalUrl, config, 'https://example.com', 'https://example.com'))
+        .toBe(internalUrl);
+    }
+    expect(rewriteResourceUrl(
+      '/themes/typecho-theme-warm/style.css',
+      config,
+      'https://example.com',
+      'https://example.com',
+    )).toBe('https://cdn.example.com/themes/typecho-theme-warm/style.css');
+  });
+
   it('joins Avatar CDN bases with exactly one avatar path segment', () => {
     for (const [avatarCdnUrl, expected] of [
       ['https://avatar.example.com', 'https://avatar.example.com/avatar/hash?s=40'],

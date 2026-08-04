@@ -331,6 +331,12 @@ function isGravatarHost(hostname: string): boolean {
   return host === 'gravatar.com' || host.endsWith('.gravatar.com');
 }
 
+function isFrameworkInternalPath(pathname: string): boolean {
+  return pathname.startsWith('/@')
+    || pathname.startsWith('/__')
+    || pathname.startsWith('/node_modules/');
+}
+
 export function rewriteResourceUrl(
   raw: string,
   config: CachePluginConfig,
@@ -351,6 +357,7 @@ export function rewriteResourceUrl(
   }
 
   if (!config.staticCdnUrl) return raw;
+  if (isFrameworkInternalPath(source.pathname)) return raw;
   const siteOrigin = (() => {
     try { return new URL(siteUrl || requestOrigin).origin; } catch { return requestOrigin; }
   })();
