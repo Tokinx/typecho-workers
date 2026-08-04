@@ -12,12 +12,16 @@ vi.mock('@/db', async () => {
   return { ...actual, getDb: (_d1: any) => testDb, schema: actual.schema };
 });
 
-vi.mock('@/lib/plugin', () => ({
-  parseActivatedPlugins: () => [],
-  setActivatedPlugins: async () => {},
-  applyFilter: mockApplyFilter,
-  applyFilterSafely: mockApplyFilter,
-}));
+vi.mock('@/lib/plugin', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/plugin')>('@/lib/plugin');
+  return {
+    ...actual,
+    parseActivatedPlugins: () => [],
+    setActivatedPlugins: async () => {},
+    applyFilter: mockApplyFilter,
+    applyFilterSafely: mockApplyFilter,
+  };
+});
 
 import { GET } from '@/pages/api/comments';
 

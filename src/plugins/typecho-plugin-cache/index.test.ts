@@ -4,6 +4,12 @@ import { _resetCaches } from '../../../tests/__mocks__/cloudflare-workers';
 import type { PluginInitContext } from 'typecho/plugin-sdk';
 import init from './index';
 import {
+  loadEarlyRequestSharedData,
+  notifyEarlyRequestInvalidation,
+  registerEarlyRequestLoaders,
+  resetEarlyRequestProvidersForTests,
+} from '@/lib/early-request';
+import {
   CACHE_CONTROL_KEY,
   CACHE_PLUGIN_ID,
   buildControlDocument,
@@ -17,9 +23,15 @@ import {
 
 class MemoryKv implements KVNamespace {
   store = new Map<string, string>();
+  putOptions = new Map<string, KVNamespacePutOptions | undefined>();
   failGet = false;
-  put = vi.fn(async (key: string, value: string | ArrayBuffer | ArrayBufferView | ReadableStream) => {
+  put = vi.fn(async (
+    key: string,
+    value: string | ArrayBuffer | ArrayBufferView | ReadableStream,
+    options?: KVNamespacePutOptions,
+  ) => {
     this.store.set(key, typeof value === 'string' ? value : String(value));
+    this.putOptions.set(key, options);
   });
   delete = vi.fn(async (key: string) => {
     this.store.delete(key);
@@ -72,6 +84,7 @@ function requestContext(url = 'https://example.com/') {
 beforeEach(() => {
   _resetCaches();
   resetCacheProviderForTests();
+  resetEarlyRequestProvidersForTests();
   env.TYPECHO_CACHE = null as any;
   vi.restoreAllMocks();
 });
@@ -161,16 +174,23 @@ describe('typecho-plugin-cache provider', () => {
     ordinaryCookie.request = new Request(ordinaryCookie.request, { headers: { Cookie: 'theme=dark' } });
     const bypassCookie = requestContext();
     bypassCookie.request = new Request(bypassCookie.request, { headers: { Cookie: 'experiment=one' } });
+    const caseVariantCookie = requestContext();
+    caseVariantCookie.request = new Request(caseVariantCookie.request, { headers: { Cookie: 'Experiment=one' } });
     const password = requestContext('https://example.com/archives/1/?password=secret');
     const unknown = requestContext('https://example.com/?feature=one');
+    const authorization = requestContext();
+    authorization.request = new Request(authorization.request, { headers: { Authorization: 'Bearer secret' } });
+    const noCache = requestContext();
+    noCache.request = new Request(noCache.request, { headers: { 'Cache-Control': 'no-cache' } });
 
     const ordinaryResponse = await earlyRequestProvider.handle(ordinaryCookie, next);
     expect(ordinaryResponse.headers.get('X-Typecho-Cache')).toBe('MISS');
-    for (const context of [bypassCookie, password, unknown]) {
+    expect((await earlyRequestProvider.handle(caseVariantCookie, next)).headers.get('X-Typecho-Cache')).toBe('L1');
+    for (const context of [bypassCookie, password, unknown, authorization, noCache]) {
       const response = await earlyRequestProvider.handle(context, next);
       expect(response.headers.get('X-Typecho-Cache')).toBe('BYPASS');
     }
-    expect(next).toHaveBeenCalledTimes(4);
+    expect(next).toHaveBeenCalledTimes(6);
   });
 
   it('serves authenticated cache hits but never stores authenticated misses', async () => {
@@ -202,6 +222,55 @@ describe('typecho-plugin-cache provider', () => {
     expect(publicNext).toHaveBeenCalledTimes(2);
   });
 
+  it('serves an authenticated request from L2 after the local L1 is cold', async () => {
+    const kv = new MemoryKv();
+    await activate(kv);
+    const next = vi.fn(async () => new Response('<html>public</html>', {
+      headers: { 'Content-Type': 'text/html' },
+    }));
+    await earlyRequestProvider.handle(requestContext(), next);
+    _resetCaches();
+
+    const authenticated = requestContext();
+    authenticated.request = new Request(authenticated.request, {
+      headers: { Cookie: '__typecho_uid=1; __typecho_authCode=token' },
+    });
+    const response = await earlyRequestProvider.handle(authenticated, next);
+    expect(response.headers.get('X-Typecho-Cache')).toBe('L2');
+    expect(next).toHaveBeenCalledOnce();
+  });
+
+  it('does not let an authenticated miss enter the anonymous in-flight queue', async () => {
+    const kv = new MemoryKv();
+    await activate(kv);
+    let releasePrivate!: () => void;
+    const privateGate = new Promise<void>(resolve => { releasePrivate = resolve; });
+    const authenticated = requestContext();
+    authenticated.request = new Request(authenticated.request, {
+      headers: { Cookie: '__typecho_uid=1; __typecho_authCode=token' },
+    });
+    const privateNext = vi.fn(async () => {
+      await privateGate;
+      return new Response('<html>private toolbar</html>', { headers: { 'Content-Type': 'text/html' } });
+    });
+    const publicNext = vi.fn(async () => new Response('<html>public</html>', {
+      headers: { 'Content-Type': 'text/html' },
+    }));
+
+    const privateResponsePromise = earlyRequestProvider.handle(authenticated, privateNext);
+    await Promise.resolve();
+    const publicResponse = await earlyRequestProvider.handle(requestContext(), publicNext);
+    releasePrivate();
+    const privateResponse = await privateResponsePromise;
+
+    expect(publicResponse.headers.get('X-Typecho-Cache')).toBe('MISS');
+    expect(await publicResponse.text()).toContain('public');
+    expect(privateResponse.headers.get('X-Typecho-Cache')).toBe('BYPASS');
+    expect(await privateResponse.text()).toContain('private toolbar');
+    expect(privateNext).toHaveBeenCalledOnce();
+    expect(publicNext).toHaveBeenCalledOnce();
+  });
+
   it('treats an unapproved-comment cookie as read-only on a cold cache', async () => {
     const kv = new MemoryKv();
     await activate(kv);
@@ -221,6 +290,74 @@ describe('typecho-plugin-cache provider', () => {
     const anonymous = await earlyRequestProvider.handle(requestContext('https://example.com/archives/1/'), publicNext);
     expect(anonymous.headers.get('X-Typecho-Cache')).toBe('MISS');
     expect(await anonymous.text()).toContain('public');
+  });
+
+  it('stores and reloads each shared data domain from KV for seven days', async () => {
+    const kv = new MemoryKv();
+    await activate(kv);
+    registerEarlyRequestLoaders({ [CACHE_PLUGIN_ID]: async () => earlyRequestProvider });
+
+    for (const domain of ['options', 'navigation', 'sidebar', 'metas'] as const) {
+      const d1Read = vi.fn(async () => ({ domain, source: 'd1' }));
+      await loadEarlyRequestSharedData(domain, 'stable-key', d1Read, {});
+      expect(d1Read).toHaveBeenCalledOnce();
+
+      resetEarlyRequestProvidersForTests();
+      resetCacheProviderForTests();
+      registerEarlyRequestLoaders({ [CACHE_PLUGIN_ID]: async () => earlyRequestProvider });
+      const unexpectedD1Read = vi.fn(async () => ({ domain, source: 'unexpected' }));
+      const fromKv = await loadEarlyRequestSharedData(domain, 'stable-key', unexpectedD1Read, {});
+      expect(fromKv).toEqual({ domain, source: 'd1' });
+      expect(unexpectedD1Read).not.toHaveBeenCalled();
+    }
+
+    const sharedKeys = [...kv.store.keys()].filter(key => key.includes(':s:'));
+    expect(sharedKeys).toHaveLength(4);
+    for (const key of sharedKeys) {
+      expect(kv.putOptions.get(key)?.expirationTtl).toBe(604_800);
+    }
+  });
+
+  it('advances only the requested shared-data generation', async () => {
+    const kv = new MemoryKv();
+    await activate(kv);
+    registerEarlyRequestLoaders({ [CACHE_PLUGIN_ID]: async () => earlyRequestProvider });
+    const firstSidebarRead = vi.fn(async () => ({ value: 1 }));
+    const firstOptionsRead = vi.fn(async () => ({ value: 1 }));
+    await loadEarlyRequestSharedData('sidebar', 'shared', firstSidebarRead, {});
+    await loadEarlyRequestSharedData('options', 'shared', firstOptionsRead, {});
+
+    await notifyEarlyRequestInvalidation({
+      reason: 'comment-visible',
+      domains: [],
+      sharedDomains: ['sidebar'],
+    });
+    const refreshedSidebar = vi.fn(async () => ({ value: 2 }));
+    const unexpectedOptionsRead = vi.fn(async () => ({ value: 2 }));
+    expect(await loadEarlyRequestSharedData('sidebar', 'shared', refreshedSidebar, {})).toEqual({ value: 2 });
+    expect(await loadEarlyRequestSharedData('options', 'shared', unexpectedOptionsRead, {})).toEqual({ value: 1 });
+    expect(refreshedSidebar).toHaveBeenCalledOnce();
+    expect(unexpectedOptionsRead).not.toHaveBeenCalled();
+  });
+
+  it('fails open to the shared-data fallback when KV reads fail or the binding is missing', async () => {
+    const kv = new MemoryKv();
+    await activate(kv);
+    kv.failGet = true;
+    registerEarlyRequestLoaders({ [CACHE_PLUGIN_ID]: async () => earlyRequestProvider });
+    const failedKvFallback = vi.fn(async () => ({ source: 'd1' }));
+    expect(await loadEarlyRequestSharedData('options', 'failed-kv', failedKvFallback, {}))
+      .toEqual({ source: 'd1' });
+    expect(failedKvFallback).toHaveBeenCalledOnce();
+
+    resetEarlyRequestProvidersForTests();
+    resetCacheProviderForTests();
+    env.TYPECHO_CACHE = null as any;
+    registerEarlyRequestLoaders({ [CACHE_PLUGIN_ID]: async () => earlyRequestProvider });
+    const missingKvFallback = vi.fn(async () => ({ source: 'd1-no-kv' }));
+    expect(await loadEarlyRequestSharedData('sidebar', 'missing-kv', missingKvFallback, {}))
+      .toEqual({ source: 'd1-no-kv' });
+    expect(missingKvFallback).toHaveBeenCalledOnce();
   });
 
   it('normalizes tracking parameters without multiplying cached variants', async () => {
@@ -383,6 +520,7 @@ describe('CDN rewriting', () => {
       l1Ttl: 86_400,
       listTtl: 86_400,
       detailTtl: 604_800,
+      bypassCookieNames: [],
     });
   });
 
@@ -500,10 +638,15 @@ describe('plugin registration and controls', () => {
 
     const accepted = hook({ success: true }, {
       pluginId: 'typecho-plugin-cache',
-      settings: { ...defaultSettings, staticExtensions: '.JPG, png, bad/ext' },
+      settings: {
+        ...defaultSettings,
+        staticExtensions: '.JPG, png, bad/ext',
+        bypassCookieNames: 'analytics_id,\nThemePreference, invalid name',
+      },
     });
     expect(accepted).toMatchObject({ success: true });
     expect(accepted.settings.staticExtensions).toBe('jpg,png');
+    expect(accepted.settings.bypassCookieNames).toBe('analytics_id,ThemePreference');
   });
 
   it('renders binding status and performs a scoped manual invalidation', async () => {
@@ -520,6 +663,24 @@ describe('plugin registration and controls', () => {
     });
     expect(result).toMatchObject({ handled: true, success: true });
     expect([...kv.store.keys()]).toContain('typecho:edge-cache:v1:g:home');
+  });
+
+  it('invalidates all page and shared-data generations on a manual full refresh', async () => {
+    const kv = new MemoryKv();
+    env.TYPECHO_CACHE = kv as any;
+    const hooks = collectHooks();
+    const result = await hooks.get('plugin:typecho-plugin-cache:action')!({ handled: false }, {
+      action: 'invalidate',
+      payload: { domain: 'all' },
+    });
+    expect(result).toMatchObject({ handled: true, success: true });
+    expect([...kv.store.keys()]).toEqual(expect.arrayContaining([
+      'typecho:edge-cache:v1:g:all',
+      'typecho:edge-cache:v1:sg:options',
+      'typecho:edge-cache:v1:sg:navigation',
+      'typecho:edge-cache:v1:sg:sidebar',
+      'typecho:edge-cache:v1:sg:metas',
+    ]));
   });
 
   it('injects configured CDN origins into CSP without a KV binding', async () => {

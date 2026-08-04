@@ -26,8 +26,18 @@ export interface EarlyRequestProvider {
   sync?(context: EarlyRequestSyncContext): Promise<void> | void;
   invalidate?(event: PublicCacheInvalidation): Promise<boolean>;
   lifecycle?(event: EarlyRequestLifecycleEvent): Promise<void>;
-  readSharedData?<T>(domain: SharedCacheDomain, key: string): Promise<T | null>;
+  readSharedData?<T>(domain: SharedCacheDomain, key: string): Promise<SharedDataRead<T>>;
   writeSharedData?<T>(domain: SharedCacheDomain, key: string, value: T): Promise<boolean>;
+}
+
+export interface SharedDataRead<T> {
+  handled: boolean;
+  value: T | null;
+}
+
+export interface SharedDataFallbackContext {
+  /** True when an active provider missed, so legacy caches may contain stale data. */
+  providerHandled: boolean;
 }
 
 export type EarlyRequestProviderLoader = () => Promise<EarlyRequestProvider | null | undefined>;
@@ -40,13 +50,13 @@ const sharedSnapshots = new Map<string, SharedSnapshot>();
 let sharedScopeIds = new WeakMap<object, number>();
 let nextSharedScopeId = 1;
 
-function sharedSnapshotKey(domain: SharedCacheDomain, key: string, scope?: object): string {
+function sharedSnapshotKey(domain: SharedCacheDomain, key: string, scope?: object, localVersion?: string | number): string {
   let scopeId = 0;
   if (scope) {
     scopeId = sharedScopeIds.get(scope) || nextSharedScopeId++;
     sharedScopeIds.set(scope, scopeId);
   }
-  return `${domain}\0${scopeId}\0${key}`;
+  return `${domain}\0${scopeId}\0${localVersion ?? ''}\0${key}`;
 }
 
 function cloneSharedValue<T>(value: T): T {
@@ -163,28 +173,31 @@ export async function notifyEarlyRequestInvalidation(event: PublicCacheInvalidat
 export async function loadEarlyRequestSharedData<T>(
   domain: SharedCacheDomain,
   key: string,
-  fallback: () => Promise<T>,
+  fallback: (context: SharedDataFallbackContext) => Promise<T>,
   scope?: object,
+  localVersion?: string | number,
 ): Promise<T> {
-  const snapshotKey = sharedSnapshotKey(domain, key, scope);
+  const snapshotKey = sharedSnapshotKey(domain, key, scope, localVersion);
   const snapshot = sharedSnapshots.get(snapshotKey);
   if (snapshot && snapshot.expiresAt > Date.now()) return cloneSharedValue(snapshot.value as T);
 
   const providers = await loadProviders();
+  let providerHandled = false;
   for (const [pluginId, provider] of providers) {
     if (!provider.readSharedData) continue;
     try {
-      const value = await provider.readSharedData<T>(domain, key);
-      if (value !== null) {
-        sharedSnapshots.set(snapshotKey, { value: cloneSharedValue(value), expiresAt: Date.now() + SHARED_SNAPSHOT_TTL_MS });
-        return cloneSharedValue(value);
+      const result = await provider.readSharedData<T>(domain, key);
+      providerHandled = providerHandled || result.handled;
+      if (result.value !== null) {
+        sharedSnapshots.set(snapshotKey, { value: cloneSharedValue(result.value), expiresAt: Date.now() + SHARED_SNAPSHOT_TTL_MS });
+        return cloneSharedValue(result.value);
       }
     } catch (error) {
       console.error(`[early-request] Shared cache read failed for ${pluginId}:`, error);
     }
   }
 
-  const value = await fallback();
+  const value = await fallback({ providerHandled });
   sharedSnapshots.set(snapshotKey, { value: cloneSharedValue(value), expiresAt: Date.now() + SHARED_SNAPSHOT_TTL_MS });
   for (const [pluginId, provider] of providers) {
     if (!provider.writeSharedData) continue;

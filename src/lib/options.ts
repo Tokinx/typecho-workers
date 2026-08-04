@@ -222,14 +222,20 @@ export async function loadOptions(db: Database): Promise<SiteOptions> {
 }
 
 async function loadOptionsFresh(db: Database): Promise<SiteOptions> {
-  return loadEarlyRequestSharedData('options', 'global', () => loadOptionsFromFallback(db), db);
+  return loadEarlyRequestSharedData(
+    'options',
+    'global',
+    ({ providerHandled }) => loadOptionsFromFallback(db, !providerHandled),
+    db,
+    getOptionsSnapshotGeneration(db),
+  );
 }
 
-async function loadOptionsFromFallback(db: Database): Promise<SiteOptions> {
+async function loadOptionsFromFallback(db: Database, allowLegacyCache: boolean): Promise<SiteOptions> {
   // Try cache first — key is versioned by cacheVersion so cross-PoP
   // writes automatically bust the entry (one D1 read is much cheaper
   // than reloading all rows).
-  const cached = await getCachedOptions(db);
+  const cached = allowLegacyCache ? await getCachedOptions(db) : null;
   if (cached) {
     return cached as unknown as SiteOptions;
   }

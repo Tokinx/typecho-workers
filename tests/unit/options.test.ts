@@ -7,6 +7,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createTestDb } from '../helpers';
 import { schema } from '@/db';
+import { eq } from 'drizzle-orm';
 import {
   loadOptions,
   getOption,
@@ -18,6 +19,8 @@ import {
   ensureSecret,
 } from '@/lib/options';
 import { bumpCacheVersion } from '@/lib/cache';
+import { registerEarlyRequestLoaders, resetEarlyRequestProvidersForTests } from '@/lib/early-request';
+import { advanceOptionsSnapshotGeneration } from '@/lib/options-snapshot-generation';
 
 async function createOptionsTestDb() {
   return await createTestDb() as any;
@@ -83,6 +86,33 @@ describe('loadOptions()', () => {
     expect(after.cacheVersion).toBe(101);
   });
 
+  it('does not copy stale legacy options into a fresh provider generation', async () => {
+    const db = await createOptionsTestDb();
+    await db.insert(schema.options).values([
+      { name: 'cacheVersion', user: 0, value: '7' },
+      { name: 'title', user: 0, value: 'Old title' },
+    ]);
+    expect((await loadOptions(db)).title).toBe('Old title');
+
+    await db.update(schema.options)
+      .set({ value: 'New title' })
+      .where(eq(schema.options.name, 'title'));
+    advanceOptionsSnapshotGeneration(db);
+    resetEarlyRequestProvidersForTests();
+    registerEarlyRequestLoaders({
+      test: async () => ({
+        handle: async (_context, next) => next(),
+        readSharedData: async () => ({ handled: true, value: null }),
+        writeSharedData: async () => true,
+      }),
+    });
+    try {
+      expect((await loadOptions(db)).title).toBe('New title');
+    } finally {
+      resetEarlyRequestProvidersForTests();
+    }
+  });
+
   it('ensureSecret generates and persists on first call, reuses on subsequent calls', async () => {
     const db = await createOptionsTestDb();
     const first = await ensureSecret(db);
@@ -119,6 +149,13 @@ describe('setOption()', () => {
     await setOption(db, 'title', 'Updated');
     expect(await getOption(db, 'title')).toBe('Updated');
   });
+
+  it('does not advance the public cache version for a user preference', async () => {
+    const db = await createOptionsTestDb();
+    await setOption(db, 'editorSize', '480', 7);
+    expect(await getOption(db, 'editorSize', 7)).toBe('480');
+    expect(await getOption(db, 'cacheVersion')).toBeNull();
+  });
 });
 
 describe('setOptionsBatch()', () => {
@@ -140,6 +177,24 @@ describe('setOptionsBatch()', () => {
     });
 
     expect(await getOption(db, 'cacheVersion')).toBe('41');
+  });
+
+  it('skips the D1 cacheVersion write when an early provider handles invalidation', async () => {
+    const db = await createOptionsTestDb();
+    resetEarlyRequestProvidersForTests();
+    registerEarlyRequestLoaders({
+      test: async () => ({
+        handle: async (_context, next) => next(),
+        invalidate: async () => true,
+      }),
+    });
+    try {
+      await setOptionsBatch(db, { title: 'Handled by KV', pageSize: '9' });
+      expect(await getOption(db, 'title')).toBe('Handled by KV');
+      expect(await getOption(db, 'cacheVersion')).toBeNull();
+    } finally {
+      resetEarlyRequestProvidersForTests();
+    }
   });
 });
 

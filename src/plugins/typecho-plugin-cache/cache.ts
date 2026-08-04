@@ -4,6 +4,7 @@ import type {
   EarlyRequestNext,
   EarlyRequestProvider,
   EarlyRequestSyncContext,
+  SharedDataRead,
 } from '@/lib/early-request';
 import type { PublicCacheDomain, PublicCacheInvalidation, SharedCacheDomain } from '@/lib/cache';
 import { env } from 'cloudflare:workers';
@@ -219,14 +220,15 @@ export async function invalidateSharedDomains(
   }));
 }
 
-async function readSharedData<T>(domain: SharedCacheDomain, key: string): Promise<T | null> {
+async function readSharedData<T>(domain: SharedCacheDomain, key: string): Promise<SharedDataRead<T>> {
   const kv = runtimeKv();
-  if (!kv || !await loadControl(kv)) return null;
+  if (!kv || !await loadControl(kv)) return { handled: false, value: null };
   const [generationValue, keyHash] = await Promise.all([sharedGeneration(kv, domain), sha256(key)]);
-  return await kv.get<T>(`${SHARED_DATA_PREFIX}${domain}:${generationValue}:${keyHash}`, {
-    type: 'json',
-    cacheTtl: 60,
-  });
+  const value = await kv.get<T>(`${SHARED_DATA_PREFIX}${domain}:${generationValue}:${keyHash}`, {
+      type: 'json',
+      cacheTtl: 60,
+    });
+  return { handled: true, value };
 }
 
 async function writeSharedData<T>(domain: SharedCacheDomain, key: string, value: T): Promise<boolean> {
