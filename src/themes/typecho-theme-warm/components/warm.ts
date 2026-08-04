@@ -4,11 +4,15 @@ import { loadThemeConfig } from '@/lib/theme';
 export const WARM_THEME_ID = 'typecho-theme-warm';
 
 export type WarmSection = 'home' | 'articles' | 'notes' | 'about' | 'none';
+export type WarmContinuousLoadMode = 'manual' | 'auto-3' | 'infinite';
+export type WarmCommentInitialLoadMode = 'manual' | 'dwell' | 'auto';
 
 export interface WarmSettings {
   githubUrl: string;
   socialUrl: string;
   email: string;
+  continuousLoadMode: WarmContinuousLoadMode;
+  commentInitialLoadMode: WarmCommentInitialLoadMode;
 }
 
 export function warmSettings(options: ThemeBaseProps['options']): WarmSettings {
@@ -17,7 +21,17 @@ export function warmSettings(options: ThemeBaseProps['options']): WarmSettings {
     githubUrl: safeExternalUrl(settings.githubUrl),
     socialUrl: safeExternalUrl(settings.socialUrl),
     email: safeEmail(settings.email),
+    continuousLoadMode: normalizeContinuousLoadMode(settings.continuousLoadMode),
+    commentInitialLoadMode: normalizeCommentInitialLoadMode(settings.commentInitialLoadMode),
   };
+}
+
+export function normalizeContinuousLoadMode(value: unknown): WarmContinuousLoadMode {
+  return value === 'auto-3' || value === 'infinite' ? value : 'manual';
+}
+
+export function normalizeCommentInitialLoadMode(value: unknown): WarmCommentInitialLoadMode {
+  return value === 'manual' || value === 'dwell' ? value : 'auto';
 }
 
 export function safeExternalUrl(value: unknown): string {

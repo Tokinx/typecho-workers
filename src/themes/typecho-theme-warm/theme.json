@@ -24,6 +24,27 @@
       "type": "text",
       "label": "联系邮箱",
       "default": ""
+    },
+    "continuousLoadMode": {
+      "type": "select",
+      "label": "连续加载",
+      "description": "控制首页、归档、笔记和评论后续页的加载方式。",
+      "default": "manual",
+      "options": {
+        "manual": "手动加载",
+        "auto-3": "自动加载 3 次，之后手动加载",
+        "infinite": "无限自动加载"
+      }
+    },
+    "commentInitialLoadMode": {
+      "type": "select",
+      "label": "评论列表首次加载",
+      "default": "auto",
+      "options": {
+        "manual": "手动加载评论列表",
+        "dwell": "停留在评论区 3 秒后加载",
+        "auto": "自动加载评论列表"
+      }
     }
   }
 }

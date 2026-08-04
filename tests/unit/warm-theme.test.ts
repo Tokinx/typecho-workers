@@ -1,7 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { plainExcerpt, readingMinutes, safeEmail, safeExternalUrl } from '../../src/themes/typecho-theme-warm/components/warm';
+import {
+  normalizeCommentInitialLoadMode,
+  normalizeContinuousLoadMode,
+  plainExcerpt,
+  readingMinutes,
+  safeEmail,
+  safeExternalUrl,
+} from '../../src/themes/typecho-theme-warm/components/warm';
 
 const themeRoot = join(process.cwd(), 'src/themes/typecho-theme-warm');
 
@@ -14,6 +21,14 @@ describe('typecho-theme-warm', () => {
     expect(manifest.stylesheet).toBe('style.css');
     expect(manifest.config).not.toHaveProperty('tagline');
     expect(manifest.config).not.toHaveProperty('footerDescription');
+    expect(manifest.config.continuousLoadMode).toMatchObject({
+      type: 'select', default: 'manual',
+      options: expect.objectContaining({ manual: expect.any(String), 'auto-3': expect.any(String), infinite: expect.any(String) }),
+    });
+    expect(manifest.config.commentInitialLoadMode).toMatchObject({
+      type: 'select', default: 'auto',
+      options: expect.objectContaining({ manual: expect.any(String), dwell: expect.any(String), auto: expect.any(String) }),
+    });
   });
 
   it('keeps the five required templates and Notes integration', () => {
@@ -37,6 +52,15 @@ describe('typecho-theme-warm', () => {
     expect(archive).not.toContain('warm-list-heading');
     expect(archive.indexOf('class="warm-category"')).toBeLessThan(archive.indexOf('formatWarmDate(post.created)'));
     expect(archive).not.toContain('post.categories[0] &&');
+    expect(index).toContain('WarmStreamPagination');
+    expect(index).toContain('data-warm-stream');
+    expect(archive).toContain('WarmStreamPagination');
+    const streamPagination = readFileSync(join(themeRoot, 'components/WarmStreamPagination.astro'), 'utf8');
+    expect(streamPagination).toContain('data-warm-stream-pagination');
+    expect(streamPagination).toContain('DOMParser');
+    expect(streamPagination).toContain('IntersectionObserver');
+    expect(streamPagination).toContain('automaticLoads < limit');
+    expect(streamPagination).toContain('data-no-instant');
     const shell = readFileSync(join(themeRoot, 'components/WarmShell.astro'), 'utf8');
     expect(shell).toContain('options.description');
     expect(shell).not.toContain('settings.tagline');
@@ -66,5 +90,9 @@ describe('typecho-theme-warm', () => {
     expect(safeExternalUrl('https://example.com')).toBe('https://example.com/');
     expect(safeEmail('hello@example.com')).toBe('hello@example.com');
     expect(safeEmail('not-an-email')).toBe('');
+    expect(normalizeContinuousLoadMode('auto-3')).toBe('auto-3');
+    expect(normalizeContinuousLoadMode('invalid')).toBe('manual');
+    expect(normalizeCommentInitialLoadMode('dwell')).toBe('dwell');
+    expect(normalizeCommentInitialLoadMode('invalid')).toBe('auto');
   });
 });

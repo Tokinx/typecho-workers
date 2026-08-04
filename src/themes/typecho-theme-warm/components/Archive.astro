@@ -1,13 +1,15 @@
 ---
 import type { ThemeArchiveProps } from '@/lib/theme-props';
 import WarmShell from './WarmShell.astro';
-import { formatWarmDate, plainExcerpt } from './warm';
+import WarmStreamPagination from './WarmStreamPagination.astro';
+import { formatWarmDate, plainExcerpt, warmSettings } from './warm';
 
 type Props = ThemeArchiveProps;
 const {
   options, urls, user, isLoggedIn, pages, sidebarData, currentPath, pluginCtx,
   archiveTitle, posts, pagination,
 } = Astro.props;
+const settings = warmSettings(options);
 ---
 <WarmShell
   title={archiveTitle}
@@ -21,7 +23,7 @@ const {
   pluginCtx={pluginCtx}
   section="articles"
 >
-  <div class="warm-stream">
+  <div class="warm-stream" data-warm-stream>
     {posts.length > 0 ? posts.map(post => (
       <article class="warm-stream-item warm-post-card">
         <a class="warm-stream-item__hit" href={post.permalink} aria-label={`阅读：${post.title}`}></a>
@@ -37,10 +39,12 @@ const {
     )) : <section class="warm-empty"><h2>没有找到内容</h2><p>换个分类或关键词再看看。</p></section>}
   </div>
 
-  {(pagination.hasPrev || pagination.hasNext) && (
-    <nav class="warm-pagination" aria-label="归档分页">
-      {pagination.hasPrev && <a href={pagination.prevUrl!} rel="prev">←</a>}
-      {pagination.hasNext && <a href={pagination.nextUrl!} rel="next">→</a>}
-    </nav>
-  )}
+  <WarmStreamPagination
+    hasPrev={pagination.hasPrev}
+    hasNext={pagination.hasNext}
+    prevUrl={pagination.prevUrl}
+    nextUrl={pagination.nextUrl}
+    mode={settings.continuousLoadMode}
+    label="归档分页"
+  />
 </WarmShell>

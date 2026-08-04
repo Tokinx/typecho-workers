@@ -7,7 +7,8 @@ import type { ThemeIndexProps, PostListItem } from '@/lib/theme-props';
 import { buildCategoryLink } from '@/lib/content';
 import NotFound from './NotFound.astro';
 import WarmShell from './WarmShell.astro';
-import { formatWarmDate, plainExcerpt } from './warm';
+import WarmStreamPagination from './WarmStreamPagination.astro';
+import { formatWarmDate, plainExcerpt, warmSettings } from './warm';
 
 type Props = ThemeIndexProps;
 type WarmPostItem = {
@@ -124,6 +125,7 @@ if (notesEnabled && stream !== 'posts') {
 
 const activeSection = stream === 'notes' ? 'notes' : stream === 'posts' ? 'articles' : 'home';
 const heading = stream === 'notes' ? '笔记' : stream === 'posts' ? '文章' : '';
+const settings = warmSettings(options);
 const baseUrl = `${urls.siteUrl.replace(/\/$/, '')}/`;
 const pageUrl = (page: number) => {
   const params = new URLSearchParams();
@@ -169,7 +171,7 @@ if (isNotesStreamOutOfRange) Astro.response.status = 404;
     </div>
   )}
 
-  <div class="warm-stream">
+  <div class="warm-stream" data-warm-stream>
     {items.length === 0 ? (
       <section class="warm-empty">
         <h1>这里还很安静</h1>
@@ -209,11 +211,13 @@ if (isNotesStreamOutOfRange) Astro.response.status = 404;
     ))}
   </div>
 
-  {(hasPrev || hasNext) && (
-    <nav class="warm-pagination" aria-label="内容分页">
-      {hasPrev && <a href={pageUrl(currentPage - 1)} rel="prev" aria-label="上一页">←</a>}
-      {hasNext && <a href={pageUrl(currentPage + 1)} rel="next" aria-label="下一页">→</a>}
-    </nav>
-  )}
+  <WarmStreamPagination
+    hasPrev={hasPrev}
+    hasNext={hasNext}
+    prevUrl={hasPrev ? pageUrl(currentPage - 1) : null}
+    nextUrl={hasNext ? pageUrl(currentPage + 1) : null}
+    mode={settings.continuousLoadMode}
+    label="内容分页"
+  />
   </WarmShell>
 )}
