@@ -15,6 +15,7 @@ export interface CloudflareBuildEnv {
   TYPECHO_CF_D1_DATABASE_ID?: string;
   TYPECHO_CF_D1_DATABASE_NAME?: string;
   TYPECHO_CF_R2_BUCKET_NAME?: string;
+  TYPECHO_CF_KV_NAMESPACE_ID?: string;
   TYPECHO_CF_PBKDF2_ITERATIONS?: string;
 }
 
@@ -51,6 +52,7 @@ export function generateWranglerToml(env: CloudflareBuildEnv): string {
   const d1DatabaseId = required(env, 'TYPECHO_CF_D1_DATABASE_ID');
   const d1DatabaseName = required(env, 'TYPECHO_CF_D1_DATABASE_NAME');
   const r2BucketName = required(env, 'TYPECHO_CF_R2_BUCKET_NAME');
+  const kvNamespaceId = env.TYPECHO_CF_KV_NAMESPACE_ID?.trim() || '';
   const iterations = pbkdf2Iterations(env);
 
   return `${GENERATED_CONFIG_MARKER}
@@ -77,7 +79,11 @@ migrations_dir = "drizzle"
 binding = "BUCKET"
 bucket_name = ${tomlString(r2BucketName)}
 
-[observability.logs]
+${kvNamespaceId ? `[[kv_namespaces]]
+binding = "TYPECHO_CACHE"
+id = ${tomlString(kvNamespaceId)}
+
+` : ''}[observability.logs]
 enabled = true
 invocation_logs = false
 persist = false

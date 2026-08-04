@@ -224,7 +224,13 @@ function buildRegistryCode(discoveredPlugins: DiscoveredPlugin[]): string {
     return `  ${JSON.stringify(plugin.id)}: () => import(${JSON.stringify(plugin.importPath)}).then((module) => module.default),`;
   }).join('\n');
 
-  return `import { registerPlugin, registerPluginLoaders, addHook, HookPoints } from '@/lib/plugin';\n${registrations}\nregisterPluginLoaders({\n${pluginEntries}\n}, { addHook, HookPoints });`;
+  const earlyRequestEntries = discoveredPlugins
+    .filter(plugin => plugin.manifest.earlyRequest === true)
+    .map((plugin) => {
+      return `  ${JSON.stringify(plugin.id)}: () => import(${JSON.stringify(plugin.importPath)}).then((module) => module.earlyRequestProvider),`;
+    }).join('\n');
+
+  return `import { registerPlugin, registerPluginLoaders, addHook, HookPoints } from '@/lib/plugin';\nimport { registerEarlyRequestLoaders } from '@/lib/early-request';\n${registrations}\nregisterPluginLoaders({\n${pluginEntries}\n}, { addHook, HookPoints });\nregisterEarlyRequestLoaders({\n${earlyRequestEntries}\n});`;
 }
 
 export default function pluginLoaderIntegration(): AstroIntegration {

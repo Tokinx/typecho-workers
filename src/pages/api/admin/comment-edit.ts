@@ -93,7 +93,9 @@ export const POST: APIRoute = async ({ request }) => {
     });
     if (!updated) return jsonError(500, '更新评论失败');
 
-    await purgeCommentModerationCache(auth.db, auth.options, updated.cid);
+    if (updated.status === 'approved') {
+      await purgeCommentModerationCache(auth.db, auth.options, updated.cid);
+    }
     return jsonOk({ comment: editableComment(updated, auth.options) });
   }
 

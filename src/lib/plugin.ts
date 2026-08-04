@@ -70,6 +70,8 @@ export interface PluginManifest {
    * The container resolves its document title from this plugin's name.
    */
   adminPage?: string;
+  /** Load a named earlyRequestProvider before the normal D1 bootstrap. */
+  earlyRequest?: boolean;
   /**
    * Plugin configuration fields.
    * If present, the admin panel shows a "设置" link for this plugin.

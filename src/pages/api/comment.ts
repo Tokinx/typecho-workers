@@ -10,9 +10,8 @@ import {
   validateCommentToken,
 } from '@/lib/auth';
 import { setActivatedPlugins, parseActivatedPlugins, applyFilter, doHook, type HookContext } from '@/lib/plugin';
-import { bumpCacheVersion, purgeContentCache } from '@/lib/cache';
+import { invalidatePublicCache } from '@/lib/cache';
 import { getClientIp, getRequestCoreContextFromLocals } from '@/lib/context';
-import { buildPermalink } from '@/lib/content';
 import { normalizeHttpUrl } from '@/lib/url';
 import { isSameOriginRequest } from '@/lib/admin-auth';
 import { eq, and, sql } from 'drizzle-orm';
@@ -301,16 +300,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
     locals.cfContext.waitUntil(finishP);
   }
 
-  const contentUrl = buildPermalink(
-    { cid: content.cid, slug: content.slug, type: content.type, created: content.created },
-    options.siteUrl || '',
-    options.permalinkPattern as string | undefined,
-    options.pagePattern as string | undefined,
-  );
-  await Promise.all([
-    bumpCacheVersion(db),
-    purgeContentCache(options.siteUrl || '', cid, { contentUrl }),
-  ]);
+  if (finalStatus === 'approved') {
+    await invalidatePublicCache(db, { reason: 'comment-approved', domains: ['all'] });
+  }
 
   // Redirect back to the post
   // Prevent open redirect: only use referer if it's a relative path or same-origin

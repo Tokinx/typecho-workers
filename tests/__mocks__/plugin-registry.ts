@@ -14,13 +14,19 @@
  * keeps unrelated tests free of plugin side effects.
  */
 import { registerPluginLoaders, addHook, HookPoints } from '@/lib/plugin';
+import { registerEarlyRequestLoaders } from '@/lib/early-request';
 
 registerPluginLoaders({
   'typecho-plugin-antispam': () => import('@/plugins/typecho-plugin-antispam/index').then((module) => module.default),
+  'typecho-plugin-cache': () => import('@/plugins/typecho-plugin-cache/index').then((module) => module.default),
   'typecho-plugin-scribe': () => import('@/plugins/typecho-plugin-scribe/index').then((module) => module.default),
   'typecho-plugin-turnstile': () => import('@/plugins/typecho-plugin-turnstile/index').then((module) => module.default),
   'typecho-plugin-webdav': () => import('@/plugins/typecho-plugin-webdav/index').then((module) => module.default),
   'typecho-plugin-wechat-publisher': () => import('@/plugins/typecho-plugin-wechat-publisher/index').then((module) => module.default),
 }, { addHook, HookPoints });
+
+registerEarlyRequestLoaders({
+  'typecho-plugin-cache': () => import('@/plugins/typecho-plugin-cache/index').then((module) => module.earlyRequestProvider),
+});
 
 export {};

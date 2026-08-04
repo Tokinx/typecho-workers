@@ -6,6 +6,8 @@
 export type { PluginInitContext, PluginRouteResult, PluginManifest, PluginConfigField } from './plugin';
 export type { AttachmentMeta } from './attachment';
 export type { Database } from '../db/index';
+export type { EarlyRequestProvider, EarlyRequestContext, EarlyRequestLifecycleEvent } from './early-request';
+export type { PublicCacheDomain, PublicCacheInvalidation } from './cache';
 
 // ── Plugin system ──
 export {
@@ -23,6 +25,7 @@ export { hasPermission, verifyPassword } from './auth';
 
 // ── Content ──
 export { buildPermalink, formatDate, buildAuthorLink, buildCategoryLink } from './content';
+export { compilePermalinkPattern, renderPermalinkPattern } from './permalink-pattern';
 
 // ── Markdown / HTML ──
 export { escapeHtml } from './escape';

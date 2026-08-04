@@ -51,6 +51,9 @@ wrangler d1 create typecho-cf-db
 
 # 创建 R2 存储桶
 wrangler r2 bucket create typecho-cf-uploads
+
+# 可选：为 Edge Cache 插件创建 KV L2
+wrangler kv namespace create TYPECHO_CACHE
 ```
 
 **2. 更新 `wrangler.toml`**
@@ -62,6 +65,14 @@ wrangler r2 bucket create typecho-cf-uploads
 binding = "DB"
 database_name = "typecho-cf-db"
 database_id = "替换为实际的 ID"
+```
+
+启用 Edge Cache 插件时，还需加入命令返回的 KV namespace ID：
+
+```toml
+[[kv_namespaces]]
+binding = "TYPECHO_CACHE"
+id = "替换为实际的 KV namespace ID"
 ```
 
 Workers Free 每次请求仅有 10ms CPU，无法完成默认的 600,000 次 PBKDF2。
@@ -118,6 +129,7 @@ Cloudflare Workers Builds 从 Git 检出时没有本地的 `wrangler.toml`。本
 | `TYPECHO_CF_D1_DATABASE_ID` | D1 数据库 ID |
 | `TYPECHO_CF_D1_DATABASE_NAME` | D1 数据库名称，例如 `typecho-cf-db` |
 | `TYPECHO_CF_R2_BUCKET_NAME` | R2 存储桶名称，例如 `typecho-cf-uploads` |
+| `TYPECHO_CF_KV_NAMESPACE_ID` | 可选；Edge Cache 插件使用的 KV namespace ID |
 | `TYPECHO_CF_PBKDF2_ITERATIONS` | Workers Free 使用 `50000` |
 | `TYPECHO_CF_WORKER_NAME` | 可选；Worker 名称，默认 `typecho-cf` |
 

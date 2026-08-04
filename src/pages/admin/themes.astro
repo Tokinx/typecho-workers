@@ -34,22 +34,24 @@ if (Astro.request.method === 'POST') {
         message = `主题 "${themeId}" 不存在`;
         messageType = 'error';
       } else if (themeId !== String(options.theme || 'typecho-theme-minimal')) {
-        const { deleteOption, setOption } = await import('@/lib/options');
+        const { mutateOptionsBatch } = await import('@/lib/options');
         const previousThemeId = String(options.theme || 'typecho-theme-minimal');
+        const optionSets: Record<string, string> = { theme: themeId };
 
         // Typecho removes the previous theme's settings when a new theme is
         // enabled. Settings for an already configured target theme remain.
-        await deleteOption(ctx.db, `theme:${previousThemeId}`);
-        await setOption(ctx.db, 'theme', themeId);
         if (themeHasConfig(themeId) && !options[`theme:${themeId}`]) {
           const { getThemeConfigDefaults } = await import('@/lib/theme');
-          await setOption(ctx.db, `theme:${themeId}`, JSON.stringify(getThemeConfigDefaults(themeId)));
+          optionSets[`theme:${themeId}`] = JSON.stringify(getThemeConfigDefaults(themeId));
         }
+        await mutateOptionsBatch(ctx.db, {
+          set: optionSets,
+          delete: [`theme:${previousThemeId}`],
+        });
 
+        delete (options as any)[`theme:${previousThemeId}`];
+        for (const [name, value] of Object.entries(optionSets)) (options as any)[name] = value;
         (options as any).theme = themeId;
-        const { bumpCacheVersion, purgeSiteCache } = await import('@/lib/cache');
-        await bumpCacheVersion(ctx.db);
-        await purgeSiteCache(options.siteUrl || '');
         message = `外观已切换为 "${themeId}"`;
       }
     }

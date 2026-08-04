@@ -3,7 +3,8 @@ import { schema } from '@/db';
 import { hasPermission } from '@/lib/auth';
 import { isAdminActionResponse, requireAdminAction, safeAdminRedirectUrl } from '@/lib/admin-auth';
 import { doHook } from '@/lib/plugin';
-import { bumpCacheVersion, purgeContentCache } from '@/lib/cache';
+import { invalidatePublicCache } from '@/lib/cache';
+import { canViewContent } from '@/lib/content-visibility';
 import { eq, sql } from 'drizzle-orm';
 
 export const POST: APIRoute = handler;
@@ -71,6 +72,9 @@ async function handler({ request, locals, url }: { request: Request; locals: App
       cid: schema.contents.cid,
       type: schema.contents.type,
       parent: schema.contents.parent,
+      status: schema.contents.status,
+      created: schema.contents.created,
+      authorId: schema.contents.authorId,
     }).from(schema.contents)
       .where(sql`${schema.contents.cid} IN (${pageList})`);
     if (
@@ -93,13 +97,15 @@ async function handler({ request, locals, url }: { request: Request; locals: App
       for (const statement of statements) await statement;
     }
 
-    await bumpCacheVersion(auth.db);
-    await purgeContentCache(auth.options.siteUrl || '');
+    if (pages.some(page => canViewContent(page, {}))) {
+      await invalidatePublicCache(auth.db, { reason: 'page-sort', domains: ['all'] });
+    }
     return new Response(JSON.stringify({ success: 1, message: '页面排序已经完成' }), {
       headers: { 'Content-Type': 'application/json; charset=utf-8' },
     });
   }
 
+  let affectsPublicCache = false;
   if (action === 'delete') {
     // G4-2: fetch all targeted contents in one query rather than per-cid
     // findFirst, then trigger plugin hooks and emit one big delete batch.
@@ -114,6 +120,7 @@ async function handler({ request, locals, url }: { request: Request; locals: App
     }
 
     const allowedCids = allowedContents.map(c => c.cid);
+    affectsPublicCache = allowedContents.some(content => canViewContent(content, {}));
 
     // Pre-delete hooks (must run sequentially: plugins may rely on
     // ordering and on the row still being present).
@@ -170,9 +177,12 @@ async function handler({ request, locals, url }: { request: Request; locals: App
 
     const contents = await auth.db.select().from(schema.contents)
       .where(sql`${schema.contents.cid} IN (${sql.join(cids.map(id => sql`${id}`), sql`, `)})`);
-    const allowedCids = contents
-      .filter(c => isAdmin || c.authorId === auth.uid)
-      .map(c => c.cid);
+    const allowedContents = contents.filter(c => isAdmin || c.authorId === auth.uid);
+    const allowedCids = allowedContents.map(c => c.cid);
+    affectsPublicCache = allowedContents.some(content => (
+      canViewContent(content, {})
+      || canViewContent({ ...content, status: markStatus }, {})
+    ));
     if (allowedCids.length > 0) {
       await auth.db.update(schema.contents)
         .set({ status: markStatus })
@@ -180,8 +190,9 @@ async function handler({ request, locals, url }: { request: Request; locals: App
     }
   }
 
-  await bumpCacheVersion(auth.db);
-  await purgeContentCache(auth.options.siteUrl || '');
+  if (affectsPublicCache) {
+    await invalidatePublicCache(auth.db, { reason: 'content-batch', domains: ['all'] });
+  }
 
   const referer = safeAdminRedirectUrl(
     request.headers.get('referer'),

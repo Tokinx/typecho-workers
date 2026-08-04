@@ -1,8 +1,16 @@
 /**
  * Unit tests for cache URL planning.
  */
-import { describe, it, expect } from 'vitest';
-import { buildContentPurgeUrls } from '@/lib/cache';
+import { beforeEach, describe, it, expect } from 'vitest';
+import { schema } from '@/db';
+import { buildContentPurgeUrls, invalidatePublicCache, resetCacheVersionMemo } from '@/lib/cache';
+import { registerEarlyRequestLoaders, resetEarlyRequestProvidersForTests } from '@/lib/early-request';
+import { createTestDb } from '../helpers';
+
+beforeEach(() => {
+  resetEarlyRequestProvidersForTests();
+  resetCacheVersionMemo();
+});
 
 describe('buildContentPurgeUrls()', () => {
   it('includes custom permalink and related archive URLs', () => {
@@ -28,5 +36,45 @@ describe('buildContentPurgeUrls()', () => {
     });
 
     expect(urls.filter((url) => url === 'https://example.com/archives/1/')).toHaveLength(1);
+  });
+});
+
+describe('invalidatePublicCache()', () => {
+  it('skips the D1 cacheVersion write when an early provider handles invalidation', async () => {
+    const db = await createTestDb() as any;
+    await db.insert(schema.options).values({ name: 'cacheVersion', user: 0, value: '7' });
+    registerEarlyRequestLoaders({
+      cache: async () => ({
+        handle: async (_context, next) => next(),
+        invalidate: async () => true,
+      }),
+    });
+
+    await expect(invalidatePublicCache(db, { reason: 'post-update', domains: ['all'] }))
+      .resolves.toBe('early');
+    const row = await db.query.options.findFirst({
+      where: (options: any, { and, eq }: any) => and(eq(options.name, 'cacheVersion'), eq(options.user, 0)),
+    });
+    expect(row?.value).toBe('7');
+  });
+
+  it('falls back to one D1 cacheVersion write when the provider cannot invalidate', async () => {
+    const db = await createTestDb() as any;
+    await db.insert(schema.options).values({ name: 'cacheVersion', user: 0, value: '7' });
+    registerEarlyRequestLoaders({
+      cache: async () => ({
+        handle: async (_context, next) => next(),
+        invalidate: async () => {
+          throw new Error('KV unavailable');
+        },
+      }),
+    });
+
+    await expect(invalidatePublicCache(db, { reason: 'post-update', domains: ['all'] }))
+      .resolves.toBe('legacy');
+    const row = await db.query.options.findFirst({
+      where: (options: any, { and, eq }: any) => and(eq(options.name, 'cacheVersion'), eq(options.user, 0)),
+    });
+    expect(row?.value).toBe('8');
   });
 });

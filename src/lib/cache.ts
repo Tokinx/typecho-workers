@@ -14,6 +14,16 @@ import { eq, and, sql } from 'drizzle-orm';
 import { schema, type Database } from '@/db';
 import { OPTIONS_CACHE_TTL_SECONDS } from '@/lib/constants';
 import { advanceOptionsSnapshotGeneration } from '@/lib/options-snapshot-generation';
+import { notifyEarlyRequestInvalidation } from '@/lib/early-request';
+
+export type PublicCacheDomain = 'home' | 'post' | 'page' | 'note' | 'archive' | 'other';
+
+export interface PublicCacheInvalidation {
+  reason: string;
+  domains: PublicCacheDomain[] | ['all'];
+  /** Option values that an early provider may need before the next D1 bootstrap. */
+  options?: Record<string, unknown>;
+}
 
 /** Internal namespace used for Cache API keys that are not real URLs */
 const INTERNAL_ORIGIN = 'https://typecho-cf-internal';
@@ -80,7 +90,7 @@ export async function purgeOptionsCache(): Promise<void> {
   // as a defensive no-op so old call sites still compile.
 }
 
-export async function bumpCacheVersion(db: Database): Promise<void> {
+async function writeCacheVersion(db: Database): Promise<void> {
   const [updated] = await db.insert(schema.options)
     .values({ name: 'cacheVersion', user: 0, value: '1' })
     .onConflictDoUpdate({
@@ -97,6 +107,28 @@ export async function bumpCacheVersion(db: Database): Promise<void> {
   cachedVersion = stamp;
   cachedVersionAt = Date.now();
   advanceOptionsSnapshotGeneration(db);
+}
+
+export async function bumpCacheVersion(
+  db: Database,
+  event: PublicCacheInvalidation = { reason: 'options', domains: ['all'] },
+): Promise<void> {
+  await writeCacheVersion(db);
+  await notifyEarlyRequestInvalidation(event);
+}
+
+/**
+ * Invalidate public HTML without writing D1 when an activated early provider
+ * successfully advances its own cross-PoP generation. The legacy D1 version
+ * remains the fail-open fallback when the provider is absent or unavailable.
+ */
+export async function invalidatePublicCache(
+  db: Database,
+  event: PublicCacheInvalidation,
+): Promise<'early' | 'legacy'> {
+  if (await notifyEarlyRequestInvalidation(event)) return 'early';
+  await writeCacheVersion(db);
+  return 'legacy';
 }
 
 /**

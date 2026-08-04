@@ -1,13 +1,13 @@
 import type { APIRoute } from 'astro';
-import { setOption } from '@/lib/options';
+import { setOptionsBatch } from '@/lib/options';
 import { isAdminActionResponse, requireAdminAction, safeAdminRedirectUrl } from '@/lib/admin-auth';
-import { bumpCacheVersion, purgeSiteCache } from '@/lib/cache';
 
 export const POST: APIRoute = async ({ request, locals }) => {
   const auth = await requireAdminAction(request, 'administrator');
   if (isAdminActionResponse(auth)) return auth;
 
   const formData = await request.formData();
+  const entries: Record<string, string> = {};
 
   // Save each option
   const optionKeys = [
@@ -37,7 +37,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       const customPattern = formData.get('customPattern');
       pattern = customPattern?.toString().trim() || '/archives/{cid}/';
     }
-    await setOption(auth.db, 'permalinkPattern', pattern);
+    entries.permalinkPattern = pattern;
   }
 
   // The reading page uses a radio value plus a page selector, while the
@@ -47,27 +47,27 @@ export const POST: APIRoute = async ({ request, locals }) => {
     const frontPage = frontPageValue.toString() === 'page'
       ? `page:${Math.max(0, Number.parseInt(formData.get('frontPagePage')?.toString() || '0', 10) || 0)}`
       : 'recent';
-    await setOption(auth.db, 'frontPage', frontPage === 'page:0' ? 'recent' : frontPage);
+    entries.frontPage = frontPage === 'page:0' ? 'recent' : frontPage;
   }
 
   // Handle pagePattern — direct text input, save as-is
   const pagePatternValue = formData.get('pagePattern');
   if (pagePatternValue !== null) {
     const pattern = pagePatternValue.toString().trim() || '/{slug}.html';
-    await setOption(auth.db, 'pagePattern', pattern);
+    entries.pagePattern = pattern;
   }
 
   // Handle categoryPattern — direct text input, save as-is
   const categoryPatternValue = formData.get('categoryPattern');
   if (categoryPatternValue !== null) {
     const pattern = categoryPatternValue.toString().trim() || '/category/{slug}/';
-    await setOption(auth.db, 'categoryPattern', pattern);
+    entries.categoryPattern = pattern;
   }
 
   for (const key of optionKeys) {
     const value = formData.get(key);
     if (value !== null) {
-      await setOption(auth.db, key, value.toString());
+      entries[key] = value.toString();
     }
   }
 
@@ -75,7 +75,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   // option keeps its historical uppercase `URL` spelling.
   const commentsRequireUrlValue = formData.get('commentsRequireUrl');
   if (commentsRequireUrlValue !== null) {
-    await setOption(auth.db, 'commentsRequireURL', commentsRequireUrlValue.toString());
+    entries.commentsRequireURL = commentsRequireUrlValue.toString();
   }
 
   const nestingLevelsValue = formData.get('commentsMaxNestingLevels');
@@ -84,21 +84,21 @@ export const POST: APIRoute = async ({ request, locals }) => {
     const nestingLevels = Number.isFinite(parsedNestingLevels)
       ? Math.min(7, Math.max(2, parsedNestingLevels))
       : 5;
-    await setOption(auth.db, 'commentsMaxNestingLevels', String(nestingLevels));
+    entries.commentsMaxNestingLevels = String(nestingLevels);
   }
 
   // Handle commentsPostTimeout: form sends days, store as seconds (Typecho convention)
   const postTimeoutDays = formData.get('commentsPostTimeout');
   if (postTimeoutDays !== null) {
     const days = parseInt(postTimeoutDays.toString(), 10) || 14;
-    await setOption(auth.db, 'commentsPostTimeout', String(days * 24 * 3600));
+    entries.commentsPostTimeout = String(days * 24 * 3600);
   }
 
   // Handle commentsPostInterval: form sends minutes, store as seconds (Typecho convention)
   const postIntervalMinutes = formData.get('commentsPostInterval');
   if (postIntervalMinutes !== null) {
     const minutes = parseInt(postIntervalMinutes.toString(), 10) || 1;
-    await setOption(auth.db, 'commentsPostInterval', String(minutes * 60));
+    entries.commentsPostInterval = String(minutes * 60);
   }
 
   const referer = safeAdminRedirectUrl(
@@ -125,7 +125,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       .map((value) => value.trim().replace(/^\./, '').toLowerCase())
       .filter((value) => selectedValues.some((selected) => selected.toString() === '@other@'))
       .filter((value) => /^[a-z0-9][a-z0-9_-]{0,15}$/.test(value));
-    await setOption(auth.db, 'attachmentTypes', [...selectedTypes, ...customExtensions].join(','));
+    entries.attachmentTypes = [...selectedTypes, ...customExtensions].join(',');
   }
 
   const checkboxFieldsByPage: Record<string, string[]> = {
@@ -154,13 +154,12 @@ export const POST: APIRoute = async ({ request, locals }) => {
     for (const key of pageCheckboxes[1]) {
       const legacyAliasPresent = key === 'commentsRequireURL' && formData.has('commentsRequireUrl');
       if (!formData.has(key) && !legacyAliasPresent) {
-        await setOption(auth.db, key, '0');
+        entries[key] = '0';
       }
     }
   }
 
-  await bumpCacheVersion(auth.db);
-  await purgeSiteCache(auth.options.siteUrl || '');
+  await setOptionsBatch(auth.db, entries);
 
   return new Response(null, {
     status: 302,

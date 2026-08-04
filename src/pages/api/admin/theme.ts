@@ -3,10 +3,9 @@
  * POST: Activate a theme
  */
 import type { APIRoute } from 'astro';
-import { deleteOption, setOption } from '@/lib/options';
+import { mutateOptionsBatch } from '@/lib/options';
 import { isAdminActionResponse, requireAdminAction } from '@/lib/admin-auth';
 import { getThemeConfigDefaults, themeExists, themeHasConfig } from '@/lib/theme';
-import { bumpCacheVersion, purgeSiteCache } from '@/lib/cache';
 
 export const POST: APIRoute = async ({ request, locals }) => {
   const auth = await requireAdminAction(request, 'administrator');
@@ -37,19 +36,13 @@ export const POST: APIRoute = async ({ request, locals }) => {
     }
 
     const previousThemeId = String(auth.options.theme || 'typecho-theme-minimal');
-    if (previousThemeId !== themeId) {
-      // Match Typecho's lifecycle: switching themes removes the old theme's
-      // settings while keeping any settings already saved for the target.
-      await deleteOption(auth.db, `theme:${previousThemeId}`);
-    }
-    await setOption(auth.db, 'theme', themeId);
+    const optionSets: Record<string, string> = { theme: themeId };
+    const optionDeletes: string[] = [];
+    if (previousThemeId !== themeId) optionDeletes.push(`theme:${previousThemeId}`);
     if (previousThemeId !== themeId && themeHasConfig(themeId) && !auth.options[`theme:${themeId}`]) {
-      await setOption(auth.db, `theme:${themeId}`, JSON.stringify(getThemeConfigDefaults(themeId)));
+      optionSets[`theme:${themeId}`] = JSON.stringify(getThemeConfigDefaults(themeId));
     }
-
-    // Theme change affects all pages
-    await bumpCacheVersion(auth.db);
-    await purgeSiteCache(auth.options.siteUrl || '');
+    await mutateOptionsBatch(auth.db, { set: optionSets, delete: optionDeletes });
 
     return new Response(JSON.stringify({ 
       success: true, 

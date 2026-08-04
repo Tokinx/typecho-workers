@@ -14,6 +14,7 @@ import {
 import { eq, and } from 'drizzle-orm';
 import { env } from 'cloudflare:workers';
 import { publishedPostCondition } from '@/lib/content-visibility';
+import { runEarlyRequestProviders } from '@/lib/early-request';
 
 // Plugin loader registration (generated at build time by plugin-loader.ts).
 // Statically imported so the lazy plugin loader table exists before the first
@@ -80,7 +81,7 @@ async function resolvePaginatedPath(
   return { page, target: `${targetPath}${search}` };
 }
 
-export const onRequest = defineMiddleware(async (context, next) => {
+const coreMiddleware = defineMiddleware(async (context, next) => {
   const url = new URL(context.request.url);
   const path = url.pathname;
 
@@ -176,6 +177,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
   const hasAuth = hasAuthCookies(context.request.headers.get('cookie'));
   const isCacheable =
     options.cacheEnabled &&
+    !context.locals._typechoEarlyCacheManaged &&
     isGetRequest &&
     !hasAuth &&
     !path.startsWith('/admin') &&
@@ -367,6 +369,16 @@ export const onRequest = defineMiddleware(async (context, next) => {
 
   return response;
 });
+
+export const onRequest = defineMiddleware((context, next) => runEarlyRequestProviders({
+  request: context.request,
+  url: context.url,
+  locals: context.locals,
+  env: env as unknown as Record<string, unknown>,
+  waitUntil: context.locals.cfContext
+    ? promise => context.locals.cfContext!.waitUntil(promise)
+    : undefined,
+}, () => coreMiddleware(context, next) as Promise<Response>));
 
 /** Merge a comma-separated Vary header with additional fields, deduped. */
 function mergeVary(existing: string | null, additions: string[]): string {

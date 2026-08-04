@@ -83,7 +83,7 @@ describe('admin plugin config page', () => {
     expect(pluginSource).toContain('ctx.activatedPlugins.has(reg.pluginId)');
   });
 
-  it('bumps cache version when legacy Astro admin pages save config-like choices', () => {
+  it('uses batched option writes and lifecycle sync in legacy Astro admin pages', () => {
     const pluginConfigSource = readFileSync(
       join(process.cwd(), 'src/pages/admin/plugin-config.astro'),
       'utf-8',
@@ -97,10 +97,14 @@ describe('admin plugin config page', () => {
       'utf-8',
     );
 
-    expect(pluginConfigSource).toContain('bumpCacheVersion(ctx.db)');
-    expect(pluginConfigSource).toContain('purgeSiteCache(options.siteUrl || \'\')');
-    expect(pluginsSource).toContain('bumpCacheVersion(db)');
-    expect(themesSource).toContain('bumpCacheVersion(ctx.db)');
+    expect(pluginConfigSource).toContain('notifyEarlyRequestLifecycle(pluginId');
+    expect(pluginConfigSource).not.toContain('bumpCacheVersion(ctx.db)');
+    expect(pluginsSource).toContain('mutateOptionsBatch(db');
+    expect(pluginsSource).toContain("type: 'deactivate'");
+    expect(pluginsSource).toContain("type: 'activate'");
+    expect(pluginsSource).not.toContain('bumpCacheVersion(db)');
+    expect(themesSource).toContain('mutateOptionsBatch(ctx.db');
+    expect(themesSource).not.toContain('bumpCacheVersion(ctx.db)');
   });
 
   it('does not expose configurable WebDAV access rules', () => {

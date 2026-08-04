@@ -22,6 +22,11 @@ migrations_dir = "drizzle"
 binding = "BUCKET"
 bucket_name = "typecho-cf-uploads"
 
+# Optional: required by the Edge Cache plugin for cross-PoP L2 caching.
+[[kv_namespaces]]
+binding = "TYPECHO_CACHE"
+id = "<YOUR_KV_NAMESPACE_ID>"
+
 [observability]
 [observability.logs]
 enabled = true

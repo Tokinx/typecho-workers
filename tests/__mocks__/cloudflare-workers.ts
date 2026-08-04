@@ -37,6 +37,7 @@ export const caches = {
 export const env = {
   DB: null as any,
   BUCKET: null as any,
+  TYPECHO_CACHE: null as any,
   PBKDF2_ITERATIONS: undefined as string | number | undefined,
   PASSWORD_PEPPER: undefined as string | undefined,
 };

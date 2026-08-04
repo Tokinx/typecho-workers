@@ -12,6 +12,7 @@ import {
   getOption,
   setOption,
   setOptionsBatch,
+  mutateOptionsBatch,
   deleteOption,
   computeUrls,
   ensureSecret,
@@ -127,6 +128,18 @@ describe('setOptionsBatch()', () => {
     expect(await getOption(db, 'title')).toBe('Batch title');
     expect(await getOption(db, 'pageSize')).toBe('12');
     expect(await getOption(db, 'cacheVersion')).toBeTruthy();
+  });
+
+  it('advances cacheVersion exactly once for a multi-key mutation', async () => {
+    const db = await createOptionsTestDb();
+    await db.insert(schema.options).values({ name: 'cacheVersion', user: 0, value: '40' });
+
+    await mutateOptionsBatch(db, {
+      set: { title: 'One logical save', pageSize: '15' },
+      delete: ['unusedOption'],
+    });
+
+    expect(await getOption(db, 'cacheVersion')).toBe('41');
   });
 });
 

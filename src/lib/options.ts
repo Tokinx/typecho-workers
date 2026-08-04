@@ -11,6 +11,7 @@ import {
   advanceOptionsSnapshotGeneration,
   getOptionsSnapshotGeneration,
 } from '@/lib/options-snapshot-generation';
+import { notifyEarlyRequestInvalidation } from '@/lib/early-request';
 
 export interface SiteOptions {
   theme: string;
@@ -328,6 +329,13 @@ export async function setOption(db: Database, name: string, value: string, userI
     resetCacheVersionMemo();
   }
   invalidateOptionsSnapshot(db);
+  if (name !== 'cacheVersion') {
+    await notifyEarlyRequestInvalidation({
+      reason: 'option-set',
+      domains: ['all'],
+      ...(userId === 0 ? { options: { [name]: value } } : {}),
+    });
+  }
 }
 
 /**
@@ -347,6 +355,13 @@ export async function deleteOption(db: Database, name: string, userId = 0): Prom
     resetCacheVersionMemo();
   }
   invalidateOptionsSnapshot(db);
+  if (name !== 'cacheVersion') {
+    await notifyEarlyRequestInvalidation({
+      reason: 'option-delete',
+      domains: ['all'],
+      ...(userId === 0 ? { options: { [name]: undefined } } : {}),
+    });
+  }
 }
 
 /**
@@ -364,8 +379,24 @@ export async function setOptionsBatch(
   entries: Record<string, string>,
   userId = 0,
 ): Promise<void> {
+  await mutateOptionsBatch(db, { set: entries }, userId);
+}
+
+export interface OptionMutations {
+  set?: Record<string, string>;
+  delete?: string[];
+}
+
+/** Apply option upserts/deletes and advance cacheVersion once. */
+export async function mutateOptionsBatch(
+  db: Database,
+  mutations: OptionMutations,
+  userId = 0,
+): Promise<void> {
+  const entries = mutations.set || {};
   const keys = Object.keys(entries);
-  if (keys.length === 0) return;
+  const deleteKeys = [...new Set(mutations.delete || [])].filter(name => !keys.includes(name));
+  if (keys.length === 0 && deleteKeys.length === 0) return;
   const statements = keys.map((name) =>
     db
       .insert(schema.options)
@@ -375,12 +406,28 @@ export async function setOptionsBatch(
         set: { value: entries[name] },
       })
   );
+  for (const name of deleteKeys) {
+    statements.push(db.delete(schema.options).where(and(
+      eq(schema.options.name, name),
+      eq(schema.options.user, userId),
+    )) as any);
+  }
   statements.push(cacheVersionUpsert(db));
   await executeOptionBatch(db, statements);
   // The batch wrote a new version without going through bumpCacheVersion().
   // Force the next local read to observe it instead of serving the old memo.
   resetCacheVersionMemo();
   invalidateOptionsSnapshot(db);
+  await notifyEarlyRequestInvalidation({
+    reason: 'options-batch',
+    domains: ['all'],
+    ...(userId === 0 ? {
+      options: {
+        ...Object.fromEntries(deleteKeys.map(name => [name, undefined])),
+        ...entries,
+      },
+    } : {}),
+  });
 }
 
 /**

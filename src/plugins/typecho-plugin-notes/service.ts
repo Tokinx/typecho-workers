@@ -1,7 +1,7 @@
 import { schema } from 'typecho/db';
 import type { Database } from 'typecho/db';
 import { buildPermalink, renderMarkdown } from 'typecho/plugin-sdk';
-import { bumpCacheVersion, purgeContentCache } from '@/lib/cache';
+import { invalidatePublicCache } from '@/lib/cache';
 import { getClientIp } from '@/lib/context';
 import { renderCommentText } from '@/lib/markdown';
 import { parseAttachmentMeta } from '@/lib/attachment';
@@ -571,6 +571,9 @@ async function createNote(body: unknown, context: NotesActionContext): Promise<R
   const cid = inserted[0]?.cid;
   if (!cid) return jsonError(500, '笔记创建失败');
   await synchronizeNoteTopics(context.db, cid, topicMids);
+  if (input.status === 'publish') {
+    await invalidatePublicCache(context.db, { reason: 'note-create', domains: ['home', 'note'] });
+  }
   return jsonOk({ success: true, cid, topics: topicMids });
 }
 
@@ -580,7 +583,7 @@ async function updateNote(body: Record<string, unknown>, context: NotesActionCon
   const input = normalizeNoteInput(body);
   const existing = await context.db.query.contents.findFirst({
     where: and(eq(schema.contents.cid, cid), eq(schema.contents.type, NOTE_TYPE)),
-    columns: { cid: true },
+    columns: { cid: true, status: true },
   });
   if (!existing) return jsonError(404, '笔记不存在');
   const topicMids = await resolveInputTopics(context.db, input);
@@ -591,6 +594,9 @@ async function updateNote(body: Record<string, unknown>, context: NotesActionCon
     modified: Math.floor(Date.now() / 1000),
   }).where(and(eq(schema.contents.cid, cid), eq(schema.contents.type, NOTE_TYPE)));
   await synchronizeNoteTopics(context.db, cid, topicMids);
+  if (existing.status === 'publish' || input.status === 'publish') {
+    await invalidatePublicCache(context.db, { reason: 'note-update', domains: ['home', 'note'] });
+  }
   return jsonOk({ success: true, topics: topicMids });
 }
 
@@ -599,7 +605,7 @@ async function deleteNote(body: Record<string, unknown>, context: NotesActionCon
   if (!cid) return jsonError(400, '缺少笔记 cid');
   const existing = await context.db.query.contents.findFirst({
     where: and(eq(schema.contents.cid, cid), eq(schema.contents.type, NOTE_TYPE)),
-    columns: { cid: true },
+    columns: { cid: true, status: true },
   });
   if (!existing) return jsonError(404, '笔记不存在');
   const oldTopics = await context.db.select({ mid: schema.relationships.mid }).from(schema.relationships)
@@ -612,6 +618,9 @@ async function deleteNote(body: Record<string, unknown>, context: NotesActionCon
     context.db.delete(schema.contents).where(and(eq(schema.contents.cid, cid), eq(schema.contents.type, NOTE_TYPE))),
   ]);
   await recountTopics(context.db, oldTopics.map(topic => topic.mid));
+  if (existing.status === 'publish') {
+    await invalidatePublicCache(context.db, { reason: 'note-delete', domains: ['home', 'note'] });
+  }
   return jsonOk({ success: true });
 }
 
@@ -638,7 +647,7 @@ async function replyToNoteComment(
 
   const note = await context.db.query.contents.findFirst({
     where: and(eq(schema.contents.cid, cid), eq(schema.contents.type, NOTE_TYPE)),
-    columns: { cid: true, authorId: true },
+    columns: { cid: true, authorId: true, status: true, created: true },
   });
   if (!note) return jsonError(404, '笔记不存在');
   if (parent > 0) {
@@ -677,11 +686,9 @@ async function replyToNoteComment(
   const coid = inserted[0]?.coid;
   if (!coid) return jsonError(500, '回复保存失败');
 
-  const siteUrl = context.options?.siteUrl || '';
-  await Promise.all([
-    bumpCacheVersion(context.db),
-    purgeContentCache(siteUrl, cid),
-  ]);
+  if ((note.status === 'publish' || note.status === 'hidden') && (note.created || 0) <= now) {
+    await invalidatePublicCache(context.db, { reason: 'note-comment', domains: ['all'] });
+  }
   return jsonOk({ success: true, coid });
 }
 

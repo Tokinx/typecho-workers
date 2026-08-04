@@ -51,6 +51,9 @@ wrangler d1 create typecho-cf-db
 
 # Create R2 bucket
 wrangler r2 bucket create typecho-cf-uploads
+
+# Optional: create the Edge Cache plugin's KV L2 namespace
+wrangler kv namespace create TYPECHO_CACHE
 ```
 
 **2. Update `wrangler.toml`**
@@ -62,6 +65,14 @@ Replace `database_id` with the actual D1 database ID from the previous step:
 binding = "DB"
 database_name = "typecho-cf-db"
 database_id = "your-actual-database-id"
+```
+
+To enable the Edge Cache plugin, add the KV namespace ID returned by Wrangler:
+
+```toml
+[[kv_namespaces]]
+binding = "TYPECHO_CACHE"
+id = "your-kv-namespace-id"
 ```
 
 **3. Build and deploy**

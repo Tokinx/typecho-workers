@@ -82,7 +82,41 @@ interface CacheStorage {
 interface CloudflareEnv {
   DB: D1Database;
   BUCKET: R2Bucket;
+  TYPECHO_CACHE?: KVNamespace;
   [key: string]: unknown;
+}
+
+interface KVNamespaceGetOptions<Type extends 'text' | 'json' | 'arrayBuffer' | 'stream'> {
+  type: Type;
+  cacheTtl?: number;
+}
+
+interface KVNamespacePutOptions {
+  expirationTtl?: number;
+  metadata?: unknown;
+}
+
+interface KVNamespace {
+  get(key: string): Promise<string | null>;
+  get(key: string, options: KVNamespaceGetOptions<'text'>): Promise<string | null>;
+  get<T = unknown>(key: string, options: KVNamespaceGetOptions<'json'>): Promise<T | null>;
+  get(key: string, options: KVNamespaceGetOptions<'arrayBuffer'>): Promise<ArrayBuffer | null>;
+  put(key: string, value: string | ArrayBuffer | ArrayBufferView | ReadableStream, options?: KVNamespacePutOptions): Promise<void>;
+  delete(key: string): Promise<void>;
+}
+
+interface HTMLRewriterElement {
+  getAttribute(name: string): string | null;
+  setAttribute(name: string, value: string): HTMLRewriterElement;
+}
+
+interface HTMLRewriterElementHandler {
+  element(element: HTMLRewriterElement): void | Promise<void>;
+}
+
+declare class HTMLRewriter {
+  on(selector: string, handler: HTMLRewriterElementHandler): HTMLRewriter;
+  transform(response: Response): Response;
 }
 
 // Module declaration for cloudflare:workers env typing
@@ -111,6 +145,8 @@ declare namespace App {
      * middleware.ts. Read by page-data prepareArchive* functions.
      */
     _page?: number;
+    /** Set by an early provider when it owns page-cache persistence. */
+    _typechoEarlyCacheManaged?: boolean;
     /** Astro Cloudflare adapter attaches this at runtime. */
     runtime?: {
       ctx?: { waitUntil?(promise: Promise<unknown>): void };

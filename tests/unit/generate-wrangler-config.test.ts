@@ -14,6 +14,7 @@ const env: CloudflareBuildEnv = {
   TYPECHO_CF_D1_DATABASE_ID: 'f6ee8b53-9c4b-4d80-9765-28f9295bc3e3',
   TYPECHO_CF_D1_DATABASE_NAME: 'typecho-cf-db',
   TYPECHO_CF_R2_BUCKET_NAME: 'typecho-cf-uploads',
+  TYPECHO_CF_KV_NAMESPACE_ID: 'c4f447d3482d4f1fa7f713c86e35d438',
   TYPECHO_CF_PBKDF2_ITERATIONS: '50000',
 };
 
@@ -33,9 +34,19 @@ describe('Cloudflare build Wrangler config', () => {
     expect(config).toContain('compatibility_flags = [ "nodejs_compat" ]');
     expect(config).toContain('binding = "DB"');
     expect(config).toContain('binding = "BUCKET"');
+    expect(config).toContain('binding = "TYPECHO_CACHE"');
+    expect(config).toContain('id = "c4f447d3482d4f1fa7f713c86e35d438"');
     expect(config).toContain('PBKDF2_ITERATIONS = "50000"');
     expect(config).not.toContain('PASSWORD_PEPPER');
     expect(config).not.toContain('INSTALL_TOKEN');
+  });
+
+  it('omits the optional KV binding when no namespace ID is configured', () => {
+    const config = generateWranglerToml({
+      ...env,
+      TYPECHO_CF_KV_NAMESPACE_ID: undefined,
+    });
+    expect(config).not.toContain('TYPECHO_CACHE');
   });
 
   it('fails before writing a config when a required build variable is absent', () => {

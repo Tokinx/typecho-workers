@@ -1,0 +1,75 @@
+{
+  "name": "typecho-plugin-cache",
+  "version": "1.0.0",
+  "description": "Cloudflare Cache API + KV edge page cache and CDN URL rewriting for Typecho-CF.",
+  "keywords": ["typecho", "plugin", "cache", "kv", "cdn"],
+  "author": "eslizn",
+  "license": "MIT",
+  "type": "module",
+  "main": "index.ts",
+  "typecho": {
+    "plugin": {
+      "id": "typecho-plugin-cache",
+      "name": "Edge Cache",
+      "description": "Cache API L1、KV L2 与 D1 L3 三级页面缓存，并提供静态资源 CDN 改写",
+      "adminPage": "cache",
+      "earlyRequest": true,
+      "author": "eslizn",
+      "version": "1.0.0",
+      "license": "MIT",
+      "tags": ["cache", "kv", "cdn"],
+      "config": {
+        "cacheScopes": {
+          "type": "checkbox",
+          "label": "缓存范围",
+          "default": ["home", "post", "page", "note", "archive", "other"],
+          "options": {
+            "home": "首页与分页",
+            "post": "文章",
+            "page": "独立页面",
+            "note": "笔记",
+            "archive": "分类、标签、作者与搜索",
+            "other": "其他公开 HTML"
+          },
+          "multiline": true
+        },
+        "l1Ttl": {
+          "type": "select",
+          "label": "L1 缓存时间",
+          "default": "300",
+          "options": { "60": "1 分钟", "300": "5 分钟", "600": "10 分钟" }
+        },
+        "listTtl": {
+          "type": "select",
+          "label": "列表 L2 缓存时间",
+          "default": "300",
+          "options": { "60": "1 分钟", "300": "5 分钟", "600": "10 分钟" }
+        },
+        "detailTtl": {
+          "type": "select",
+          "label": "详情 L2 缓存时间",
+          "default": "3600",
+          "options": { "900": "15 分钟", "1800": "30 分钟", "3600": "1 小时" }
+        },
+        "staticCdnUrl": {
+          "type": "text",
+          "label": "静态文件 CDN URL",
+          "default": "",
+          "description": "例如 https://cdn.example.com，可包含固定路径前缀"
+        },
+        "staticExtensions": {
+          "type": "text",
+          "label": "静态文件扩展名",
+          "default": "jpg,jpeg,png,gif,webp,avif,svg,ico,css,js,mjs,woff,woff2,ttf,mp3,mp4,zip,rar,7z,pdf",
+          "description": "使用英文逗号分隔"
+        },
+        "avatarCdnUrl": {
+          "type": "text",
+          "label": "Avatar CDN URL",
+          "default": "",
+          "description": "替换 Gravatar /avatar/ 地址"
+        }
+      }
+    }
+  }
+}

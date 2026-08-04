@@ -13,7 +13,6 @@ import {
   loadThemeConfig,
   themeHasConfig,
 } from '@/lib/theme';
-import { bumpCacheVersion, purgeSiteCache } from '@/lib/cache';
 
 function errorResponse(message: string, status: number): Response {
   return new Response(JSON.stringify({ error: message }), {
@@ -64,8 +63,6 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   await setOption(auth.db, `theme:${theme.id}`, JSON.stringify(settings));
-  await bumpCacheVersion(auth.db);
-  await purgeSiteCache(auth.options.siteUrl || '');
 
   return new Response(JSON.stringify({
     success: true,

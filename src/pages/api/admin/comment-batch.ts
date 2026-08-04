@@ -2,6 +2,7 @@ import type { APIRoute } from 'astro';
 import { isAdminActionResponse, requireAdminAction, safeAdminRedirectUrl } from '@/lib/admin-auth';
 import {
   applyCommentActions,
+  commentActionAffectsPublicCache,
   deleteSpamCommentsForUser,
   getModeratableComments,
   normalizeCommentAction,
@@ -21,7 +22,6 @@ async function handler({ request, locals, url }: { request: Request; locals: App
   // Special action: delete all spam
   if (action === 'delete-spam') {
     await deleteSpamCommentsForUser(auth.db, auth.user);
-    await purgeCommentModerationCache(auth.db, auth.options);
 
     const referer = safeAdminRedirectUrl(
       request.headers.get('referer'),
@@ -58,8 +58,9 @@ async function handler({ request, locals, url }: { request: Request; locals: App
   if (comments instanceof Response) return comments;
   await applyCommentActions(pluginCtx, auth.db, comments, normalizedAction, auth.options);
 
-  // Comments affect post pages and feeds
-  await purgeCommentModerationCache(auth.db, auth.options);
+  if (comments.some(comment => commentActionAffectsPublicCache(comment, normalizedAction))) {
+    await purgeCommentModerationCache(auth.db, auth.options);
+  }
 
   const referer = safeAdminRedirectUrl(
     request.headers.get('referer'),

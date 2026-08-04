@@ -5,8 +5,9 @@ import { canManageResource } from '@/lib/auth';
 import { isAdminActionResponse, requireAdminAction } from '@/lib/admin-auth';
 import { buildPermalink, generateSlug } from '@/lib/content';
 import { applyFilter, doHook } from '@/lib/plugin';
-import { bumpCacheVersion } from '@/lib/cache';
+import { invalidatePublicCache } from '@/lib/cache';
 import { jsonError, jsonOk } from '@/lib/http';
+import { canViewContent } from '@/lib/content-visibility';
 import { parseTrackbackUrls, sendTrackbacks, TrackbackInputError } from '@/lib/trackback';
 import { eq, and, sql } from 'drizzle-orm';
 
@@ -200,21 +201,21 @@ async function purgeContentAndRelatedCache(
    * being reassigned so the OLD categories/tags see their post lists
    * refresh alongside the new ones.
    */
-  _extraUrls?: { categoryUrls?: string[]; tagUrls?: string[] },
+  extra?: { categoryUrls?: string[]; tagUrls?: string[]; wasPublic?: boolean },
 ) {
   const content = fallbackContent;
 
   // Skip cache work for drafts — they never appear on public pages, so
   // purging index/feed/category URLs is pure waste.
-  const isDraft = content?.type?.endsWith('_draft') || content?.status === 'draft';
-  if (isDraft) {
+  const isPublic = !!content && canViewContent(content, {});
+  if (!isPublic && !extra?.wasPublic) {
     return;
   }
 
   // Every public cache key embeds cacheVersion. A single version bump replaces
   // URL-by-URL purges and avoids loading relationships solely to build keys
   // that the Cache API no longer stores.
-  await bumpCacheVersion(db);
+  await invalidatePublicCache(db, { reason: 'content', domains: ['all'] });
 }
 
 export const POST: APIRoute = async ({ request, locals }) => {
@@ -548,7 +549,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       ...existing,
       type: contentType,
       status,
-    });
+    }, { wasPublic: canViewContent(existing, {}) });
 
     const editUrl = type === 'page' ? `/admin/write-page?cid=${cid}` : `/admin/write-post?cid=${cid}`;
     return new Response(null, {

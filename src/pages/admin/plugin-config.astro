@@ -59,6 +59,7 @@ if (Astro.request.method === 'POST') {
   try {
     const formData = await Astro.request.formData();
     const { setOption } = await import('@/lib/options');
+    const { notifyEarlyRequestLifecycle } = await import('@/lib/early-request');
 
     const settings = parsePluginConfigFormData(configDef, formData);
 
@@ -85,13 +86,13 @@ if (Astro.request.method === 'POST') {
     const finalSettings = validation.settings || settings;
     await setOption(ctx.db, `plugin:${pluginId}`, JSON.stringify(finalSettings));
 
-    // Bump cache version so all Worker isolates pick up the updated config.
-    const { bumpCacheVersion, purgeSiteCache } = await import('@/lib/cache');
-    await bumpCacheVersion(ctx.db);
-    await purgeSiteCache(options.siteUrl || '');
-
     // Update local options cache
     (options as any)[`plugin:${pluginId}`] = JSON.stringify(finalSettings);
+    await notifyEarlyRequestLifecycle(pluginId, {
+      type: 'config',
+      settings: finalSettings,
+      options,
+    });
 
     // Reload config values
     Object.assign(configValues, finalSettings);

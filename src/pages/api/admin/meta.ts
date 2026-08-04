@@ -2,7 +2,7 @@ import type { APIRoute } from 'astro';
 import { schema } from '@/db';
 import { isAdminActionResponse, requireAdminAction } from '@/lib/admin-auth';
 import { generateSlug } from '@/lib/content';
-import { bumpCacheVersion, purgeSiteCache } from '@/lib/cache';
+import { invalidatePublicCache } from '@/lib/cache';
 import { eq, and, sql } from 'drizzle-orm';
 
 export const POST: APIRoute = handler;
@@ -145,8 +145,7 @@ async function handler({ request, locals, url }: { request: Request; locals: App
       ...(type === 'category' ? { parent: categoryParent } : {}),
     });
 
-    await bumpCacheVersion(db);
-    await purgeSiteCache(options.siteUrl || '');
+    await invalidatePublicCache(db, { reason: 'meta-create', domains: ['all'] });
     return new Response(null, { status: 302, headers: { Location: type === 'category' ? categoryRedirect(categoryParent) : redirectTo } });
   }
 
@@ -175,8 +174,7 @@ async function handler({ request, locals, url }: { request: Request; locals: App
 
     await db.update(schema.metas).set(updateData).where(and(eq(schema.metas.mid, mid), eq(schema.metas.type, type)));
 
-    await bumpCacheVersion(db);
-    await purgeSiteCache(options.siteUrl || '');
+    await invalidatePublicCache(db, { reason: 'meta-update', domains: ['all'] });
     return new Response(null, { status: 302, headers: { Location: type === 'category' ? categoryRedirect(categoryParent) : redirectTo } });
   }
 
@@ -204,8 +202,7 @@ async function handler({ request, locals, url }: { request: Request; locals: App
       .set({ order: index + 1 })
       .where(and(eq(schema.metas.mid, id), eq(schema.metas.type, 'category')))));
 
-    await bumpCacheVersion(db);
-    await purgeSiteCache(options.siteUrl || '');
+    await invalidatePublicCache(db, { reason: 'category-sort', domains: ['all'] });
     return new Response(JSON.stringify({ success: 1, message: '分类排序已经完成' }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -283,8 +280,7 @@ async function handler({ request, locals, url }: { request: Request; locals: App
     await db.update(schema.metas).set({ count: Number(count) || 0 })
       .where(and(eq(schema.metas.mid, targetTag.mid), eq(schema.metas.type, 'tag')));
 
-    await bumpCacheVersion(db);
-    await purgeSiteCache(options.siteUrl || '');
+    await invalidatePublicCache(db, { reason: 'tag-merge', domains: ['all'] });
     return new Response(null, { status: 302, headers: { Location: redirectTo } });
   }
 
@@ -366,8 +362,7 @@ async function handler({ request, locals, url }: { request: Request; locals: App
     await db.update(schema.metas).set({ count: Number(count) || 0 })
       .where(and(eq(schema.metas.mid, targetId), eq(schema.metas.type, 'category')));
 
-    await bumpCacheVersion(db);
-    await purgeSiteCache(options.siteUrl || '');
+    await invalidatePublicCache(db, { reason: 'category-merge', domains: ['all'] });
     return new Response(null, { status: 302, headers: { Location: redirectTo } });
   }
 
@@ -453,8 +448,7 @@ async function handler({ request, locals, url }: { request: Request; locals: App
     );
     await runBatch(db, deleteStatements);
 
-    await bumpCacheVersion(db);
-    await purgeSiteCache(options.siteUrl || '');
+    await invalidatePublicCache(db, { reason: 'meta-delete', domains: ['all'] });
     return new Response(null, { status: 302, headers: { Location: redirectTo } });
   }
 
@@ -467,7 +461,6 @@ async function handler({ request, locals, url }: { request: Request; locals: App
     // Set as default category (save to options)
     const { setOption } = await import('@/lib/options');
     await setOption(db, 'defaultCategory', String(mid));
-    await bumpCacheVersion(db);
     return new Response(null, { status: 302, headers: { Location: redirectTo } });
   }
 
@@ -512,7 +505,7 @@ async function handler({ request, locals, url }: { request: Request; locals: App
       }));
     }
 
-    await bumpCacheVersion(db);
+    await invalidatePublicCache(db, { reason: 'meta-refresh', domains: ['all'] });
     return new Response(null, { status: 302, headers: { Location: redirectTo } });
   }
 

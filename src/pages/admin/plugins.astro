@@ -27,8 +27,9 @@ if (Astro.request.method === 'POST') {
     const pluginId = formData.get('plugin') as string;
 
     if (pluginId && (action === 'activate' || action === 'deactivate')) {
-      const { pluginExists, setActivatedPlugins, getPluginConfigDefaults } = await import('@/lib/plugin');
-      const { setOption, deleteOption } = await import('@/lib/options');
+      const { pluginExists, setActivatedPlugins, getPluginConfigDefaults, loadPluginConfig } = await import('@/lib/plugin');
+      const { mutateOptionsBatch } = await import('@/lib/options');
+      const { notifyEarlyRequestLifecycle } = await import('@/lib/early-request');
 
       if (!pluginExists(pluginId) && action !== 'deactivate') {
         message = `插件 "${pluginId}" 不存在`;
@@ -37,6 +38,8 @@ if (Astro.request.method === 'POST') {
         // Get current activated list
         const currentIds = parseActivatedPlugins(options.activatedPlugins as string | undefined);
         const idSet = new Set(currentIds);
+        const optionSets: Record<string, string> = {};
+        const optionDeletes: string[] = [];
 
         if (action === 'activate') {
           idSet.add(pluginId);
@@ -48,8 +51,7 @@ if (Astro.request.method === 'POST') {
               // Only save defaults if no config exists yet
               const existing = options[`plugin:${pluginId}`];
               if (!existing) {
-                await setOption(db, `plugin:${pluginId}`, JSON.stringify(defaults));
-                (options as any)[`plugin:${pluginId}`] = JSON.stringify(defaults);
+                optionSets[`plugin:${pluginId}`] = JSON.stringify(defaults);
               }
             }
           }
@@ -57,11 +59,11 @@ if (Astro.request.method === 'POST') {
           message = `插件 "${pluginId}" 已启用`;
           messageType = 'success';
         } else {
+          await notifyEarlyRequestLifecycle(pluginId, { type: 'deactivate' });
           idSet.delete(pluginId);
 
           // Delete plugin config on deactivation (like PHP Typecho's Edit::deactivate)
-          await deleteOption(db, `plugin:${pluginId}`);
-          delete (options as any)[`plugin:${pluginId}`];
+          optionDeletes.push(`plugin:${pluginId}`);
 
           message = `插件 "${pluginId}" 已禁用`;
           messageType = 'success';
@@ -71,13 +73,26 @@ if (Astro.request.method === 'POST') {
         const newIds = Array.from(idSet);
         await setActivatedPlugins(ctx, newIds);
         const serialized = JSON.stringify(newIds);
-        await setOption(db, 'activatedPlugins', serialized);
+        optionSets.activatedPlugins = serialized;
+        await mutateOptionsBatch(db, { set: optionSets, delete: optionDeletes });
+        for (const [name, value] of Object.entries(optionSets)) (options as any)[name] = value;
+        for (const name of optionDeletes) delete (options as any)[name];
         (options as any).activatedPlugins = serialized;
 
-        // Bump cache version so public pages and other isolates see plugin changes.
-        const { bumpCacheVersion, purgeSiteCache } = await import('@/lib/cache');
-        await bumpCacheVersion(db);
-        await purgeSiteCache(options.siteUrl || '');
+        if (action === 'activate') {
+          const settings = options[`plugin:${pluginId}`]
+            ? loadPluginConfig(options, pluginId)
+            : getPluginConfigDefaults(pluginId);
+          try {
+            await notifyEarlyRequestLifecycle(pluginId, {
+              type: 'activate',
+              settings,
+              options,
+            });
+          } catch (error) {
+            console.error(`[plugins] Early provider activation sync failed for ${pluginId}:`, error);
+          }
+        }
       }
     }
   } catch (e) {

@@ -46,9 +46,6 @@ if (Astro.request.method === 'POST') {
 
     const { setOption } = await import('@/lib/options');
     await setOption(ctx.db, `theme:${theme.id}`, JSON.stringify(sanitized));
-    const { bumpCacheVersion, purgeSiteCache } = await import('@/lib/cache');
-    await bumpCacheVersion(ctx.db);
-    await purgeSiteCache(options.siteUrl || '');
     (options as any)[`theme:${theme.id}`] = JSON.stringify(sanitized);
     Object.assign(configValues, sanitized);
     message = '外观设置已经保存';

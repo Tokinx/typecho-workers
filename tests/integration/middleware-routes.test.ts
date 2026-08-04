@@ -50,6 +50,7 @@ vi.mock('cloudflare:workers', () => ({
   env: {
     get DB() { return d1Stub; },
     BUCKET: { get: vi.fn(), put: vi.fn(), delete: vi.fn(), list: vi.fn() },
+    TYPECHO_CACHE: null as any,
   },
   caches: { default: { match: vi.fn(), put: vi.fn(), delete: vi.fn() } },
 }));
@@ -57,6 +58,8 @@ vi.mock('cloudflare:workers', () => ({
 import { schema } from '@/db';
 import { advanceOptionsSnapshotGeneration } from '@/lib/options-snapshot-generation';
 import { onRequest } from '@/middleware';
+import { env as workerEnv } from 'cloudflare:workers';
+import { earlyRequestProvider, resetCacheProviderForTests } from '@/plugins/typecho-plugin-cache/cache';
 
 const SITE = 'http://localhost:4321';
 
@@ -198,6 +201,69 @@ describe('Middleware: no redirect loops when DB is ready', () => {
     expect(response.status).toBe(200);
     expect(d1Stub.prepare).not.toHaveBeenCalled();
     expect(d1Stub.batch).not.toHaveBeenCalled();
+  });
+
+  it('serves a warm early-provider L1 hit before any D1 bootstrap work', async () => {
+    const values = new Map<string, string>();
+    const kv = {
+      get: vi.fn(async (key: string, options?: { type?: string }) => {
+        const value = values.get(key);
+        if (value === undefined) return null;
+        return options?.type === 'json' ? JSON.parse(value) : value;
+      }),
+      put: vi.fn(async (key: string, value: string) => { values.set(key, value); }),
+      delete: vi.fn(async (key: string) => { values.delete(key); }),
+    };
+    workerEnv.TYPECHO_CACHE = kv as any;
+    resetCacheProviderForTests();
+    await earlyRequestProvider.lifecycle!({
+      type: 'activate',
+      settings: {
+        cacheScopes: ['other'],
+        l1Ttl: '300',
+        listTtl: '300',
+        detailTtl: '3600',
+        staticCdnUrl: '',
+        staticExtensions: 'css,js,png',
+        avatarCdnUrl: '',
+      },
+      options: {
+        cacheEnabled: 1,
+        siteUrl: SITE,
+        permalinkPattern: '/archives/{cid}/',
+        pagePattern: '/{slug}.html',
+      },
+    });
+
+    d1Stub = createD1Stub(testDb);
+    resetIsolateBoot();
+    const url = `${SITE}/early-zero-d1`;
+    const makeContext = () => ({
+      request: new Request(url),
+      url: new URL(url),
+      locals: {},
+      redirect: (path: string) => new Response(null, { status: 302, headers: { Location: path } }),
+      rewrite: (path: string) => new Response(null, { status: 302, headers: { Location: path } }),
+    } as any);
+    const next = vi.fn(async () => new Response('<html>cached before D1</html>', {
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    }));
+    expect((await onRequest(makeContext(), next) as Response).headers.get('X-Typecho-Cache')).toBe('MISS');
+
+    resetIsolateBoot();
+    d1Stub = {
+      prepare: vi.fn(() => { throw new Error('L1 hit must not touch D1'); }),
+      batch: vi.fn(() => { throw new Error('L1 hit must not touch D1'); }),
+    } as any;
+    const hit = await onRequest(makeContext(), next) as Response;
+    expect(hit.headers.get('X-Typecho-Cache')).toBe('L1');
+    expect(await hit.text()).toContain('cached before D1');
+    expect(d1Stub.prepare).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledOnce();
+
+    await earlyRequestProvider.lifecycle!({ type: 'deactivate' });
+    workerEnv.TYPECHO_CACHE = null as any;
+    resetCacheProviderForTests();
   });
 
   // ── Error handling: specific error types ──

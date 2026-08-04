@@ -3,10 +3,10 @@
  * POST: Activate/deactivate a plugin
  */
 import type { APIRoute } from 'astro';
-import { setOption, deleteOption } from '@/lib/options';
+import { mutateOptionsBatch } from '@/lib/options';
 import { isAdminActionResponse, requireAdminAction } from '@/lib/admin-auth';
-import { pluginExists, parseActivatedPlugins, setActivatedPlugins, getAvailablePlugins, pluginHasConfig, getPluginConfigDefaults } from '@/lib/plugin';
-import { bumpCacheVersion, purgeSiteCache } from '@/lib/cache';
+import { pluginExists, parseActivatedPlugins, setActivatedPlugins, getAvailablePlugins, pluginHasConfig, getPluginConfigDefaults, loadPluginConfig } from '@/lib/plugin';
+import { notifyEarlyRequestLifecycle } from '@/lib/early-request';
 import { jsonError, jsonOk } from '@/lib/http';
 
 export const POST: APIRoute = async ({ request, locals }) => {
@@ -35,6 +35,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
     // Get current activated list
     const currentIds = parseActivatedPlugins(auth.options.activatedPlugins as string | undefined);
     const idSet = new Set(currentIds);
+    const optionSets: Record<string, string> = {};
+    const optionDeletes: string[] = [];
 
     if (action === 'activate') {
       idSet.add(pluginId);
@@ -45,25 +47,46 @@ export const POST: APIRoute = async ({ request, locals }) => {
         if (Object.keys(defaults).length > 0) {
           const existing = auth.options[`plugin:${pluginId}`];
           if (!existing) {
-            await setOption(auth.db, `plugin:${pluginId}`, JSON.stringify(defaults));
+            optionSets[`plugin:${pluginId}`] = JSON.stringify(defaults);
           }
         }
       }
     } else {
+      try {
+        await notifyEarlyRequestLifecycle(pluginId, { type: 'deactivate' });
+      } catch (error) {
+        return jsonError(503, error instanceof Error ? error.message : '停用插件前清理边缘缓存失败');
+      }
       idSet.delete(pluginId);
 
       // Delete plugin config on deactivation
-      await deleteOption(auth.db, `plugin:${pluginId}`);
+      optionDeletes.push(`plugin:${pluginId}`);
     }
 
     // Save to DB and update runtime state
     const newIds = Array.from(idSet);
     await setActivatedPlugins(auth.pluginCtx, newIds);
-    await setOption(auth.db, 'activatedPlugins', JSON.stringify(newIds));
+    optionSets.activatedPlugins = JSON.stringify(newIds);
+    await mutateOptionsBatch(auth.db, { set: optionSets, delete: optionDeletes });
 
-    // Plugin changes affect page rendering
-    await bumpCacheVersion(auth.db);
-    await purgeSiteCache(auth.options.siteUrl || '');
+    if (action === 'activate') {
+      const settings = auth.options[`plugin:${pluginId}`]
+        ? loadPluginConfig(auth.options, pluginId)
+        : getPluginConfigDefaults(pluginId);
+      try {
+        await notifyEarlyRequestLifecycle(pluginId, {
+          type: 'activate',
+          settings,
+          options: {
+            ...auth.options,
+            [`plugin:${pluginId}`]: JSON.stringify(settings),
+            activatedPlugins: JSON.stringify(newIds),
+          },
+        });
+      } catch (error) {
+        console.error(`[plugin] Early provider activation sync failed for ${pluginId}:`, error);
+      }
+    }
 
     return jsonOk({
       success: true,

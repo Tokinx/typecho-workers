@@ -7,7 +7,7 @@ import type { APIRoute } from 'astro';
 import { setOption } from '@/lib/options';
 import { isAdminActionResponse, requireAdminAction } from '@/lib/admin-auth';
 import { applyFilter, getPlugin, pluginHasConfig, isPluginActive, loadPluginConfig, getPluginConfigDefaults, type PluginConfigField } from '@/lib/plugin';
-import { bumpCacheVersion, purgeSiteCache } from '@/lib/cache';
+import { notifyEarlyRequestLifecycle } from '@/lib/early-request';
 import { PLUGIN_CONFIG_TIMEOUT_MS } from '@/lib/constants';
 import { withTimeout } from '@/lib/timeout';
 
@@ -208,10 +208,21 @@ export const POST: APIRoute = async ({ request }) => {
 
     const finalSettings = validation.settings || restored;
     await setOption(auth.db, `plugin:${pluginId}`, JSON.stringify(finalSettings));
-
-    // Purge cached options so subsequent requests read the updated config
-    await bumpCacheVersion(auth.db);
-    await purgeSiteCache(auth.options.siteUrl || '');
+    try {
+      await notifyEarlyRequestLifecycle(pluginId, {
+        type: 'config',
+        settings: finalSettings,
+        options: { ...auth.options, [`plugin:${pluginId}`]: JSON.stringify(finalSettings) },
+      });
+    } catch (error) {
+      console.error(`[plugin-config] Early provider sync failed for ${pluginId}:`, error);
+      return new Response(JSON.stringify({
+        error: '设置已保存到 D1，但边缘缓存配置同步失败，请重试保存',
+      }), {
+        status: 502,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
 
     return new Response(JSON.stringify({
       success: true,
