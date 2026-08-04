@@ -647,7 +647,7 @@ async function replyToNoteComment(
 
   const note = await context.db.query.contents.findFirst({
     where: and(eq(schema.contents.cid, cid), eq(schema.contents.type, NOTE_TYPE)),
-    columns: { cid: true, authorId: true, status: true, created: true },
+    columns: { cid: true, authorId: true },
   });
   if (!note) return jsonError(404, '笔记不存在');
   if (parent > 0) {
@@ -686,9 +686,6 @@ async function replyToNoteComment(
   const coid = inserted[0]?.coid;
   if (!coid) return jsonError(500, '回复保存失败');
 
-  if ((note.status === 'publish' || note.status === 'hidden') && (note.created || 0) <= now) {
-    await invalidatePublicCache(context.db, { reason: 'note-comment', domains: ['all'] });
-  }
   return jsonOk({ success: true, coid });
 }
 

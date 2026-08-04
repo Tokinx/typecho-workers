@@ -2,11 +2,9 @@ import type { APIRoute } from 'astro';
 import { isAdminActionResponse, requireAdminAction, safeAdminRedirectUrl } from '@/lib/admin-auth';
 import {
   applyCommentActions,
-  commentActionAffectsPublicCache,
   deleteSpamCommentsForUser,
   getModeratableComments,
   normalizeCommentAction,
-  purgeCommentModerationCache,
 } from '@/lib/comment-moderation';
 
 export const GET: APIRoute = async () =>
@@ -57,10 +55,6 @@ async function handler({ request, locals, url }: { request: Request; locals: App
   const comments = await getModeratableComments(auth.db, coids, auth.user);
   if (comments instanceof Response) return comments;
   await applyCommentActions(pluginCtx, auth.db, comments, normalizedAction, auth.options);
-
-  if (comments.some(comment => commentActionAffectsPublicCache(comment, normalizedAction))) {
-    await purgeCommentModerationCache(auth.db, auth.options);
-  }
 
   const referer = safeAdminRedirectUrl(
     request.headers.get('referer'),

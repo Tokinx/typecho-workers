@@ -9,7 +9,6 @@ import * as schema from '@/db/schema';
 import { createTestDb, type TestDatabase } from '../helpers';
 import {
   canModerateComment,
-  commentActionAffectsPublicCache,
   deleteSpamCommentsForUser,
 } from '@/lib/comment-moderation';
 import { eq } from 'drizzle-orm';
@@ -118,15 +117,5 @@ describe('deleteSpamCommentsForUser (G7-4)', () => {
 
     const removed = await deleteSpamCommentsForUser(testDb as any, stranger);
     expect(removed).toBe(0);
-  });
-});
-
-describe('comment cache visibility', () => {
-  it('invalidates only when moderation changes public visibility', () => {
-    expect(commentActionAffectsPublicCache({ status: 'waiting' } as any, 'approved')).toBe(true);
-    expect(commentActionAffectsPublicCache({ status: 'approved' } as any, 'waiting')).toBe(true);
-    expect(commentActionAffectsPublicCache({ status: 'approved' } as any, 'delete')).toBe(true);
-    expect(commentActionAffectsPublicCache({ status: 'spam' } as any, 'delete')).toBe(false);
-    expect(commentActionAffectsPublicCache({ status: 'waiting' } as any, 'spam')).toBe(false);
   });
 });

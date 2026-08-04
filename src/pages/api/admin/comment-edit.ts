@@ -2,7 +2,7 @@ import type { APIRoute } from 'astro';
 import { eq, sql } from 'drizzle-orm';
 import { schema } from '@/db';
 import { isAdminActionResponse, requireAdminAction } from '@/lib/admin-auth';
-import { getModeratableComment, purgeCommentModerationCache } from '@/lib/comment-moderation';
+import { getModeratableComment } from '@/lib/comment-moderation';
 import { getClientIp } from '@/lib/context';
 import { jsonError, jsonOk } from '@/lib/http';
 import { isValidEmail } from '@/lib/mail';
@@ -93,9 +93,6 @@ export const POST: APIRoute = async ({ request }) => {
     });
     if (!updated) return jsonError(500, '更新评论失败');
 
-    if (updated.status === 'approved') {
-      await purgeCommentModerationCache(auth.db, auth.options, updated.cid);
-    }
     return jsonOk({ comment: editableComment(updated, auth.options) });
   }
 
@@ -156,7 +153,5 @@ export const POST: APIRoute = async ({ request }) => {
   };
   await doHook(auth.pluginCtx, 'feedback:reply', savedReply, parentComment, hookExtra);
   await doHook(auth.pluginCtx, 'feedback:finishComment', savedReply, hookExtra);
-  await purgeCommentModerationCache(auth.db, auth.options, cid);
-
   return jsonOk({ comment: editableComment(savedReply, auth.options) });
 };

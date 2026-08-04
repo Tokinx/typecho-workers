@@ -10,7 +10,6 @@ import {
   validateCommentToken,
 } from '@/lib/auth';
 import { setActivatedPlugins, parseActivatedPlugins, applyFilter, doHook, type HookContext } from '@/lib/plugin';
-import { invalidatePublicCache } from '@/lib/cache';
 import { getClientIp, getRequestCoreContextFromLocals } from '@/lib/context';
 import { normalizeHttpUrl } from '@/lib/url';
 import { isSameOriginRequest } from '@/lib/admin-auth';
@@ -298,10 +297,6 @@ export const POST: APIRoute = async ({ request, locals }) => {
   });
   if (locals.cfContext?.waitUntil) {
     locals.cfContext.waitUntil(finishP);
-  }
-
-  if (finalStatus === 'approved') {
-    await invalidatePublicCache(db, { reason: 'comment-approved', domains: ['all'] });
   }
 
   // Redirect back to the post

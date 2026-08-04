@@ -1,8 +1,6 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { schema, type Database } from '@/db';
 import { hasPermission } from '@/lib/auth';
-import { invalidatePublicCache } from '@/lib/cache';
-import type { SiteOptions } from '@/lib/options';
 import { doHook, type HookContext } from '@/lib/plugin';
 
 export const COMMENT_ACTIONS = ['approve', 'approved', 'waiting', 'spam', 'delete'] as const;
@@ -14,11 +12,6 @@ type UserRow = typeof schema.users.$inferSelect;
 export function normalizeCommentAction(action: string): CommentAction | null {
   if (action === 'approve') return 'approved';
   return COMMENT_ACTIONS.includes(action as CommentAction) ? action as CommentAction : null;
-}
-
-export function commentActionAffectsPublicCache(comment: CommentRow, action: CommentAction): boolean {
-  const nextStatus = action === 'delete' ? 'deleted' : action === 'approved' || action === 'approve' ? 'approved' : action;
-  return (comment.status === 'approved') !== (nextStatus === 'approved');
 }
 
 /**
@@ -215,14 +208,6 @@ export async function deleteSpamCommentsForUser(
     sql`${schema.comments.cid} IN (${cidIn})`,
   ));
   return before.length;
-}
-
-export async function purgeCommentModerationCache(
-  db: Database,
-  _options: SiteOptions,
-  _cid?: number | null,
-): Promise<void> {
-  await invalidatePublicCache(db, { reason: 'comment-moderation', domains: ['all'] });
 }
 
 async function incrementCommentCount(db: Database, cid: number): Promise<void> {
