@@ -329,6 +329,15 @@ body.warm-theme {
   margin-bottom: 0;
 }
 
+.warm-note__content hr,
+.warm-prose hr {
+  width: 20%;
+  margin: 3rem auto;
+  border: none;
+  background: var(--warm-border);
+  height: 2px;
+}
+
 .warm-note__content p {
   margin: 0 0 8px;
 }
@@ -479,9 +488,11 @@ body.warm-theme {
 
 .warm-prose a {
   color: var(--warm-accent);
+  text-decoration: none;
+}
+
+.warm-prose a:hover {
   text-decoration: underline;
-  text-decoration-color: rgba(184, 74, 40, .32);
-  text-underline-offset: 4px;
 }
 
 .warm-prose img {

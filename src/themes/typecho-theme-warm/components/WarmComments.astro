@@ -136,6 +136,7 @@ const {
           nav.className = 'warm-comment-pagination';
           nav.dataset.commentPagination = '';
           nav.setAttribute('aria-label', '评论分页');
+          nav.setAttribute('data-no-instant', '');
           root.appendChild(nav);
         }
         nav.innerHTML = pagination.pages.map(number =>
