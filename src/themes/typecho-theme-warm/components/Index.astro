@@ -18,7 +18,6 @@ type WarmPostItem = {
   permalink: string;
   excerpt: string;
   created: number;
-  comments: number;
   categories: PostListItem['categories'];
 };
 type WarmNoteItem = NoteListItem & { type: 'note' };
@@ -47,7 +46,6 @@ const toCoreItem = (post: PostListItem): WarmPostItem => ({
   permalink: post.permalink,
   excerpt: plainExcerpt(post.excerpt),
   created: post.created,
-  comments: post.commentsNum,
   categories: post.categories,
 });
 
@@ -114,7 +112,6 @@ if (notesEnabled && stream !== 'posts') {
       permalink: item.permalink,
       excerpt: plainExcerpt(item.source),
       created: item.created,
-      comments: item.comments,
       categories: mixedCategories.get(cid) || [],
     };
   });
@@ -194,7 +191,6 @@ if (isNotesStreamOutOfRange) Astro.response.status = 404;
             ))}
           </div>
         )}
-        {item.comments > 0 && <a class="warm-comment-count" href={`${item.permalink}#comments`}>{item.comments} 条讨论</a>}
       </article>
     ) : (
       <article class="warm-stream-item warm-post-card" data-content-type="post">

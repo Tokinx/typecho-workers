@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, disposeTestDb, type TestDatabase } from '../helpers';
 import { schema } from '@/db';
-import { loadCommentPage } from '@/lib/comment-page';
+import { loadCommentPage, loadPublicCommentPage } from '@/lib/comment-page';
 import type { SiteOptions } from '@/lib/options';
 
 let db: TestDatabase;
@@ -178,5 +178,62 @@ describe('loadCommentPage', () => {
     expect(last.pagination.currentPage).toBe(3);
     expect(last.rows.map(row => row.created)).toEqual([5]);
     expect(clamped.pagination.currentPage).toBe(3);
+  });
+});
+
+describe('loadPublicCommentPage', () => {
+  it('uses one extra flat comment row instead of exact totals', async () => {
+    for (let created = 1; created <= 5; created++) await addComment(created);
+
+    const first = await loadPublicCommentPage(
+      db as any,
+      1,
+      options({ commentsThreaded: 0 }),
+      'https://example.com/post?commentPage=1',
+    );
+    const second = await loadPublicCommentPage(
+      db as any,
+      1,
+      options({ commentsThreaded: 0 }),
+      'https://example.com/post?commentPage=2',
+    );
+
+    expect(first.rows.map(row => row.created)).toEqual([1, 2]);
+    expect(second.rows.map(row => row.created)).toEqual([3, 4]);
+    expect(first.pagination).toMatchObject({ totalsExact: false, totalComments: null, totalPages: null, hasNext: true });
+    expect(second.pagination.hasNext).toBe(true);
+    expect((await loadPublicCommentPage(
+      db as any,
+      1,
+      options({ commentsThreaded: 0 }),
+      'https://example.com/post?commentPage=3',
+    )).pagination.hasNext).toBe(false);
+  });
+
+  it('looks ahead by root while keeping threaded descendants together', async () => {
+    const rootOne = await addComment(1);
+    await addComment(2, rootOne.coid);
+    const rootTwo = await addComment(3);
+    await addComment(4, rootTwo.coid);
+    const rootThree = await addComment(5);
+
+    const first = await loadPublicCommentPage(
+      db as any,
+      1,
+      options({ commentsPageSize: 1 }),
+      'https://example.com/post?commentPage=1',
+    );
+    const second = await loadPublicCommentPage(
+      db as any,
+      1,
+      options({ commentsPageSize: 1 }),
+      'https://example.com/post?commentPage=2',
+    );
+
+    expect(first.rows.map(row => row.coid)).toEqual([rootOne.coid, rootOne.coid + 1]);
+    expect(second.rows.map(row => row.coid)).toEqual([rootTwo.coid, rootTwo.coid + 1]);
+    expect(first.pagination.hasNext).toBe(true);
+    expect(second.pagination.hasNext).toBe(true);
+    expect(rootThree.coid).not.toBe(first.rows.at(-1)?.coid);
   });
 });

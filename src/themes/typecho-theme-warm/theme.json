@@ -32,7 +32,7 @@
       "default": "manual",
       "options": {
         "manual": "手动加载",
-        "auto-3": "自动加载 3 次，之后手动加载",
+        "auto-2": "自动加载 2 次，之后手动加载",
         "infinite": "无限自动加载"
       }
     },

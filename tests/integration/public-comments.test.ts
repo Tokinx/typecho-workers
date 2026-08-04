@@ -5,9 +5,10 @@ import { generateUnapprovedCommentToken } from '@/lib/auth';
 import { resetEarlyRequestProvidersForTests } from '@/lib/early-request';
 
 let testDb: TestDatabase;
-const { mockApplyFilter, mockLoadCommentPage } = vi.hoisted(() => ({
+const { mockApplyFilter, mockLoadCommentPage, mockLoadPublicCommentPage } = vi.hoisted(() => ({
   mockApplyFilter: vi.fn(async (_ctx: any, _hook: string, value: any) => value),
   mockLoadCommentPage: vi.fn(),
+  mockLoadPublicCommentPage: vi.fn(),
 }));
 
 vi.mock('@/db', async () => {
@@ -33,6 +34,10 @@ vi.mock('@/lib/comment-page', async () => {
     loadCommentPage: async (...args: Parameters<typeof actual.loadCommentPage>) => {
       mockLoadCommentPage();
       return actual.loadCommentPage(...args);
+    },
+    loadPublicCommentPage: async (...args: Parameters<typeof actual.loadPublicCommentPage>) => {
+      mockLoadPublicCommentPage();
+      return actual.loadPublicCommentPage(...args);
     },
   };
 });
@@ -80,6 +85,7 @@ describe('GET /api/comments', () => {
     testDb = await createTestDb();
     mockApplyFilter.mockImplementation(async (_ctx: any, _hook: string, value: any) => value);
     mockLoadCommentPage.mockClear();
+    mockLoadPublicCommentPage.mockClear();
   });
 
   afterEach(async () => {
@@ -193,6 +199,33 @@ describe('GET /api/comments', () => {
     expect(second.headers.get('X-Typecho-Comment-Cache')).toBe('HIT');
     expect(mockLoadCommentPage).toHaveBeenCalledOnce();
     expect(await second.text()).not.toContain('reader@example.com');
+  });
+
+  it('uses lookahead pagination for anonymous public comment pages', async () => {
+    await seedOptions({ commentsPageBreak: '1', commentsPageSize: '2', commentsThreaded: '0' });
+    const post = await seedPost();
+    await testDb.insert(schema.comments).values([1, 2, 3].map(created => ({
+      cid: post.cid,
+      author: `Reader ${created}`,
+      text: `public ${created}`,
+      status: 'approved' as const,
+      created,
+      parent: 0,
+    })));
+
+    const response = await GET(request(String(post.cid)));
+    const body = await response.json() as any;
+
+    expect(response.status).toBe(200);
+    expect(body.comments).toHaveLength(2);
+    expect(body.pagination).toMatchObject({
+      totalsExact: false,
+      totalComments: null,
+      totalPages: null,
+      hasNext: true,
+    });
+    expect(mockLoadPublicCommentPage).toHaveBeenCalledOnce();
+    expect(mockLoadCommentPage).not.toHaveBeenCalled();
   });
 
   it('bypasses the anonymous cache for cookies, authorization, and explicit refreshes', async () => {

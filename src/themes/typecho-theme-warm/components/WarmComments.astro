@@ -26,11 +26,6 @@ const {
   initialLoadMode,
 } = Astro.props;
 const requestedCommentPage = Astro.url.searchParams.get('commentPage');
-const initialLoadMessage = initialLoadMode === 'manual'
-  ? '评论列表尚未加载'
-  : initialLoadMode === 'dwell'
-    ? '停留在评论区 3 秒后加载评论'
-    : '正在加载评论...';
 ---
 <section
   class="warm-comments"
@@ -42,7 +37,7 @@ const initialLoadMessage = initialLoadMode === 'manual'
   data-comment-initial-load={initialLoadMode}
 >
   <div class="warm-comments__heading">
-    <h2>讨论与交流 <span data-comment-total></span></h2>
+    <h2>讨论与交流</h2>
     <p>欢迎分享你的思考</p>
   </div>
 
@@ -95,7 +90,7 @@ const initialLoadMessage = initialLoadMode === 'manual'
 
   <div class="warm-comment-list" data-comment-list aria-live="polite">
     <div class:list={["warm-comment-deferred", { "is-loading": initialLoadMode === 'auto' }]} data-comment-deferred>
-      <p class="warm-comments__empty" data-comment-loading data-comment-deferred-message>{initialLoadMessage}</p>
+      <span class="warm-comments__empty" data-comment-loading data-comment-deferred-message aria-live="polite"></span>
       <button type="button" data-comment-load-initial hidden={initialLoadMode !== 'manual'}>加载评论</button>
     </div>
   </div>
@@ -132,7 +127,6 @@ const initialLoadMessage = initialLoadMode === 'manual'
     document.querySelectorAll('[data-comments-root]').forEach(root => {
       const cid = root.dataset.cid;
       const list = root.querySelector('[data-comment-list]');
-      const total = root.querySelector('[data-comment-total]');
       const form = root.querySelector('[data-comment-form]');
       const message = root.querySelector('[data-comment-message]');
       const parentInput = root.querySelector('[data-comment-parent]');
@@ -159,7 +153,7 @@ const initialLoadMessage = initialLoadMode === 'manual'
       let dwellTimer = null;
       let dwellVisible = false;
 
-      const autoLimit = continuousMode === 'auto-3' ? 3 : continuousMode === 'infinite' ? Infinity : 0;
+      const autoLimit = continuousMode === 'auto-2' ? 2 : continuousMode === 'infinite' ? Infinity : 0;
 
       const setDeferredPrompt = (text, showButton, loadingState) => {
         if (!deferred) return;
@@ -182,7 +176,7 @@ const initialLoadMessage = initialLoadMode === 'manual'
         && automaticLoads < autoLimit
         && !!activePagination
         && activePagination.enabled
-        && activePagination.currentPage < activePagination.totalPages
+        && activePagination.hasNext === true
       );
 
       const syncPaginationControls = () => {
@@ -208,7 +202,7 @@ const initialLoadMessage = initialLoadMode === 'manual'
 
       const renderPagination = pagination => {
         let nav = root.querySelector('[data-comment-pagination]');
-        const hasNext = pagination.enabled && pagination.currentPage < pagination.totalPages;
+        const hasNext = pagination.hasNext === true;
         if (!hasNext) {
           nav?.remove();
           paginationObserver?.disconnect();
@@ -234,7 +228,7 @@ const initialLoadMessage = initialLoadMode === 'manual'
         paginationObserver = null;
         loading = true;
         list.setAttribute('aria-busy', 'true');
-        setDeferredPrompt('正在加载评论...', false, true);
+        setDeferredPrompt('', false, true);
         try {
           const params = new URLSearchParams({ cid });
           if (requestedPage !== null) params.set('commentPage', String(requestedPage));
@@ -253,7 +247,6 @@ const initialLoadMessage = initialLoadMode === 'manual'
           } else {
             list.innerHTML = renderedComments;
           }
-          if (total) total.textContent = String(data.pagination.totalComments);
           if (tokenInput) tokenInput.value = data.options.securityToken || '';
           commentsLoaded = true;
           activePagination = data.pagination;
@@ -328,19 +321,19 @@ const initialLoadMessage = initialLoadMode === 'manual'
       });
 
       if (initialMode === 'manual') {
-        setDeferredPrompt('评论列表尚未加载', true, false);
+        setDeferredPrompt('', true, false);
       } else if (initialMode === 'dwell' && 'IntersectionObserver' in window) {
-        setDeferredPrompt('停留在评论区 3 秒后加载评论', false, false);
+        setDeferredPrompt('', false, false);
         initialObserver = new IntersectionObserver(entries => {
           dwellVisible = entries.some(entry => entry.isIntersecting);
           if (!dwellVisible) {
             if (dwellTimer) window.clearTimeout(dwellTimer);
             dwellTimer = null;
-            setDeferredPrompt('停留在评论区 3 秒后加载评论', false, false);
+            setDeferredPrompt('', false, false);
             return;
           }
           if (dwellTimer || commentsLoaded || loading) return;
-          setDeferredPrompt('正在等待加载评论...', false, true);
+          setDeferredPrompt('', false, true);
           dwellTimer = window.setTimeout(() => {
             dwellTimer = null;
             if (dwellVisible) loadComments(page);

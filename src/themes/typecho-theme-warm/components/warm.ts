@@ -4,7 +4,7 @@ import { loadThemeConfig } from '@/lib/theme';
 export const WARM_THEME_ID = 'typecho-theme-warm';
 
 export type WarmSection = 'home' | 'articles' | 'notes' | 'about' | 'none';
-export type WarmContinuousLoadMode = 'manual' | 'auto-3' | 'infinite';
+export type WarmContinuousLoadMode = 'manual' | 'auto-2' | 'infinite';
 export type WarmCommentInitialLoadMode = 'manual' | 'dwell' | 'auto';
 
 export interface WarmSettings {
@@ -27,7 +27,8 @@ export function warmSettings(options: ThemeBaseProps['options']): WarmSettings {
 }
 
 export function normalizeContinuousLoadMode(value: unknown): WarmContinuousLoadMode {
-  return value === 'auto-3' || value === 'infinite' ? value : 'manual';
+  if (value === 'auto-2') return 'auto-2';
+  return value === 'infinite' ? value : 'manual';
 }
 
 export function normalizeCommentInitialLoadMode(value: unknown): WarmCommentInitialLoadMode {

@@ -12,7 +12,7 @@ import {
   setActivatedPlugins,
   type HookContext,
 } from '@/lib/plugin';
-import { loadCommentPage } from '@/lib/comment-page';
+import { loadCommentPage, loadPublicCommentPage } from '@/lib/comment-page';
 import { buildCommentOptions, buildCommentTree, buildGravatarMap } from '@/lib/page-data';
 import { jsonError, jsonOk } from '@/lib/http';
 import { loadEarlyRequestSharedData } from '@/lib/early-request';
@@ -73,7 +73,9 @@ export const GET: APIRoute = async ({ request, locals, url }) => {
   if (!isPublicContent) return jsonError(404, '内容不存在', PRIVATE_HEADERS);
 
   const loadPublicPage = async (): Promise<CachedPublicCommentPage> => {
-    const commentPage = await loadCommentPage(db, cid, options, request.url);
+    const commentPage = options.commentsPageBreak
+      ? await loadPublicCommentPage(db, cid, options, request.url)
+      : await loadCommentPage(db, cid, options, request.url);
     return {
       comments: redactCommentMail(buildCommentTree(commentPage.rows, options)),
       gravatarMap: options.commentsAvatar
@@ -105,7 +107,11 @@ export const GET: APIRoute = async ({ request, locals, url }) => {
     const visibleUnapprovedCommentId = options.secret
       ? await validateUnapprovedCommentToken(unapprovedToken, options.secret, cid)
       : null;
-    const commentPage = await loadCommentPage(db, cid, options, request.url, visibleUnapprovedCommentId);
+    const commentPage = visibleUnapprovedCommentId
+      ? await loadCommentPage(db, cid, options, request.url, visibleUnapprovedCommentId)
+      : options.commentsPageBreak
+        ? await loadPublicCommentPage(db, cid, options, request.url)
+        : await loadCommentPage(db, cid, options, request.url);
     commentData = {
       comments: redactCommentMail(buildCommentTree(commentPage.rows, options)),
       gravatarMap: options.commentsAvatar

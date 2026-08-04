@@ -7,13 +7,17 @@ export type CommentRow = typeof schema.comments.$inferSelect;
 export interface CommentPagination {
   enabled: boolean;
   currentPage: number;
-  totalPages: number;
-  totalComments: number;
+  /** Null when a public API response intentionally avoids exact counts. */
+  totalPages: number | null;
+  /** Null when a public API response intentionally avoids exact counts. */
+  totalComments: number | null;
+  totalsExact: boolean;
   pageSize: number;
   pages: number[];
   pageUrls: Record<number, string>;
   prevUrl: string | null;
   nextUrl: string | null;
+  hasNext: boolean;
 }
 
 export interface CommentPage {
@@ -59,11 +63,35 @@ function buildPagination(
     currentPage,
     totalPages,
     totalComments,
+    totalsExact: true,
     pageSize,
     pages,
     pageUrls: Object.fromEntries(pages.map(page => [page, pageUrl(requestUrl, page)])),
     prevUrl: currentPage > 1 ? pageUrl(requestUrl, currentPage - 1) : null,
     nextUrl: currentPage < totalPages ? pageUrl(requestUrl, currentPage + 1) : null,
+    hasNext: currentPage < totalPages,
+  };
+}
+
+function buildLookaheadPagination(
+  requestUrl: string,
+  enabled: boolean,
+  currentPage: number,
+  pageSize: number,
+  hasNext: boolean,
+): CommentPagination {
+  return {
+    enabled,
+    currentPage,
+    totalPages: null,
+    totalComments: null,
+    totalsExact: false,
+    pageSize,
+    pages: [],
+    pageUrls: {},
+    prevUrl: currentPage > 1 ? pageUrl(requestUrl, currentPage - 1) : null,
+    nextUrl: hasNext ? pageUrl(requestUrl, currentPage + 1) : null,
+    hasNext,
   };
 }
 
@@ -300,4 +328,108 @@ export async function loadCommentPage(
     ORDER BY created ${orderSql}, coid ${orderSql}
   `);
   return { rows, pagination };
+}
+
+/**
+ * Load an anonymous public comment page without exact count scans. The API
+ * client only needs to know whether another page exists, so fetch one extra
+ * root/comment and expose `hasNext` instead of total pages.
+ */
+export async function loadPublicCommentPage(
+  db: Database,
+  cid: number,
+  options: SiteOptions,
+  requestUrl: string,
+): Promise<CommentPage> {
+  const configuredPageSize = Math.min(
+    COMMENT_PAGE_SIZE_MAX,
+    Math.max(1, Number(options.commentsPageSize) || 20),
+  );
+  const pageSize = configuredPageSize;
+  const order = options.commentsOrder === 'DESC' ? 'DESC' : 'ASC';
+  const orderExpression = order === 'DESC'
+    ? [desc(schema.comments.created), desc(schema.comments.coid)]
+    : [asc(schema.comments.created), asc(schema.comments.coid)];
+  const rawPage = new URL(requestUrl).searchParams.get('commentPage');
+  const parsedPage = rawPage ? Number.parseInt(rawPage, 10) : Number.NaN;
+  const currentPage = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+  const offset = (currentPage - 1) * pageSize;
+  const visibleForContent = and(
+    eq(schema.comments.cid, cid),
+    eq(schema.comments.status, 'approved'),
+  );
+
+  if (!options.commentsThreaded) {
+    const rows = await db
+      .select()
+      .from(schema.comments)
+      .where(visibleForContent)
+      .orderBy(...orderExpression)
+      .limit(pageSize + 1)
+      .offset(offset);
+    const hasNext = rows.length > pageSize;
+    return {
+      rows: rows.slice(0, pageSize),
+      pagination: buildLookaheadPagination(
+        requestUrl,
+        true,
+        currentPage,
+        pageSize,
+        hasNext,
+      ),
+    };
+  }
+
+  const orderSql = order === 'DESC' ? sql`DESC` : sql`ASC`;
+  type PublicThreadRow = CommentRow & { __has_next?: number };
+  const rows = await db.all<PublicThreadRow>(sql`
+    WITH RECURSIVE selected_roots(coid) AS (
+      SELECT candidate.coid
+      FROM ${schema.comments} AS candidate INDEXED BY typecho_comments_cid_status_created
+      LEFT JOIN ${schema.comments} AS parent_comment
+        ON parent_comment.coid = candidate.parent
+        AND parent_comment.cid = ${cid}
+        AND parent_comment.status = 'approved'
+      WHERE candidate.cid = ${cid}
+        AND candidate.status = 'approved'
+        AND (candidate.parent = 0 OR parent_comment.coid IS NULL)
+      ORDER BY candidate.created ${orderSql}, candidate.coid ${orderSql}
+      LIMIT ${pageSize + 1} OFFSET ${offset}
+    ),
+    paged_roots AS (
+      SELECT coid
+      FROM selected_roots
+      LIMIT ${pageSize}
+    ),
+    thread AS (
+      SELECT comment.*
+      FROM ${schema.comments} AS comment
+      INNER JOIN paged_roots AS root ON root.coid = comment.coid
+      UNION ALL
+      SELECT child.*
+      FROM ${schema.comments} AS child INDEXED BY typecho_comments_cid_parent_status
+      INNER JOIN thread AS parent_comment ON child.parent = parent_comment.coid
+      WHERE child.cid = ${cid}
+        AND child.status = 'approved'
+    )
+    SELECT thread.*,
+      EXISTS (
+        SELECT 1
+        FROM selected_roots
+        LIMIT 1 OFFSET ${pageSize}
+      ) AS "__has_next"
+    FROM thread
+    ORDER BY created ${orderSql}, coid ${orderSql}
+  `);
+  const hasNext = Number(rows[0]?.__has_next || 0) === 1;
+  return {
+    rows: rows.map(({ __has_next: _hasNext, ...row }) => row),
+    pagination: buildLookaheadPagination(
+      requestUrl,
+      true,
+      currentPage,
+      pageSize,
+      hasNext,
+    ),
+  };
 }

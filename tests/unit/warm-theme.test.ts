@@ -23,7 +23,7 @@ describe('typecho-theme-warm', () => {
     expect(manifest.config).not.toHaveProperty('footerDescription');
     expect(manifest.config.continuousLoadMode).toMatchObject({
       type: 'select', default: 'manual',
-      options: expect.objectContaining({ manual: expect.any(String), 'auto-3': expect.any(String), infinite: expect.any(String) }),
+      options: expect.objectContaining({ manual: expect.any(String), 'auto-2': expect.any(String), infinite: expect.any(String) }),
     });
     expect(manifest.config.commentInitialLoadMode).toMatchObject({
       type: 'select', default: 'auto',
@@ -61,6 +61,8 @@ describe('typecho-theme-warm', () => {
     expect(streamPagination).toContain('IntersectionObserver');
     expect(streamPagination).toContain('automaticLoads < limit');
     expect(streamPagination).toContain('data-no-instant');
+    expect(streamPagination).not.toContain('aria-hidden="true">→');
+    expect(streamPagination).not.toContain('加载更多 <span');
     const shell = readFileSync(join(themeRoot, 'components/WarmShell.astro'), 'utf8');
     expect(shell).toContain('options.description');
     expect(shell).not.toContain('settings.tagline');
@@ -84,6 +86,7 @@ describe('typecho-theme-warm', () => {
     const comments = readFileSync(join(themeRoot, 'components/WarmComments.astro'), 'utf8');
     expect(comments).toContain('/api/comments');
     expect(comments).toContain('data-comment-loading');
+    expect(comments).not.toContain('data-comment-total');
     expect(comments).toContain('data-comment-initial-load');
     expect(comments).toContain('data-comment-load-initial');
     expect(comments).toContain('data-comment-load-more');
@@ -95,6 +98,16 @@ describe('typecho-theme-warm', () => {
     expect(comments).toContain('setupPaginationObserver');
     expect(comments).not.toContain('WarmCommentList');
     expect(comments).not.toContain('{comments.length');
+    const deferredStyles = css.slice(
+      css.indexOf('.warm-comment-deferred {'),
+      css.indexOf('.warm-comment-deferred.is-loading'),
+    );
+    expect(deferredStyles).not.toContain('border-top');
+    expect(deferredStyles).not.toContain('border-bottom');
+    expect(css).toContain('.warm-comment-deferred button[data-comment-load-initial][hidden]');
+    expect(index).not.toContain('warm-comment-count');
+    expect(index).not.toContain('comments: post.commentsNum');
+    expect(index).not.toContain('comments: item.comments');
   });
 
   it('normalizes excerpts, reading time, and configurable links', () => {
@@ -104,7 +117,7 @@ describe('typecho-theme-warm', () => {
     expect(safeExternalUrl('https://example.com')).toBe('https://example.com/');
     expect(safeEmail('hello@example.com')).toBe('hello@example.com');
     expect(safeEmail('not-an-email')).toBe('');
-    expect(normalizeContinuousLoadMode('auto-3')).toBe('auto-3');
+    expect(normalizeContinuousLoadMode('auto-2')).toBe('auto-2');
     expect(normalizeContinuousLoadMode('invalid')).toBe('manual');
     expect(normalizeCommentInitialLoadMode('dwell')).toBe('dwell');
     expect(normalizeCommentInitialLoadMode('invalid')).toBe('auto');

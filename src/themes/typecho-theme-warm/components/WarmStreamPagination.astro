@@ -23,17 +23,16 @@ const { hasPrev, hasNext, prevUrl, nextUrl, mode, label } = Astro.props;
     {hasPrev && prevUrl && <a href={prevUrl} rel="prev" aria-label="上一页">←</a>}
     {hasNext && nextUrl && (
       <a href={nextUrl} rel="next" data-warm-load-more data-no-instant>
-        加载更多 <span aria-hidden="true">→</span>
+        加载更多
       </a>
     )}
-    <span class="warm-pagination__status" data-warm-load-status role="status" aria-live="polite"></span>
     {hasNext && <span class="warm-pagination__sentinel" data-warm-load-sentinel aria-hidden="true"></span>}
   </nav>
 )}
 
 <script is:inline>
   (() => {
-    const autoLimit = mode => mode === 'auto-3' ? 3 : mode === 'infinite' ? Infinity : 0;
+    const autoLimit = mode => mode === 'auto-2' ? 2 : mode === 'infinite' ? Infinity : 0;
 
     const initialise = pagination => {
       if (pagination.dataset.warmBound === 'true') return;
@@ -42,7 +41,7 @@ const { hasPrev, hasNext, prevUrl, nextUrl, mode, label } = Astro.props;
       const stream = pagination.parentElement?.querySelector('[data-warm-stream]');
       const link = pagination.querySelector('[data-warm-load-more]');
       const sentinel = pagination.querySelector('[data-warm-load-sentinel]');
-      const status = pagination.querySelector('[data-warm-load-status]');
+      const status = pagination.querySelector('[data-warm-load-more]');
       const limit = autoLimit(pagination.dataset.warmLoadMode || 'manual');
       let automaticLoads = 0;
       let loading = false;
@@ -94,7 +93,7 @@ const { hasPrev, hasNext, prevUrl, nextUrl, mode, label } = Astro.props;
           pagination.dataset.warmNextUrl = nextPagination?.getAttribute('data-warm-next-url') || '';
           if (pagination.dataset.warmNextUrl) link.href = pagination.dataset.warmNextUrl;
           if (automatic) automaticLoads += 1;
-          setStatus(pagination.dataset.warmNextUrl ? '' : '已加载全部内容');
+          setStatus(pagination.dataset.warmNextUrl ? '加载更多' : '已加载全部内容');
         } catch (error) {
           setStatus('加载失败，请重试。');
           console.error('[warm] failed to load the next stream page:', error);
