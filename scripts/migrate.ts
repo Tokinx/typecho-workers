@@ -56,8 +56,8 @@ function parseArgs(): MigrateOptions {
     prefix: 'typecho_',
     dryRun: false,
     siteUrl: '',
-    d1Name: 'typecho-cf-db',
-    r2Bucket: 'typecho-cf-uploads',
+    d1Name: 'typecho-db',
+    r2Bucket: 'typecho-uploads',
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -111,8 +111,8 @@ Options:
   --target, -t <type>     Target: "cloudflare" or "local" (default: local)
   --prefix <prefix>       Source table prefix (default: typecho_)
   --site-url <url>        New site URL for rewriting attachment URLs
-  --d1-name <name>        D1 database name (default: typecho-cf-db)
-  --r2-bucket <name>      R2 bucket name (default: typecho-cf-uploads)
+  --d1-name <name>        D1 database name (default: typecho-db)
+  --r2-bucket <name>      R2 bucket name (default: typecho-uploads)
   --dry-run, -n           Preview migration without making changes
   --help, -h              Show this help
 
@@ -947,7 +947,7 @@ async function main() {
     } else {
       console.log();
       console.log('📌 Next steps:');
-      console.log('   1. Verify data at: https://dash.cloudflare.com/ → D1 → typecho-cf-db');
+      console.log('   1. Verify data at: https://dash.cloudflare.com/ → D1 → typecho-db');
       console.log('   2. Deploy: npx wrangler deploy');
       console.log();
       console.log('   ⚠️  User passwords from old Typecho use PHP phpass format.');

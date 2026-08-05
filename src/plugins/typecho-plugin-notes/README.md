@@ -1,6 +1,6 @@
 # 笔记插件
 
-为 Typecho-CF 增加独立的 `note` 内容类型和 `note_topic` 术语类型。插件不修改核心
+为 Typecho-Workers 增加独立的 `note` 内容类型和 `note_topic` 术语类型。插件不修改核心
 Schema，数据存放在现有的 `typecho_contents`、`typecho_metas`、
 `typecho_relationships` 和 `typecho_fields` 表中。
 

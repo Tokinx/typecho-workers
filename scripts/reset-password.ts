@@ -84,7 +84,7 @@ function parseArgs(): ResetOptions {
 
 function printHelp(): void {
   console.log(`
-Typecho-CF Password Reset Tool
+Typecho-Workers Password Reset Tool
 ===============================
 
 Usage:

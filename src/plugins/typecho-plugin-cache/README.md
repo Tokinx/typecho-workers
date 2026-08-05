@@ -1,6 +1,6 @@
 # Edge Cache
 
-Typecho-CF 的三级页面缓存与 CDN 地址改写插件。
+Typecho-Workers 的三级页面缓存与 CDN 地址改写插件。
 
 ## 绑定
 
@@ -18,7 +18,7 @@ binding = "TYPECHO_CACHE"
 id = "<YOUR_KV_NAMESPACE_ID>"
 ```
 
-Cloudflare Git Builds 使用构建变量 `TYPECHO_CF_KV_NAMESPACE_ID`。缺少绑定时插件保持 fail-open，页面直接回源 Astro/D1，不会启用页面缓存。
+Cloudflare Git Builds 使用构建变量 `TYPECHO_KV_NAMESPACE_ID`。缺少绑定时插件保持 fail-open，页面直接回源 Astro/D1，不会启用页面缓存。
 
 ## 缓存链路
 

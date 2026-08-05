@@ -208,7 +208,7 @@ Usage:
 Options:
   --source, -s <file>       WordPress WXR XML file (required)
   --target, -t <target>     local or cloudflare (default: local)
-  --author-id <uid>         Existing Typecho-CF user that owns imported data (default: 1)
+  --author-id <uid>         Existing Typecho-Workers user that owns imported data (default: 1)
   --site-url <url>          New public site URL; required when downloading media
   --download-media          Download referenced wp-content/uploads files to R2 and rewrite URLs
   --skip-attachments        Do not create attachment content records

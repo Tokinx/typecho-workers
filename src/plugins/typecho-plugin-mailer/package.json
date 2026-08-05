@@ -15,7 +15,7 @@
       "author": "Tokinx",
       "authorUrl": "https://biji.io",
       "version": "1.0.0",
-      "homepage": "https://github.com/Tokinx/typecho-cf/tree/master/src/plugins/typecho-plugin-mailer",
+      "homepage": "https://github.com/Tokinx/typecho-workers/tree/master/src/plugins/typecho-plugin-mailer",
       "license": "MIT",
       "tags": ["mail", "email", "notification", "comment"],
       "adminPage": "mail-test",

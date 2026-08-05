@@ -1,5 +1,5 @@
 {
-  "name": "typecho",
+  "name": "typecho-workers",
   "type": "module",
   "version": "0.1.0",
   "description": "Typecho blog rewrite with Astro + Cloudflare Workers + D1",

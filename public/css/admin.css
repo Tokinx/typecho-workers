@@ -194,7 +194,7 @@ select { border: 1px solid #CCC; height: 28px; }
 
 .typecho-head-nav nav > menu > li.operate a:first-child { border-left: 1px solid #383D45; }
 
-/* Typecho-CF keeps logout as a POST action to prevent forced logout via GET. */
+/* Typecho-Workers keeps logout as a POST action to prevent forced logout via GET. */
 .typecho-head-nav nav > menu > li.operate .logout-form { margin: 0; padding: 0; display: flex; }
 
 .typecho-head-nav nav > menu > li.operate .logout-form .exit { border: 0; background: transparent; font: inherit; cursor: pointer; }

@@ -1,6 +1,6 @@
 # 主题开发规范
 
-> 本文档是 Typecho-CF 主题开发的完整参考。以 `typecho-theme-minimal/` 目录为示例。
+> 本文档是 Typecho-Workers 主题开发的完整参考。以 `typecho-theme-minimal/` 目录为示例。
 
 [English](README.en.md)
 

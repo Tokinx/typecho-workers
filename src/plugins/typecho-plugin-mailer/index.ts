@@ -1,5 +1,5 @@
 /**
- * Typecho-CF Mailer 插件
+ * Typecho-Workers Mailer 插件
  *
  * - `mail:send`                邮件传输适配器：为核心 sendMail()（密码重置等）提供 5 种 HTTP API 渠道
  * - `feedback:finishComment`   新评论通知管理员 + 回复通知评论者

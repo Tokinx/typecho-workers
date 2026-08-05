@@ -1,8 +1,9 @@
 {
   "name": "typecho-theme-warm",
   "version": "1.0.0",
-  "description": "A warm, humanistic single-column theme for Typecho-CF with Notes support.",
-  "author": "Typecho-CF",
+  "description": "A warm, humanistic single-column theme for Typecho-Workers with Notes support.",
+  "author": "Tokinx",
+  "homepage": "https://github.com/Tokinx/typecho-workers/tree/master/src/themes/typecho-theme-warm",
   "license": "MIT",
   "keywords": [
     "typecho",

@@ -89,7 +89,7 @@ function normalizePathForRedirect(pathname: string): string {
  * This prevents route handlers from issuing a 302 to the same canonical path.
  */
 export function getRedirectPathIfDifferent(currentUrl: string, targetUrl: string): string | null {
-  const current = new URL(currentUrl, 'http://typecho-cf.local');
+  const current = new URL(currentUrl, 'http://typecho.local');
   const target = new URL(targetUrl, current.origin);
 
   const currentPath = normalizePathForRedirect(current.pathname);

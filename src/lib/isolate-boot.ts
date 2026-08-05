@@ -53,7 +53,7 @@ export function resetIsolateBoot(): void {
   state.indexEnsurePending = undefined;
 }
 
-// Reserved by Typecho-CF's runtime schema bootstrap. Bump this whenever the
+// Reserved by the Typecho-Workers runtime schema bootstrap. Bump this whenever the
 // runtime password-reset upgrade or generated index set changes. A stable
 // database needs one query per cold isolate instead of probing every table,
 // column and index.

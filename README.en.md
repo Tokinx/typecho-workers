@@ -1,10 +1,10 @@
-# Typecho-CF
+# Typecho-Workers
 
 [中文](README.md)
 
 A modern rewrite of [Typecho](https://typecho.org) in TypeScript, running on **Astro + Cloudflare Workers + D1**. Preserves Typecho's database schema for seamless data migration from PHP Typecho.
 
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/eslizn/typecho-cf)
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Tokinx/typecho-workers)
 
 ---
 
@@ -31,8 +31,8 @@ A modern rewrite of [Typecho](https://typecho.org) in TypeScript, running on **A
 
 ```bash
 # Clone and install dependencies
-git clone https://github.com/eslizn/typecho-cf.git
-cd typecho-cf
+git clone https://github.com/Tokinx/typecho-workers.git
+cd typecho-workers
 pnpm install
 
 # Start dev server (D1 + R2 are automatically simulated by wrangler)
@@ -47,10 +47,10 @@ Visit http://localhost:4321 — first visit auto-redirects to the installation w
 
 ```bash
 # Create D1 database
-wrangler d1 create typecho-cf-db
+wrangler d1 create typecho-db
 
 # Create R2 bucket
-wrangler r2 bucket create typecho-cf-uploads
+wrangler r2 bucket create typecho-uploads
 
 # Optional: create the Edge Cache plugin's KV L2 namespace
 wrangler kv namespace create TYPECHO_CACHE
@@ -63,7 +63,7 @@ Replace `database_id` with the actual D1 database ID from the previous step:
 ```toml
 [[d1_databases]]
 binding = "DB"
-database_name = "typecho-cf-db"
+database_name = "typecho-db"
 database_id = "your-actual-database-id"
 ```
 
@@ -140,8 +140,8 @@ pnpm run db:migrate:typecho -- \
 | `--target`, `-t` | Migration target: `local` or `cloudflare` | `local` |
 | `--dry-run`, `-n` | Preview mode | `false` |
 | `--site-url` | New site URL (for rewriting attachment URLs) | — |
-| `--d1-name` | D1 database name | `typecho-cf-db` |
-| `--r2-bucket` | R2 bucket name | `typecho-cf-uploads` |
+| `--d1-name` | D1 database name | `typecho-db` |
+| `--r2-bucket` | R2 bucket name | `typecho-uploads` |
 
 ### Reset Password After Migration
 

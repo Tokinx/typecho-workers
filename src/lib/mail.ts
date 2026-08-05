@@ -1,7 +1,7 @@
 /**
  * Mail abstraction layer.
  *
- * This module defines the interface for sending email from Typecho-CF.
+ * This module defines the interface for sending email from Typecho-Workers.
  * No built-in SMTP / API adapter is provided — actual delivery MUST be
  * handled by a plugin that registers a `mail:send` filter hook.
  *

@@ -1,6 +1,6 @@
 # 插件开发规范
 
-> 本文档是 Typecho-CF 插件开发的完整参考。以 `typecho-plugin-antispam/` 目录为示例。
+> 本文档是 Typecho-Workers 插件开发的完整参考。以 `typecho-plugin-antispam/` 目录为示例。
 
 [English](README.en.md)
 

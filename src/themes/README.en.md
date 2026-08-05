@@ -1,6 +1,6 @@
 # Theme Development Guide
 
-> This document is the complete reference for Typecho-CF theme development. `typecho-theme-minimal/` serves as the working example.
+> This document is the complete reference for Typecho-Workers theme development. `typecho-theme-minimal/` serves as the working example.
 
 [中文](README.md)
 

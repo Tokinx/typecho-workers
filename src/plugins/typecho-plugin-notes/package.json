@@ -1,7 +1,7 @@
 {
   "name": "typecho-plugin-notes",
   "version": "1.0.0",
-  "description": "Twitter-style notes and topics for Typecho-CF.",
+  "description": "Twitter-style notes and topics for Typecho-Workers.",
   "keywords": ["typecho", "plugin", "notes", "microblog", "topic"],
   "author": "Tokinx",
   "license": "MIT",
@@ -15,7 +15,7 @@
       "adminPage": "notes",
       "author": "Tokinx",
       "version": "1.0.0",
-      "homepage": "https://github.com/Tokinx/typecho-cf/tree/master/src/plugins/typecho-plugin-notes",
+      "homepage": "https://github.com/Tokinx/typecho-workers/tree/master/src/plugins/typecho-plugin-notes",
       "license": "MIT",
       "tags": ["note", "microblog", "topic"]
     }

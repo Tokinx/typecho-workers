@@ -29,7 +29,7 @@ export interface PublicCacheInvalidation {
 }
 
 /** Internal namespace used for Cache API keys that are not real URLs */
-const INTERNAL_ORIGIN = 'https://typecho-cf-internal';
+const INTERNAL_ORIGIN = 'https://typecho-internal';
 
 function optionsCacheKey(version: string | number): Request {
   return new Request(`${INTERNAL_ORIGIN}/__options?v=${encodeURIComponent(String(version))}`);

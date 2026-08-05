@@ -1,10 +1,10 @@
-# Typecho-CF
+# Typecho-Workers
 
 [English](README.en.md)
 
 基于 [Typecho](https://typecho.org) 完整重写的现代博客系统，运行在 **Astro + Cloudflare Workers + D1** 之上。保留 Typecho 数据库表结构，支持从 PHP 版 Typecho 直接迁移数据。
 
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/eslizn/typecho-cf)
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Tokinx/typecho-workers)
 
 ---
 
@@ -31,8 +31,8 @@
 
 ```bash
 # 克隆并安装依赖
-git clone https://github.com/eslizn/typecho-cf.git
-cd typecho-cf
+git clone https://github.com/Tokinx/typecho-workers.git
+cd typecho-workers
 pnpm install
 
 # 启动开发服务器（D1 + R2 由 wrangler 自动模拟）
@@ -47,10 +47,10 @@ pnpm run dev
 
 ```bash
 # 创建 D1 数据库
-wrangler d1 create typecho-cf-db
+wrangler d1 create typecho-db
 
 # 创建 R2 存储桶
-wrangler r2 bucket create typecho-cf-uploads
+wrangler r2 bucket create typecho-uploads
 
 # 可选：为 Edge Cache 插件创建 KV L2
 wrangler kv namespace create TYPECHO_CACHE
@@ -63,7 +63,7 @@ wrangler kv namespace create TYPECHO_CACHE
 ```toml
 [[d1_databases]]
 binding = "DB"
-database_name = "typecho-cf-db"
+database_name = "typecho-db"
 database_id = "替换为实际的 ID"
 ```
 
@@ -126,12 +126,12 @@ Cloudflare Workers Builds 从 Git 检出时没有本地的 `wrangler.toml`。本
 
 | 变量 | 值 |
 |------|----|
-| `TYPECHO_CF_D1_DATABASE_ID` | D1 数据库 ID |
-| `TYPECHO_CF_D1_DATABASE_NAME` | D1 数据库名称，例如 `typecho-cf-db` |
-| `TYPECHO_CF_R2_BUCKET_NAME` | R2 存储桶名称，例如 `typecho-cf-uploads` |
-| `TYPECHO_CF_KV_NAMESPACE_ID` | 可选；Edge Cache 插件使用的 KV namespace ID |
-| `TYPECHO_CF_PBKDF2_ITERATIONS` | Workers Free 使用 `50000` |
-| `TYPECHO_CF_WORKER_NAME` | 可选；Worker 名称，默认 `typecho-cf` |
+| `TYPECHO_D1_DATABASE_ID` | D1 数据库 ID |
+| `TYPECHO_D1_DATABASE_NAME` | D1 数据库名称，例如 `typecho-db` |
+| `TYPECHO_R2_BUCKET_NAME` | R2 存储桶名称，例如 `typecho-uploads` |
+| `TYPECHO_KV_NAMESPACE_ID` | 可选；Edge Cache 插件使用的 KV namespace ID |
+| `TYPECHO_PBKDF2_ITERATIONS` | Workers Free 使用 `50000` |
+| `TYPECHO_WORKER_NAME` | 可选；Worker 名称，默认 `typecho-workers` |
 
 将构建设置改为：
 
@@ -204,7 +204,7 @@ pnpm run db:migrate:typecho -- \
 | `--dry-run`, `-n` | 预览模式 | `false` |
 | `--site-url` | 新站点 URL（用于重写附件 URL） | — |
 | `--d1-name` | D1 数据库名或 binding | `DB` |
-| `--r2-bucket` | R2 存储桶名 | `typecho-cf-uploads` |
+| `--r2-bucket` | R2 存储桶名 | `typecho-uploads` |
 
 ### 迁移后重置密码
 

@@ -9,9 +9,9 @@
 
 | 属性 | 值 |
 |------|-----|
-| 名称 | Typecho-CF |
+| 名称 | Typecho-Workers |
 | 描述 | Typecho 博客系统的 TypeScript 重写，运行于 Astro + Cloudflare Workers + D1 |
-| 仓库 | `https://github.com/eslizn/typecho-cf` |
+| 仓库 | `https://github.com/Tokinx/typecho-workers` |
 | 许可证 | MIT |
 | 包管理器 | pnpm（锁定） |
 
@@ -142,8 +142,8 @@ src/lib/constants.ts   — 跨模块常量（密码最小长度、slug 后缀上
 
 | Binding | 类型 | 用途 |
 |---------|------|------|
-| `DB` | D1 | 数据库 `typecho-cf-db` |
-| `BUCKET` | R2 | 文件存储 `typecho-cf-uploads` |
+| `DB` | D1 | 数据库 `typecho-db` |
+| `BUCKET` | R2 | 文件存储 `typecho-uploads` |
 
 ### 5.1 环境变量访问
 

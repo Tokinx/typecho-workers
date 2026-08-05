@@ -1,9 +1,9 @@
 {
   "name": "typecho-plugin-cache",
   "version": "1.0.0",
-  "description": "Cloudflare Cache API + KV edge page cache and CDN URL rewriting for Typecho-CF.",
+  "description": "Cloudflare Cache API + KV edge page cache and CDN URL rewriting for Typecho-Workers.",
   "keywords": ["typecho", "plugin", "cache", "kv", "cdn"],
-  "author": "eslizn",
+  "author": "Tokinx",
   "license": "MIT",
   "type": "module",
   "main": "index.ts",
@@ -14,8 +14,9 @@
       "description": "Cache API L1、KV L2 与 D1 L3 三级页面缓存，并提供静态资源 CDN 改写",
       "adminPage": "cache",
       "earlyRequest": true,
-      "author": "eslizn",
+      "author": "Tokinx",
       "version": "1.0.0",
+      "homepage": "https://github.com/Tokinx/typecho-workers/tree/master/src/plugins/typecho-plugin-cache",
       "license": "MIT",
       "tags": ["cache", "kv", "cdn"],
       "config": {

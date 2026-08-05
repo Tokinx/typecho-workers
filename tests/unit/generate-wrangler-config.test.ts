@@ -10,12 +10,12 @@ import {
 } from '../../scripts/generate-wrangler-config';
 
 const env: CloudflareBuildEnv = {
-  TYPECHO_CF_WORKER_NAME: 'typecho-cf-preview',
-  TYPECHO_CF_D1_DATABASE_ID: 'f6ee8b53-9c4b-4d80-9765-28f9295bc3e3',
-  TYPECHO_CF_D1_DATABASE_NAME: 'typecho-cf-db',
-  TYPECHO_CF_R2_BUCKET_NAME: 'typecho-cf-uploads',
-  TYPECHO_CF_KV_NAMESPACE_ID: 'c4f447d3482d4f1fa7f713c86e35d438',
-  TYPECHO_CF_PBKDF2_ITERATIONS: '50000',
+  TYPECHO_WORKER_NAME: 'typecho-preview',
+  TYPECHO_D1_DATABASE_ID: 'f6ee8b53-9c4b-4d80-9765-28f9295bc3e3',
+  TYPECHO_D1_DATABASE_NAME: 'typecho-db',
+  TYPECHO_R2_BUCKET_NAME: 'typecho-uploads',
+  TYPECHO_KV_NAMESPACE_ID: 'c4f447d3482d4f1fa7f713c86e35d438',
+  TYPECHO_PBKDF2_ITERATIONS: '50000',
 };
 
 const temporaryDirectories: string[] = [];
@@ -44,7 +44,7 @@ describe('Cloudflare build Wrangler config', () => {
   it('omits the optional KV binding when no namespace ID is configured', () => {
     const config = generateWranglerToml({
       ...env,
-      TYPECHO_CF_KV_NAMESPACE_ID: undefined,
+      TYPECHO_KV_NAMESPACE_ID: undefined,
     });
     expect(config).not.toContain('TYPECHO_CACHE');
   });
@@ -52,12 +52,12 @@ describe('Cloudflare build Wrangler config', () => {
   it('fails before writing a config when a required build variable is absent', () => {
     expect(() => generateWranglerToml({
       ...env,
-      TYPECHO_CF_D1_DATABASE_ID: undefined,
-    })).toThrow('TYPECHO_CF_D1_DATABASE_ID');
+      TYPECHO_D1_DATABASE_ID: undefined,
+    })).toThrow('TYPECHO_D1_DATABASE_ID');
   });
 
   it('writes an ignored config when the build checkout has none', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'typecho-cf-wrangler-'));
+    const directory = mkdtempSync(join(tmpdir(), 'typecho-wrangler-'));
     temporaryDirectories.push(directory);
 
     const result = ensureCloudflareWranglerConfig(directory, env);
@@ -67,7 +67,7 @@ describe('Cloudflare build Wrangler config', () => {
   });
 
   it('does not overwrite a local manual Wrangler config', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'typecho-cf-wrangler-'));
+    const directory = mkdtempSync(join(tmpdir(), 'typecho-wrangler-'));
     temporaryDirectories.push(directory);
     const configPath = join(directory, 'wrangler.toml');
     writeFileSync(configPath, 'name = "local-manual-config"\n');
