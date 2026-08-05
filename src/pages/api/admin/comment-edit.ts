@@ -93,9 +93,11 @@ export const POST: APIRoute = async ({ request }) => {
       where: eq(schema.comments.coid, parentComment.coid),
     });
     if (!updated) return jsonError(500, '更新评论失败');
-    if (updated.status === 'approved') {
-      await invalidatePublicCache(auth.db, { reason: 'comment-edit', domains: [], sharedDomains: ['sidebar', 'comments', 'notes'] });
-    }
+    await invalidatePublicCache(auth.db, {
+      reason: 'comment-edit',
+      domains: [],
+      sharedDomains: ['sidebar', 'comments', 'notes', 'content', 'admin-dashboard', 'admin-content', 'admin-comments'],
+    });
 
     return jsonOk({ comment: editableComment(updated, auth.options) });
   }
@@ -157,6 +159,10 @@ export const POST: APIRoute = async ({ request }) => {
   };
   await doHook(auth.pluginCtx, 'feedback:reply', savedReply, parentComment, hookExtra);
   await doHook(auth.pluginCtx, 'feedback:finishComment', savedReply, hookExtra);
-  await invalidatePublicCache(auth.db, { reason: 'comment-reply', domains: [], sharedDomains: ['sidebar', 'comments', 'notes'] });
+  await invalidatePublicCache(auth.db, {
+    reason: 'comment-reply',
+    domains: [],
+    sharedDomains: ['sidebar', 'comments', 'notes', 'content', 'admin-dashboard', 'admin-content', 'admin-comments'],
+  });
   return jsonOk({ comment: editableComment(savedReply, auth.options) });
 };

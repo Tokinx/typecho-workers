@@ -5,6 +5,7 @@ import { PASSWORD_MIN_LENGTH } from '@/lib/constants';
 import { isAdminActionResponse, requireAdminAction } from '@/lib/admin-auth';
 import { normalizeHttpUrl } from '@/lib/url';
 import { and, eq, ne, sql } from 'drizzle-orm';
+import { invalidatePublicCache } from '@/lib/cache';
 
 export const POST: APIRoute = async ({ request, locals }) => {
   const auth = await requireAdminAction(request, 'administrator');
@@ -77,6 +78,11 @@ export const POST: APIRoute = async ({ request, locals }) => {
       group,
       authCode,
     });
+    await invalidatePublicCache(db, {
+      reason: 'user-create',
+      domains: [],
+      sharedDomains: ['admin-users', 'admin-dashboard'],
+    });
 
     return new Response(null, {
       status: 302,
@@ -138,6 +144,11 @@ export const POST: APIRoute = async ({ request, locals }) => {
     }
 
     await db.update(schema.users).set(updateData).where(eq(schema.users.uid, uid));
+    await invalidatePublicCache(db, {
+      reason: 'user-update',
+      domains: [],
+      sharedDomains: ['admin-users', 'admin-dashboard', 'admin-content', 'admin-comments', 'admin-media'],
+    });
 
     return new Response(null, {
       status: 302,

@@ -5,6 +5,7 @@ import { PASSWORD_MIN_LENGTH } from '@/lib/constants';
 import { isAdminActionResponse, requireAdminAction } from '@/lib/admin-auth';
 import { normalizeHttpUrl } from '@/lib/url';
 import { eq, and, ne } from 'drizzle-orm';
+import { invalidatePublicCache } from '@/lib/cache';
 
 export const POST: APIRoute = async ({ request, locals }) => {
   const auth = await requireAdminAction(request, 'visitor');
@@ -36,6 +37,11 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
     await auth.db.update(schema.users).set({ screenName, mail, url: normalizedUrl })
       .where(eq(schema.users.uid, auth.uid));
+    await invalidatePublicCache(auth.db, {
+      reason: 'profile-update',
+      domains: [],
+      sharedDomains: ['admin-users', 'admin-dashboard', 'admin-content', 'admin-comments', 'admin-media'],
+    });
     return redirectToProfile();
   }
 
@@ -80,6 +86,11 @@ export const POST: APIRoute = async ({ request, locals }) => {
     const passwordHash = await hashPassword(password);
     await auth.db.update(schema.users).set({ password: passwordHash, authCode: newAuthCode })
       .where(eq(schema.users.uid, auth.uid));
+    await invalidatePublicCache(auth.db, {
+      reason: 'profile-password',
+      domains: [],
+      sharedDomains: ['admin-users'],
+    });
 
     // Rotate every session after a credential change, then keep this browser signed in.
     const token = await generateAuthToken(auth.uid, newAuthCode, auth.options.secret);

@@ -9,6 +9,7 @@ import { UPLOAD_RATE_LIMIT } from '@/lib/constants';
 import { jsonError, jsonOk } from '@/lib/http';
 import { eq } from 'drizzle-orm';
 import { env } from 'cloudflare:workers';
+import { invalidatePublicCache } from '@/lib/cache';
 
 /**
  * R2 attachment metadata JSON persisted in contents.text for type='attachment'.
@@ -98,6 +99,11 @@ export const POST: APIRoute = async ({ request, locals }) => {
     // G5-3: trust the server-derived result.type, not the spoofable
     // file.type from the multipart upload.
     const cid = inserted[0]?.cid;
+    await invalidatePublicCache(db, {
+      reason: 'media-upload',
+      domains: [],
+      sharedDomains: ['admin-media', 'admin-content'],
+    });
 
     // G5-5: upload:upload — fire-and-forget post-upload notification.
     await doHook(pluginCtx, 'upload:upload', { ...result, cid }, { request, options, user: ctx.user });
@@ -166,6 +172,11 @@ export const DELETE: APIRoute = async ({ request, locals, url }) => {
 
     // Delete DB record
     await db.delete(schema.contents).where(eq(schema.contents.cid, cid));
+    await invalidatePublicCache(db, {
+      reason: 'media-upload-delete',
+      domains: [],
+      sharedDomains: ['admin-media', 'admin-content'],
+    });
 
     return jsonOk({ success: true });
   } catch (error) {

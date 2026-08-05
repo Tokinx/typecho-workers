@@ -97,13 +97,11 @@ async function handler({ request, locals, url }: { request: Request; locals: App
       for (const statement of statements) await statement;
     }
 
-    if (pages.some(page => canViewContent(page, {}))) {
-      await invalidatePublicCache(auth.db, {
-        reason: 'page-sort',
-        domains: ['all'],
-        sharedDomains: ['navigation'],
-      });
-    }
+    await invalidatePublicCache(auth.db, {
+      reason: 'page-sort',
+      domains: pages.some(page => canViewContent(page, {})) ? ['all'] : [],
+      sharedDomains: ['navigation', 'archive', 'content', 'admin-dashboard', 'admin-content'],
+    });
     return new Response(JSON.stringify({ success: 1, message: '页面排序已经完成' }), {
       headers: { 'Content-Type': 'application/json; charset=utf-8' },
     });
@@ -194,11 +192,14 @@ async function handler({ request, locals, url }: { request: Request; locals: App
     }
   }
 
-  if (affectsPublicCache) {
+  if (action === 'delete' || (action === 'mark' && markStatus)) {
     await invalidatePublicCache(auth.db, {
       reason: 'content-batch',
-      domains: ['all'],
-      sharedDomains: ['navigation', 'sidebar', 'metas', 'comments', 'notes'],
+      domains: affectsPublicCache ? ['all'] : [],
+      sharedDomains: [
+        'navigation', 'sidebar', 'metas', 'comments', 'notes', 'archive', 'content',
+        'admin-dashboard', 'admin-content', 'admin-comments', 'admin-metas', 'admin-media', 'admin-users',
+      ],
     });
   }
 

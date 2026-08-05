@@ -6,6 +6,7 @@ import { PASSWORD_MIN_LENGTH } from '@/lib/constants';
 import { REGISTER_NOTICE_FLASH_COOKIE, createFlashRedirectHeaders } from '@/lib/flash';
 import { eq } from 'drizzle-orm';
 import { env } from 'cloudflare:workers';
+import { invalidatePublicCache } from '@/lib/cache';
 
 /**
  * Reject cross-origin POSTs. Tightening this beyond the global CSRF
@@ -95,6 +96,11 @@ export const POST: APIRoute = async ({ request }) => {
   if (!result[0]?.uid) {
     return new Response('注册失败', { status: 500 });
   }
+  await invalidatePublicCache(db, {
+    reason: 'user-register',
+    domains: [],
+    sharedDomains: ['admin-users'],
+  });
 
   // No auto-login: redirect to the login page with a success flash. This
   // closes the cross-site session-fixation surface where a third-party

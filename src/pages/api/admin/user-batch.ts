@@ -2,6 +2,7 @@ import type { APIRoute } from 'astro';
 import { schema } from '@/db';
 import { isAdminActionResponse, requireAdminAction, safeAdminRedirectUrl } from '@/lib/admin-auth';
 import { eq, sql } from 'drizzle-orm';
+import { invalidatePublicCache } from '@/lib/cache';
 
 export const POST: APIRoute = handler;
 
@@ -58,6 +59,11 @@ async function handler({ request, locals, url }: { request: Request; locals: App
         .set({ authorId: auth.uid })
         .where(sql`${schema.comments.authorId} IN (${idList})`);
       await auth.db.delete(schema.users).where(sql`${schema.users.uid} IN (${idList})`);
+      await invalidatePublicCache(auth.db, {
+        reason: 'user-delete',
+        domains: [],
+        sharedDomains: ['archive', 'content', 'admin-users', 'admin-dashboard', 'admin-content', 'admin-comments', 'admin-media'],
+      });
     }
   }
 

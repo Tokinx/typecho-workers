@@ -9,6 +9,9 @@ export type CommentAction = typeof COMMENT_ACTIONS[number];
 
 type CommentRow = typeof schema.comments.$inferSelect;
 type UserRow = typeof schema.users.$inferSelect;
+const COMMENT_DATA_DOMAINS = [
+  'sidebar', 'comments', 'notes', 'content', 'admin-dashboard', 'admin-content', 'admin-comments',
+] as const;
 
 export function normalizeCommentAction(action: string): CommentAction | null {
   if (action === 'approve') return 'approved';
@@ -96,9 +99,7 @@ export async function applyCommentAction(
       await decrementCommentCount(db, comment.cid || 0);
     }
     await doHook(ctx, 'comment:action', comment, { action, oldStatus, newStatus: 'deleted', options });
-    if (oldStatus === 'approved') {
-      await invalidatePublicCache(db, { reason: 'comment-visible', domains: [], sharedDomains: ['sidebar', 'comments', 'notes'] });
-    }
+    await invalidatePublicCache(db, { reason: 'comment-delete', domains: [], sharedDomains: [...COMMENT_DATA_DOMAINS] });
     return;
   }
 
@@ -114,9 +115,7 @@ export async function applyCommentAction(
   }
 
   await doHook(ctx, 'comment:action', comment, { action, oldStatus, newStatus: nextStatus, options });
-  if ((oldStatus === 'approved') !== (nextStatus === 'approved')) {
-    await invalidatePublicCache(db, { reason: 'comment-visible', domains: [], sharedDomains: ['sidebar', 'comments', 'notes'] });
-  }
+  await invalidatePublicCache(db, { reason: 'comment-status', domains: [], sharedDomains: [...COMMENT_DATA_DOMAINS] });
 }
 
 /** Apply a validated selection in one D1 batch and fire hooks in input order. */
@@ -175,9 +174,7 @@ export async function applyCommentActions(
     const newStatus = action === 'delete' ? 'deleted' : action === 'approved' ? 'approved' : action;
     await doHook(ctx, 'comment:action', comment, { action, oldStatus, newStatus, options });
   }
-  if (comments.some(comment => (comment.status === 'approved') !== (action === 'approved'))) {
-    await invalidatePublicCache(db, { reason: 'comment-visible-batch', domains: [], sharedDomains: ['sidebar', 'comments', 'notes'] });
-  }
+  await invalidatePublicCache(db, { reason: 'comment-batch', domains: [], sharedDomains: [...COMMENT_DATA_DOMAINS] });
 }
 
 export async function deleteSpamCommentsForUser(

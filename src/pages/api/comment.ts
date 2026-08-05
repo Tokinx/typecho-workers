@@ -287,9 +287,11 @@ export const POST: APIRoute = async ({ request, locals }) => {
   if (!inserted.length) return commentError(wantsJson, 500, '评论保存失败');
   const newCoid = inserted[0].coid;
   commentData.coid = newCoid;
-  if (finalStatus === 'approved') {
-    await invalidatePublicCache(db, { reason: 'comment-visible', domains: [], sharedDomains: ['sidebar', 'comments', 'notes'] });
-  }
+  await invalidatePublicCache(db, {
+    reason: 'comment-create',
+    domains: [],
+    sharedDomains: ['sidebar', 'comments', 'notes', 'content', 'admin-dashboard', 'admin-content', 'admin-comments'],
+  });
 
   // Trigger feedback:finishComment hook — plugins can act after comment saved
   // (e.g. email notifications); fire-and-forget via waitUntil.

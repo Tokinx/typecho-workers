@@ -5,6 +5,7 @@ import { isAdminActionResponse, requireAdminAction } from '@/lib/admin-auth';
 import { deleteFromR2 } from '@/lib/upload';
 import { eq } from 'drizzle-orm';
 import { env } from 'cloudflare:workers';
+import { invalidatePublicCache } from '@/lib/cache';
 
 export const POST: APIRoute = async ({ request, locals }) => {
   const auth = await requireAdminAction(request, 'editor');
@@ -43,6 +44,11 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
     // Delete DB record
     await auth.db.delete(schema.contents).where(eq(schema.contents.cid, cid));
+    await invalidatePublicCache(auth.db, {
+      reason: 'media-delete',
+      domains: [],
+      sharedDomains: ['admin-media', 'admin-content'],
+    });
 
     return new Response(null, {
       status: 302,
@@ -61,6 +67,11 @@ export const POST: APIRoute = async ({ request, locals }) => {
     slug,
     modified: Math.floor(Date.now() / 1000),
   }).where(eq(schema.contents.cid, cid));
+  await invalidatePublicCache(auth.db, {
+    reason: 'media-update',
+    domains: [],
+    sharedDomains: ['admin-media'],
+  });
 
   return new Response(null, {
     status: 302,

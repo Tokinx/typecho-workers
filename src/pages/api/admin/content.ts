@@ -208,17 +208,16 @@ async function purgeContentAndRelatedCache(
   // Skip cache work for drafts — they never appear on public pages, so
   // purging index/feed/category URLs is pure waste.
   const isPublic = !!content && canViewContent(content, {});
-  if (!isPublic && !extra?.wasPublic) {
-    return;
-  }
-
   // Every public cache key embeds cacheVersion. A single version bump replaces
   // URL-by-URL purges and avoids loading relationships solely to build keys
   // that the Cache API no longer stores.
   await invalidatePublicCache(db, {
     reason: 'content',
-    domains: ['all'],
-    sharedDomains: ['navigation', 'sidebar', 'metas', 'comments', 'notes'],
+    domains: isPublic || extra?.wasPublic ? ['all'] : [],
+    sharedDomains: [
+      'navigation', 'sidebar', 'metas', 'comments', 'notes', 'archive', 'content',
+      'admin-dashboard', 'admin-content', 'admin-comments', 'admin-metas', 'admin-media', 'admin-users',
+    ],
   });
 }
 

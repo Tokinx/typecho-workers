@@ -6,6 +6,7 @@ import {
   getModeratableComments,
   normalizeCommentAction,
 } from '@/lib/comment-moderation';
+import { invalidatePublicCache } from '@/lib/cache';
 
 export const GET: APIRoute = async () =>
   new Response('Method Not Allowed', { status: 405 });
@@ -19,7 +20,14 @@ async function handler({ request, locals, url }: { request: Request; locals: App
 
   // Special action: delete all spam
   if (action === 'delete-spam') {
-    await deleteSpamCommentsForUser(auth.db, auth.user);
+    const removed = await deleteSpamCommentsForUser(auth.db, auth.user);
+    if (removed > 0) {
+      await invalidatePublicCache(auth.db, {
+        reason: 'comment-spam-delete',
+        domains: [],
+        sharedDomains: ['sidebar', 'comments', 'notes', 'content', 'admin-dashboard', 'admin-content', 'admin-comments'],
+      });
+    }
 
     const referer = safeAdminRedirectUrl(
       request.headers.get('referer'),

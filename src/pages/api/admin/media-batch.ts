@@ -4,6 +4,7 @@ import { hasPermission } from '@/lib/auth';
 import { isAdminActionResponse, requireAdminAction, safeAdminRedirectUrl } from '@/lib/admin-auth';
 import { eq, sql } from 'drizzle-orm';
 import { env } from 'cloudflare:workers';
+import { invalidatePublicCache } from '@/lib/cache';
 
 export const POST: APIRoute = handler;
 
@@ -53,6 +54,11 @@ async function handler({ request, locals, url }: { request: Request; locals: App
 
       const idList = sql.join(targets.map(t => sql`${t.cid}`), sql`, `);
       await auth.db.delete(schema.contents).where(sql`${schema.contents.cid} IN (${idList})`);
+      await invalidatePublicCache(auth.db, {
+        reason: 'media-batch-delete',
+        domains: [],
+        sharedDomains: ['admin-media', 'admin-content'],
+      });
     }
   }
 
