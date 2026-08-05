@@ -22,8 +22,10 @@
  *   npx tsx scripts/reset-password.ts --user admin --target local
  */
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { createHmac, randomBytes, pbkdf2Sync } from 'node:crypto';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -52,21 +54,26 @@ function parseArgs(): ResetOptions {
   };
 
   for (let i = 0; i < args.length; i++) {
+    const nextValue = (option: string): string => {
+      const value = args[++i];
+      if (!value || value.startsWith('-')) throw new Error(`${option} 需要一个参数`);
+      return value;
+    };
     switch (args[i]) {
       case '--user':
       case '-u':
-        opts.user = args[++i] || '';
+        opts.user = nextValue(args[i]);
         break;
       case '--password':
       case '-p':
-        opts.password = args[++i] || '';
+        opts.password = nextValue(args[i]);
         break;
       case '--target':
       case '-t':
-        opts.target = (args[++i] || 'local') as 'local' | 'cloudflare';
+        opts.target = nextValue(args[i]) as 'local' | 'cloudflare';
         break;
       case '--d1-name':
-        opts.d1Name = args[++i] || 'DB';
+        opts.d1Name = nextValue(args[i]);
         break;
       case '--list':
       case '-l':
@@ -76,10 +83,27 @@ function parseArgs(): ResetOptions {
       case '-h':
         printHelp();
         process.exit(0);
+      default:
+        throw new Error(`未知参数: ${args[i]}`);
     }
   }
 
   return opts;
+}
+
+const USERNAME_RE = /^[^\u0000-\u001f\u007f]{1,128}$/u;
+const D1_NAME_RE = /^[A-Za-z][A-Za-z0-9._:-]{0,127}$/;
+
+export function validateResetOptions(opts: ResetOptions): void {
+  if (opts.target !== 'local' && opts.target !== 'cloudflare') {
+    throw new Error('target 必须是 local 或 cloudflare');
+  }
+  if (!USERNAME_RE.test(opts.user)) {
+    throw new Error('用户名不能为空，且不能包含控制字符');
+  }
+  if (!D1_NAME_RE.test(opts.d1Name)) {
+    throw new Error('D1 数据库名只能包含字母、数字、点、下划线、冒号和连字符，且必须以字母开头');
+  }
 }
 
 function printHelp(): void {
@@ -165,14 +189,22 @@ function generateRandomPassword(length = 16): string {
 
 // ─── D1 Execution ────────────────────────────────────────────────────────────
 
-function d1Execute(sql: string, d1Name: string, remote: boolean): string {
+export function escapeSqlLiteral(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
+export function d1Execute(sql: string, d1Name: string, remote: boolean): string {
+  if (!sql || /\u0000/.test(sql)) throw new Error('SQL 不能为空且不能包含 NUL 字符');
+  if (!D1_NAME_RE.test(d1Name)) throw new Error('D1 数据库名无效');
   const remoteFlag = remote ? '--remote' : '--local';
-  // Escape single quotes in SQL for shell, then wrap in double quotes
-  const escapedSql = sql.replace(/"/g, '\\"');
-  const cmd = `npx wrangler d1 execute ${d1Name} ${remoteFlag} --command "${escapedSql}"`;
+  const tempDir = mkdtempSync(path.join(tmpdir(), 'typecho-reset-'));
+  const sqlPath = path.join(tempDir, 'query.sql');
+  writeFileSync(sqlPath, sql, { encoding: 'utf8', mode: 0o600 });
 
   try {
-    const output = execSync(cmd, {
+    const output = execFileSync('npx', [
+      'wrangler', 'd1', 'execute', d1Name, remoteFlag, '--file', sqlPath,
+    ], {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
       cwd: projectRoot,
@@ -189,6 +221,8 @@ function d1Execute(sql: string, d1Name: string, remote: boolean): string {
     if (err.stderr) console.error(err.stderr);
     if (err.stdout) console.error(err.stdout);
     process.exit(1);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
   }
 }
 
@@ -241,7 +275,7 @@ function resetPassword(user: string, password: string, d1Name: string, remote: b
   // 1. Check user exists
   console.log(`\n🔍 查找用户 "${user}" [${targetLabel}]...`);
 
-  const escapedUser = user.replace(/'/g, "''");
+  const escapedUser = escapeSqlLiteral(user);
   const checkSql = `SELECT uid, name, screenName, [group] FROM typecho_users WHERE name = '${escapedUser}'`;
   const checkOutput = d1Execute(checkSql, d1Name, remote);
 
@@ -281,7 +315,14 @@ function resetPassword(user: string, password: string, d1Name: string, remote: b
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 function main(): void {
-  const opts = parseArgs();
+  let opts: ResetOptions;
+  try {
+    opts = parseArgs();
+    validateResetOptions(opts);
+  } catch (error) {
+    console.error(`❌ ${error instanceof Error ? error.message : '参数无效'}`);
+    process.exit(2);
+  }
   const remote = opts.target === 'cloudflare';
 
   if (opts.list) {
@@ -304,4 +345,4 @@ function main(): void {
   resetPassword(opts.user, opts.password, opts.d1Name, remote);
 }
 
-main();
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) main();
