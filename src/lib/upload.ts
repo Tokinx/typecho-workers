@@ -164,6 +164,20 @@ export function generateUploadPath(filename: string, date = new Date(), allowUnk
 }
 
 /**
+ * Derive the storage filename and MIME type for upload adapters.
+ * The filename is always regenerated server-side and the MIME type comes
+ * from its validated extension rather than a client-provided header.
+ */
+export function deriveUploadMetadata(filename: string): { filename: string; contentType: string } {
+  const safeFilename = sanitizeFilename(filename);
+  const contentType = getMimeTypeFromExtension(filename);
+  if (!contentType) {
+    throw new Error(`无法识别的文件扩展名: ${filename}`);
+  }
+  return { filename: safeFilename, contentType };
+}
+
+/**
  * Upload a file to R2.
  *
  * Security notes:

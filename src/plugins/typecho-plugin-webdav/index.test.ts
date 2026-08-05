@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generateAuthToken, hashPassword } from '@/lib/auth';
+import { generateAuthToken, generateSecurityToken, hashPassword } from '@/lib/auth';
 import init, {
   clearWebDavAuthFailures,
   getWebDavClientIp,
@@ -142,18 +142,18 @@ async function routeAdminApiWithAuth(
   path: string,
   settings: Record<string, unknown>,
   env: Record<string, unknown>,
+  init: RequestInit = {},
 ) {
   const hooks = collectHooks();
   const route = hooks.get('route:request')!;
   const secret = 'admin-secret';
   const authCode = 'admin-auth';
   const token = await generateAuthToken(1, authCode, secret);
+  const headers = new Headers(init.headers);
+  headers.set('cookie', `__typecho_uid=1; __typecho_authCode=${token.split(':')[1]}`);
+  headers.set('x-csrf-token', await generateSecurityToken(secret, authCode, 1));
   return await route({ handled: false }, {
-    request: new Request(`https://example.com${path}`, {
-      headers: {
-        cookie: `__typecho_uid=1; __typecho_authCode=${token.split(':')[1]}`,
-      },
-    }),
+    request: new Request(`https://example.com${path}`, { ...init, headers }),
     path: '/api/admin/webdav',
     db: {
       query: {
@@ -619,6 +619,61 @@ describe('typecho-plugin-webdav hooks', () => {
     expect(childHtml).toContain('readme.txt');
   });
 
+  it('forces SVG, HTML, and spoofed MIME reads into download-safe responses', async () => {
+    const bucket = new MemoryR2Bucket();
+    await bucket.put('uploads/payload.svg', '<svg><script>alert(1)</script></svg>', {
+      httpMetadata: { contentType: 'image/svg+xml' },
+    });
+    await bucket.put('uploads/payload.html', '<script>alert(1)</script>', {
+      httpMetadata: { contentType: 'text/html' },
+    });
+    await bucket.put('uploads/spoofed.jpg', '<script>alert(1)</script>', {
+      httpMetadata: { contentType: 'text/html' },
+    });
+
+    for (const name of ['payload.svg', 'payload.html', 'spoofed.jpg']) {
+      const result = await routeWithAuth(new Request(`https://example.com/dav/media/${name}`, {
+        headers: { authorization: basicAuth() },
+      }), { routePath: '/dav', mounts: VALID_MOUNTS }, { BUCKET: bucket });
+
+      expect(result.response.status).toBe(200);
+      expect(result.response.headers.get('Content-Disposition')).toBe('attachment');
+      expect(result.response.headers.get('Content-Type')).toBe('application/octet-stream');
+      expect(result.response.headers.get('Content-Security-Policy')).toBe("default-src 'none'; sandbox");
+    }
+  });
+
+  it('derives WebDAV PUT MIME from the extension and rejects dangerous names', async () => {
+    const bucket = new MemoryR2Bucket();
+    const settings = { routePath: '/dav', mounts: VALID_MOUNTS };
+    const accepted = await routeWithAuth(new Request('https://example.com/dav/media/icon.svg', {
+      method: 'PUT',
+      headers: {
+        authorization: basicAuth(),
+        'content-type': 'text/html',
+      },
+      body: '<svg />',
+    }), settings, { BUCKET: bucket });
+
+    expect(accepted.response.status).toBe(201);
+    const svgObject = [...bucket.objects.values()].find(object => object.key.endsWith('.svg'));
+    expect(svgObject).toBeDefined();
+    expect(svgObject.key).not.toBe('uploads/icon.svg');
+    expect(svgObject.httpMetadata.contentType).toBe('image/svg+xml');
+
+    const rejected = await routeWithAuth(new Request('https://example.com/dav/media/payload.html', {
+      method: 'PUT',
+      headers: {
+        authorization: basicAuth(),
+        'content-type': 'image/png',
+      },
+      body: '<script>alert(1)</script>',
+    }), settings, { BUCKET: bucket });
+
+    expect(rejected.response.status).toBe(400);
+    expect([...bucket.objects.values()].some(object => object.key.endsWith('.html'))).toBe(false);
+  });
+
   it('keeps /webdav working when an old default /dav route is saved', async () => {
     const bucket = new MemoryR2Bucket();
     await bucket.put('cc-switch-sync/', '', {
@@ -901,6 +956,36 @@ describe('typecho-plugin-webdav admin panel', () => {
     expect(body.success).toBe(true);
     expect(body.data.prefixes).toEqual(['media/', 'backup/']);
     expect(body.data.objects).toEqual([]);
+  });
+
+  it('validates multipart names and ignores the client MIME type', async () => {
+    const bucket = new MemoryR2Bucket();
+    const settings = { routePath: '/webdav', mounts: [{ mount: '', provider: 'r2', bindingName: 'BUCKET' }] };
+    const form = new FormData();
+    form.set('action', 'upload');
+    form.set('path', '');
+    form.set('file', new File(['hello'], 'photo.jpg', { type: 'text/html' }));
+
+    const accepted = await routeAdminApiWithAuth('/api/admin/webdav', settings, { BUCKET: bucket }, {
+      method: 'POST',
+      body: form,
+    });
+    expect(accepted.response.status).toBe(200);
+    const jpgObject = [...bucket.objects.values()].find(object => object.key.endsWith('.jpg'));
+    expect(jpgObject).toBeDefined();
+    expect(jpgObject.key).not.toBe('photo.jpg');
+    expect(jpgObject.httpMetadata.contentType).toBe('image/jpeg');
+
+    const dangerous = new FormData();
+    dangerous.set('action', 'upload');
+    dangerous.set('path', '');
+    dangerous.set('file', new File(['<script>'], '../evil.html', { type: 'image/png' }));
+    const rejected = await routeAdminApiWithAuth('/api/admin/webdav', settings, { BUCKET: bucket }, {
+      method: 'POST',
+      body: dangerous,
+    });
+    expect(rejected.response.status).toBe(400);
+    expect([...bucket.objects.values()].some(object => object.key.endsWith('.html'))).toBe(false);
   });
 
   it('injects WebDav menu item for administrators via admin:footer', () => {

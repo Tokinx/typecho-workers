@@ -1,6 +1,7 @@
 import { encodePathSegment, encodeKeyPath, withMountPrefix, hasExplicitSessionCookie } from './config';
 import type { StorageMount, S3Object, S3ListResult } from './types';
 import { fetchWithTimeout } from 'typecho/plugin-sdk';
+import { getMimeTypeFromExtension } from '@/lib/upload';
 
 // --- Constants ---
 
@@ -15,6 +16,33 @@ const TIANYI_LIST_PARAMS: Record<string, string> = {
   pageSize: '60', mediaType: '0', iconOption: '5',
   orderBy: 'lastOpTime', descending: 'true',
 };
+
+const DOWNLOAD_CSP = "default-src 'none'; sandbox";
+const OCTET_STREAM = 'application/octet-stream';
+
+function downloadContentType(contentType: string | null | undefined, key: string): string {
+  const detected = getMimeTypeFromExtension(key);
+  const value = String(contentType || detected || OCTET_STREAM);
+  const mediaType = value.split(';', 1)[0]!.trim().toLowerCase();
+  const lowerKey = key.toLowerCase();
+  if (mediaType === 'image/svg+xml' || mediaType === 'text/html' || mediaType === 'application/xhtml+xml'
+    || /\.(?:svg|html?|xhtml|shtml)$/.test(lowerKey)) {
+    return OCTET_STREAM;
+  }
+  return value;
+}
+
+function forceDownload(response: Response, key: string): Response {
+  const headers = new Headers(response.headers);
+  headers.set('Content-Type', downloadContentType(headers.get('Content-Type'), key));
+  headers.set('Content-Disposition', 'attachment');
+  headers.set('Content-Security-Policy', DOWNLOAD_CSP);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
 
 // --- RSA Encryption (PKCS#1 v1.5, manual implementation for CF Workers) ---
 
@@ -782,7 +810,9 @@ function createR2Ops(mount: StorageMount): StorageOps {
       if (object.size != null) headers.set('Content-Length', String(object.size));
       if (object.httpEtag || object.etag) headers.set('ETag', object.httpEtag || object.etag || '');
       if (object.uploaded) headers.set('Last-Modified', object.uploaded.toUTCString());
-      if (object.httpMetadata?.contentType) headers.set('Content-Type', object.httpMetadata.contentType);
+      headers.set('Content-Type', downloadContentType(object.httpMetadata?.contentType, k));
+      headers.set('Content-Disposition', 'attachment');
+      headers.set('Content-Security-Policy', DOWNLOAD_CSP);
       return new Response(method === 'HEAD' ? null : object.body, { status: 200, headers });
     },
 
@@ -862,7 +892,7 @@ function createS3Ops(mount: StorageMount): StorageOps {
       if (response.status === 404 || response.status === 403) {
         return new Response('Not Found', { status: 404 });
       }
-      return response;
+      return forceDownload(response, pk(mount, k));
     },
 
     async write(k, body, contentType, workerEnv) {
@@ -958,12 +988,14 @@ function createTianyiOps(mount: StorageMount): StorageOps {
       const cleanKey = fullKey.replace(/\/+$/, '');
       const resolved = await tianyiResolvePath(mount, cleanKey);
       if (!resolved || resolved.isFolder) return new Response('Not Found', { status: 404 });
-      if (method === 'HEAD') return new Response(null, { status: 200 });
+      if (method === 'HEAD') {
+        return forceDownload(new Response(null, { status: 200 }), cleanKey);
+      }
       const downloadUrl = await tianyiGetDownloadUrl(mount, resolved.id);
       if (!downloadUrl) return new Response('Not Found', { status: 404 });
       const downloadResp = await fetch(downloadUrl);
       if (!downloadResp.ok) return new Response(`Download failed (${downloadResp.status})`, { status: 502 });
-      return downloadResp;
+      return forceDownload(downloadResp, cleanKey);
     },
 
     async write(k, body, contentType, workerEnv) {

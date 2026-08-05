@@ -6,6 +6,7 @@ import {
   clearWebDavAuthFailures, authenticate,
 } from './config';
 import { getStorageOps } from './adapters';
+import { deriveUploadMetadata } from '@/lib/upload';
 
 // --- Constants ---
 
@@ -261,8 +262,12 @@ async function handlePut(
   workerEnv?: Record<string, unknown>,
 ): Promise<Response> {
   if (!key || key.endsWith('/')) return new Response('Invalid target', { status: 409 });
-  const contentType = request.headers.get('content-type') || undefined;
-  return getStorageOps(mount).write(key, request.body, contentType, workerEnv);
+  try {
+    const target = prepareWebDavUploadTarget(key);
+    return getStorageOps(mount).write(target.path, request.body, target.contentType, workerEnv);
+  } catch (error) {
+    return new Response(error instanceof Error ? error.message : 'Invalid upload filename', { status: 400 });
+  }
 }
 
 async function handleMkcol(mount: StorageMount, key: string, workerEnv?: Record<string, unknown>): Promise<Response> {
@@ -389,6 +394,18 @@ export async function handleWebDavRequest(config: WebDavConfig, relativePath: st
   }
 }
 
+export function prepareWebDavUploadTarget(path: string): { path: string; contentType: string } {
+  const normalized = path.replace(/\\/g, '/');
+  const separator = normalized.lastIndexOf('/');
+  const directory = separator >= 0 ? normalized.slice(0, separator) : '';
+  const filename = separator >= 0 ? normalized.slice(separator + 1) : normalized;
+  const metadata = deriveUploadMetadata(filename);
+  return {
+    path: directory ? `${directory}/${metadata.filename}` : metadata.filename,
+    contentType: metadata.contentType,
+  };
+}
+
 // --- Storage Adapter for Admin API ---
 
 export function createStorageAdapter(config: WebDavConfig) {
@@ -413,10 +430,11 @@ export function createStorageAdapter(config: WebDavConfig) {
       const { ops, key } = resolve(path);
       return ops.read(key, 'GET', workerEnv);
     },
-    async write(path: string, body: ReadableStream<Uint8Array> | null, contentType: string, workerEnv?: Record<string, unknown>) {
+    async write(path: string, body: ReadableStream<Uint8Array> | null, _contentType: string, workerEnv?: Record<string, unknown>) {
       const { ops, key } = resolve(path);
       if (!key || key.endsWith('/')) throw new Error('Invalid target');
-      const response = await ops.write(key, body, contentType, workerEnv);
+      const target = prepareWebDavUploadTarget(key);
+      const response = await ops.write(target.path, body, target.contentType, workerEnv);
       if (!response.ok) throw new Error(`Storage write failed (${response.status})`);
       return response;
     },

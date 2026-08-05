@@ -20,7 +20,7 @@ export {
   recordWebDavAuthFailure, clearWebDavAuthFailures, matchWebDavRoute,
   parseBasicCredentials, hasExplicitSessionCookie,
 } from './config';
-export { createStorageAdapter } from './protocol';
+export { createStorageAdapter, prepareWebDavUploadTarget } from './protocol';
 
 // ── Admin Panel (in-plugin) ──
 
@@ -139,8 +139,16 @@ async function handleAdminApiRequest(request: Request, config: WebDavConfig, wor
 
       if (action === 'upload') {
         if (!file) return new Response(JSON.stringify({ error: '没有选择文件' }), { status: 400, headers: jsonHeaders });
-        const filePath = dirPath ? `${dirPath.replace(/\/+$/, '')}/${file.name}` : file.name;
-        await adapter.write(filePath, file.stream(), file.type || 'application/octet-stream', workerEnv);
+        const filename = file.name.replace(/\\/g, '/').split('/').pop() || '';
+        const filePath = dirPath ? `${dirPath.replace(/\/+$/, '')}/${filename}` : filename;
+        try {
+          await adapter.write(filePath, file.stream(), '', workerEnv);
+        } catch (error) {
+          return new Response(JSON.stringify({ error: error instanceof Error ? error.message : '上传文件名无效' }), {
+            status: 400,
+            headers: jsonHeaders,
+          });
+        }
         return new Response(JSON.stringify({ success: true, message: '上传成功' }), { headers: jsonHeaders });
       }
       return new Response(JSON.stringify({ error: 'Unknown action' }), { status: 400, headers: jsonHeaders });
