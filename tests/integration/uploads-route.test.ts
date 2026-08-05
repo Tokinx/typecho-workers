@@ -68,7 +68,7 @@ describe('GET /usr/uploads/[...path]', () => {
     expect(res.headers.get('Content-Disposition')).toBe('attachment');
   });
 
-  it('attaches the strict upload CSP and CORP same-origin (G5-6)', async () => {
+  it('attaches the strict upload CSP without cross-origin isolation headers', async () => {
     mockBucketGet.mockResolvedValue({
       body: bodyStream('binary'),
       httpEtag: '"e"',
@@ -80,7 +80,8 @@ describe('GET /usr/uploads/[...path]', () => {
       request: new Request('https://example.com/usr/uploads/a.png'),
     } as any);
     expect(res.headers.get('Content-Security-Policy') || '').toContain("default-src 'none'");
-    expect(res.headers.get('Cross-Origin-Resource-Policy')).toBe('same-origin');
+    expect(res.headers.get('Cross-Origin-Opener-Policy')).toBeNull();
+    expect(res.headers.get('Cross-Origin-Resource-Policy')).toBeNull();
   });
 
   it('serves subsequent requests from edge cache without another R2 body read', async () => {
@@ -103,6 +104,8 @@ describe('GET /usr/uploads/[...path]', () => {
     expect(mockBucketGet).toHaveBeenCalledTimes(1);
     expect(mockBucketHead).toHaveBeenCalledTimes(2);
     expect(second.headers.get('Content-Security-Policy') || '').toContain("default-src 'none'");
+    expect(second.headers.get('Cross-Origin-Opener-Policy')).toBeNull();
+    expect(second.headers.get('Cross-Origin-Resource-Policy')).toBeNull();
     expect(second.headers.get('Cache-Control')).toBe('public, max-age=0, must-revalidate');
   });
 

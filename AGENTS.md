@@ -346,8 +346,6 @@ WebDAV 插件的文件管理器是完整参考实现：`admin:page` 返回包含
 | `Strict-Transport-Security` | `max-age=31536000; includeSubDomains`（仅 HTTPS） |
 | `Content-Security-Policy` | 宽型默认（允许 `'self'` + 内联样式 / 脚本 + Gravatar 图片 + R2/usr/uploads） |
 | `Permissions-Policy` | 默认禁用 camera/microphone/geolocation/payment/usb |
-| `Cross-Origin-Opener-Policy` | `same-origin` |
-| `Cross-Origin-Resource-Policy` | `same-origin`（包括上传响应，禁止第三方站点直接嵌入） |
 
 `csp:directives` filter hook 允许插件追加/调整 CSP directives；插件应只附加来源，不要清空默认 directive。
 

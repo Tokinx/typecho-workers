@@ -50,9 +50,9 @@ export const GET: APIRoute = async ({ params, locals, request }) => {
     headers.set('ETag', object.httpEtag);
 
     // applySecurityHeaders adds the upload-specific tightened CSP
-    // (default-src 'none'; sandbox; ...) and CORP same-origin so a
-    // user-uploaded HTML/SVG file can never source code from the rest
-    // of the site even if Content-Type detection is wrong.
+    // (default-src 'none'; sandbox; ...) so a user-uploaded HTML/SVG
+    // file cannot source code from the rest of the site even if
+    // Content-Type detection is wrong.
     const response = await applySecurityHeaders(
       new Response(object.body, { headers }),
       { request, upload: true },
