@@ -815,17 +815,17 @@ export function parseCookieNames(cookieHeader: string | null): Set<string> {
   return names;
 }
 
-function requestCachePolicy(request: Request, config: CachePluginConfig): RequestCachePolicy {
+function requestCachePolicy(request: Request): RequestCachePolicy {
   if (request.headers.has('Authorization')) return 'bypass';
   const cacheControl = request.headers.get('Cache-Control')?.toLowerCase() || '';
   if (cacheControl.includes('no-cache') || cacheControl.includes('no-store')) return 'bypass';
 
   const cookieNames = parseCookieNames(request.headers.get('Cookie'));
-  if (
-    cookieNames.has('__typecho_uid') ||
-    cookieNames.has('__typecho_authCode') ||
-    cookieNames.has('__typecho_unapproved_comment')
-  ) {
+  // Frontend HTML is deliberately decoupled from the authenticated viewer.
+  // Authentication cookies may therefore share the public page cache. An
+  // unapproved-comment cookie remains read-only because it can reveal a
+  // submitter's pending comment on an otherwise public page.
+  if (cookieNames.has('__typecho_unapproved_comment')) {
     return 'read-only';
   }
   return 'read-write';
@@ -895,7 +895,7 @@ async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNex
   const domain = classifyCacheDomain(context.url.pathname, control);
   const normalizedUrl = normalizeCacheUrl(context.url, domain);
   const domainEnabled = control.config.cacheScopes.includes(domain);
-  const policy = requestCachePolicy(context.request, control.config);
+  const policy = requestCachePolicy(context.request);
   const bypass = policy === 'bypass' || !normalizedUrl;
   const l2Ttl = control.config.l2Ttl;
   const l3Ttl = control.config.l3Ttl;

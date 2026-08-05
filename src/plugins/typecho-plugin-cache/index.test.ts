@@ -368,7 +368,7 @@ describe('typecho-plugin-cache provider', () => {
     expect(next).toHaveBeenCalledTimes(5);
   });
 
-  it('serves authenticated cache hits but never stores authenticated misses', async () => {
+  it('lets an authenticated cold request populate the shared public page cache', async () => {
     const kv = new MemoryKv();
     await activate(kv);
     const publicNext = vi.fn(async () => new Response('<html>public</html>', {
@@ -384,17 +384,18 @@ describe('typecho-plugin-cache provider', () => {
     expect(hit.headers.get('X-Typecho-Cache')).toBe('L1');
 
     await earlyRequestProvider.invalidate!({ reason: 'test', domains: ['all'] });
-    const privateNext = vi.fn(async () => new Response('<html>private toolbar</html>', {
+    const authenticatedNext = vi.fn(async () => new Response('<html>public after login</html>', {
       headers: { 'Content-Type': 'text/html' },
     }));
-    const miss = await earlyRequestProvider.handle(authenticatedHit, privateNext);
-    expect(miss.headers.get('X-Typecho-Cache')).toBe('BYPASS');
+    const miss = await earlyRequestProvider.handle(authenticatedHit, authenticatedNext);
+    expect(miss.headers.get('X-Typecho-Cache')).toBe('MISS');
+    expect(await miss.text()).toContain('public after login');
 
     const anonymous = await earlyRequestProvider.handle(requestContext(), publicNext);
-    expect(anonymous.headers.get('X-Typecho-Cache')).toBe('MISS');
-    expect(await anonymous.text()).toContain('public');
-    expect(privateNext).toHaveBeenCalledOnce();
-    expect(publicNext).toHaveBeenCalledTimes(2);
+    expect(anonymous.headers.get('X-Typecho-Cache')).toBe('L1');
+    expect(await anonymous.text()).toContain('public after login');
+    expect(authenticatedNext).toHaveBeenCalledOnce();
+    expect(publicNext).toHaveBeenCalledOnce();
   });
 
   it('serves an authenticated request from L2 after the local L1 is cold', async () => {
@@ -415,35 +416,41 @@ describe('typecho-plugin-cache provider', () => {
     expect(next).toHaveBeenCalledOnce();
   });
 
-  it('does not let an authenticated miss enter the anonymous in-flight queue', async () => {
+  it('coalesces authenticated and anonymous cold requests into one public render', async () => {
     const kv = new MemoryKv();
     await activate(kv);
-    let releasePrivate!: () => void;
-    const privateGate = new Promise<void>(resolve => { releasePrivate = resolve; });
+    let releaseRender!: () => void;
+    const renderGate = new Promise<void>(resolve => { releaseRender = resolve; });
+    let markRenderStarted!: () => void;
+    const renderStarted = new Promise<void>(resolve => { markRenderStarted = resolve; });
     const authenticated = requestContext();
     authenticated.request = new Request(authenticated.request, {
       headers: { Cookie: '__typecho_uid=1; __typecho_authCode=token' },
     });
-    const privateNext = vi.fn(async () => {
-      await privateGate;
-      return new Response('<html>private toolbar</html>', { headers: { 'Content-Type': 'text/html' } });
+    const authenticatedNext = vi.fn(async () => {
+      markRenderStarted();
+      await renderGate;
+      return new Response('<html>public from login</html>', { headers: { 'Content-Type': 'text/html' } });
     });
     const publicNext = vi.fn(async () => new Response('<html>public</html>', {
       headers: { 'Content-Type': 'text/html' },
     }));
 
-    const privateResponsePromise = earlyRequestProvider.handle(authenticated, privateNext);
-    await Promise.resolve();
-    const publicResponse = await earlyRequestProvider.handle(requestContext(), publicNext);
-    releasePrivate();
-    const privateResponse = await privateResponsePromise;
+    const authenticatedResponsePromise = earlyRequestProvider.handle(authenticated, authenticatedNext);
+    await renderStarted;
+    const publicResponsePromise = earlyRequestProvider.handle(requestContext(), publicNext);
+    releaseRender();
+    const [authenticatedResponse, publicResponse] = await Promise.all([
+      authenticatedResponsePromise,
+      publicResponsePromise,
+    ]);
 
-    expect(publicResponse.headers.get('X-Typecho-Cache')).toBe('MISS');
-    expect(await publicResponse.text()).toContain('public');
-    expect(privateResponse.headers.get('X-Typecho-Cache')).toBe('BYPASS');
-    expect(await privateResponse.text()).toContain('private toolbar');
-    expect(privateNext).toHaveBeenCalledOnce();
-    expect(publicNext).toHaveBeenCalledOnce();
+    expect(['MISS', 'L1']).toContain(publicResponse.headers.get('X-Typecho-Cache'));
+    expect(await publicResponse.text()).toContain('public from login');
+    expect(authenticatedResponse.headers.get('X-Typecho-Cache')).toBe('MISS');
+    expect(await authenticatedResponse.text()).toContain('public from login');
+    expect(authenticatedNext).toHaveBeenCalledOnce();
+    expect(publicNext).not.toHaveBeenCalled();
   });
 
   it('stores a marked Warm response from a sensitive cookie request', async () => {
