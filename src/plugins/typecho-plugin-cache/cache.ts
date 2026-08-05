@@ -30,22 +30,23 @@ const MAX_HTML_BYTES = 5 * 1024 * 1024;
 const D1_GENERATION_TTL_SECONDS = 10 * 365 * 24 * 60 * 60;
 const D1_CLEANUP_INTERVAL_MS = 5 * 60_000;
 const VIEWER_QUERY_PREFIX = 'query:viewer:';
+const DATA_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60;
 const SHARED_DATA_TTL_SECONDS: Record<SharedCacheDomain, number> = {
-  options: 604_800,
-  navigation: 604_800,
-  sidebar: 604_800,
-  metas: 604_800,
-  comments: 60,
-  notes: 604_800,
-  archive: 86_400,
-  content: 86_400,
-  'admin-dashboard': 60,
-  'admin-content': 60,
-  'admin-comments': 60,
-  'admin-metas': 60,
-  'admin-media': 60,
-  'admin-users': 60,
-  'admin-options': 60,
+  options: DATA_CACHE_TTL_SECONDS,
+  navigation: DATA_CACHE_TTL_SECONDS,
+  sidebar: DATA_CACHE_TTL_SECONDS,
+  metas: DATA_CACHE_TTL_SECONDS,
+  comments: DATA_CACHE_TTL_SECONDS,
+  notes: DATA_CACHE_TTL_SECONDS,
+  archive: DATA_CACHE_TTL_SECONDS,
+  content: DATA_CACHE_TTL_SECONDS,
+  'admin-dashboard': DATA_CACHE_TTL_SECONDS,
+  'admin-content': DATA_CACHE_TTL_SECONDS,
+  'admin-comments': DATA_CACHE_TTL_SECONDS,
+  'admin-metas': DATA_CACHE_TTL_SECONDS,
+  'admin-media': DATA_CACHE_TTL_SECONDS,
+  'admin-users': DATA_CACHE_TTL_SECONDS,
+  'admin-options': DATA_CACHE_TTL_SECONDS,
 };
 const ALL_DOMAINS: PublicCacheDomain[] = ['home', 'post', 'page', 'note', 'archive', 'other'];
 const DETAIL_DOMAINS = new Set<PublicCacheDomain>(['post', 'page', 'note']);
@@ -213,7 +214,9 @@ function dataCacheBackend(config: CachePluginConfig, domain: SharedCacheDomain):
 }
 
 function dataCacheTtl(domain: SharedCacheDomain, key: string): number {
-  return key.startsWith(VIEWER_QUERY_PREFIX) ? 60 : SHARED_DATA_TTL_SECONDS[domain];
+  return key.startsWith(VIEWER_QUERY_PREFIX)
+    ? DATA_CACHE_TTL_SECONDS
+    : SHARED_DATA_TTL_SECONDS[domain];
 }
 
 export function setCacheRuntimeConfig(settings: Record<string, unknown> | CachePluginConfig): CachePluginConfig {

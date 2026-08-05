@@ -519,7 +519,7 @@ describe('typecho-plugin-cache provider', () => {
     }
   });
 
-  it('stores public comment projections for at most one minute', async () => {
+  it('stores public comment projections for seven days', async () => {
     const kv = new MemoryKv();
     await activate(kv);
     registerEarlyRequestLoaders({ [CACHE_PLUGIN_ID]: async () => earlyRequestProvider });
@@ -527,10 +527,10 @@ describe('typecho-plugin-cache provider', () => {
     await loadEarlyRequestSharedData('comments', 'cid:42:page:1', async () => ({ comments: [] }), {});
 
     const entry = [...kv.putOptions.entries()].find(([key]) => key.includes(':s:comments:'));
-    expect(entry?.[1]?.expirationTtl).toBe(60);
+    expect(entry?.[1]?.expirationTtl).toBe(604_800);
   });
 
-  it('isolates viewer query values and expires every authenticated remote entry in one minute', async () => {
+  it('isolates viewer query values and stores authenticated entries for seven days', async () => {
     const kv = new MemoryKv();
     await activate(kv);
     registerEarlyRequestLoaders({ [CACHE_PLUGIN_ID]: async () => earlyRequestProvider });
@@ -556,7 +556,7 @@ describe('typecho-plugin-cache provider', () => {
 
     const entries = [...kv.putOptions.entries()].filter(([key]) => key.includes(':s:notes:'));
     expect(entries).toHaveLength(4);
-    expect(entries.every(([, options]) => options?.expirationTtl === 60)).toBe(true);
+    expect(entries.every(([, options]) => options?.expirationTtl === 604_800)).toBe(true);
     expect(entries.some(([key]) => key.includes('session-a') || key.includes(':1:'))).toBe(false);
   });
 
