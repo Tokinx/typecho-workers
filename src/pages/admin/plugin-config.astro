@@ -19,6 +19,10 @@ import {
   parsePluginConfigFormData,
   type PluginConfigField,
 } from '@/lib/plugin';
+import {
+  maskPluginConfigSecrets,
+  restorePluginConfigSecrets,
+} from '@/lib/plugin-config-secrets';
 import { withTimeout } from '@/lib/timeout';
 import { PLUGIN_CONFIG_TIMEOUT_MS } from '@/lib/constants';
 
@@ -48,6 +52,7 @@ if (!isPluginActive(ctx, pluginId)) {
 const manifest = plugin.manifest;
 const configDef = manifest.config!;
 const configValues = loadPluginConfig(options, pluginId);
+let displayConfigValues = maskPluginConfigSecrets(configDef, configValues);
 
 // Handle POST (form submission)
 let message = '';
@@ -61,7 +66,8 @@ if (Astro.request.method === 'POST') {
     const { setOption } = await import('@/lib/options');
     const { notifyEarlyRequestLifecycle } = await import('@/lib/early-request');
 
-    const settings = parsePluginConfigFormData(configDef, formData);
+    const incomingSettings = parsePluginConfigFormData(configDef, formData);
+    const settings = restorePluginConfigSecrets(configDef, incomingSettings, configValues);
 
     const validation = await withTimeout(
       applyFilter(ctx, 'plugin:config:beforeSave', {
@@ -96,6 +102,7 @@ if (Astro.request.method === 'POST') {
 
     // Reload config values
     Object.assign(configValues, finalSettings);
+    displayConfigValues = maskPluginConfigSecrets(configDef, configValues);
 
     message = '插件设置已经保存';
     messageType = 'success';
@@ -189,7 +196,7 @@ function selectedAttr(actual: unknown, expected: unknown): true | undefined {
     <form method="post" action={`/admin/plugin-config?id=${pluginId}`}>
       <input type="hidden" name="_" value={csrfToken} />
       {Object.entries(configDef).map(([key, field]: [string, PluginConfigField], fieldIndex) => {
-          const value = configValues[key] ?? field.default ?? '';
+          const value = displayConfigValues[key] ?? field.default ?? '';
 
           if (field.type === 'hidden') {
             return (

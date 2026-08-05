@@ -997,7 +997,7 @@ async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNex
     l2Key,
     l2Ttl,
     l3Ttl,
-    false,
+    true,
   );
   inFlight.set(inFlightKey, pending);
   try {

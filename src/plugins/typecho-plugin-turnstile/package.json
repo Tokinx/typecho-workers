@@ -26,7 +26,7 @@
           "description": "Cloudflare Turnstile 前端 Key，<a href=\"//dash.cloudflare.com/?to=/:account/turnstile\" target=\"_blank\">点击申请</a>"
         },
         "secret": {
-          "type": "text",
+          "type": "password",
           "label": "Secret Key",
           "default": ""
         },

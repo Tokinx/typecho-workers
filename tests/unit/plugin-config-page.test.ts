@@ -47,6 +47,18 @@ describe('admin plugin config page', () => {
     expect(source).toContain("value && !value.startsWith('/')");
   });
 
+  it('masks stored secrets before rendering the SSR form', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'src/pages/admin/plugin-config.astro'),
+      'utf-8',
+    );
+
+    expect(source).toContain('maskPluginConfigSecrets');
+    expect(source).toContain('restorePluginConfigSecrets');
+    expect(source).toContain('let displayConfigValues');
+    expect(source).toContain('const value = displayConfigValues[key]');
+  });
+
   it('renders boolean select values as manifest option strings', () => {
     const source = readFileSync(
       join(process.cwd(), 'src/pages/admin/plugin-config.astro'),

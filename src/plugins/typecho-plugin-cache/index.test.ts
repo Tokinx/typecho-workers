@@ -142,7 +142,7 @@ describe('typecho-plugin-cache provider', () => {
     const kv = new MemoryKv();
     await activate(kv);
     const next = vi.fn(async () => new Response('<html>first</html>', {
-      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      headers: { 'Content-Type': 'text/html; charset=utf-8', [PUBLIC_HTML_HEADER]: '1' },
     }));
 
     const first = await earlyRequestProvider.handle(requestContext(), next);
@@ -158,7 +158,7 @@ describe('typecho-plugin-cache provider', () => {
     const kv = new MemoryKv();
     await activate(kv, { ...defaultSettings, l1Ttl: '259200' });
     const next = vi.fn(async () => new Response('<html>from d1</html>', {
-      headers: { 'Content-Type': 'text/html' },
+      headers: { 'Content-Type': 'text/html', [PUBLIC_HTML_HEADER]: '1' },
     }));
     await earlyRequestProvider.handle(requestContext('https://example.com/archives/1/'), next);
     _resetCaches();
@@ -178,7 +178,7 @@ describe('typecho-plugin-cache provider', () => {
     const kv = new MemoryKv();
     await activate(kv, { ...defaultSettings, l1Ttl: '0', l2Ttl: '86400' });
     const next = vi.fn(async () => new Response('<html>from d1</html>', {
-      headers: { 'Content-Type': 'text/html' },
+      headers: { 'Content-Type': 'text/html', [PUBLIC_HTML_HEADER]: '1' },
     }));
 
     const first = await earlyRequestProvider.handle(requestContext('https://example.com/archives/2/'), next);
@@ -196,7 +196,7 @@ describe('typecho-plugin-cache provider', () => {
     const kv = new MemoryKv();
     await activate(kv, { ...defaultSettings, l1Ttl: '86400', l2Ttl: '0' });
     const next = vi.fn(async () => new Response('<html>from d1</html>', {
-      headers: { 'Content-Type': 'text/html' },
+      headers: { 'Content-Type': 'text/html', [PUBLIC_HTML_HEADER]: '1' },
     }));
 
     const first = await earlyRequestProvider.handle(requestContext('https://example.com/archives/3/'), next);
@@ -214,7 +214,7 @@ describe('typecho-plugin-cache provider', () => {
     const d1 = new MemoryD1();
     await activate(kv, { ...defaultSettings, l1Ttl: '0', l2Ttl: '0', l3Ttl: '21600' });
     const next = vi.fn(async () => new Response('<html>from d1</html>', {
-      headers: { 'Content-Type': 'text/html' },
+      headers: { 'Content-Type': 'text/html', [PUBLIC_HTML_HEADER]: '1' },
     }));
 
     const first = await earlyRequestProvider.handle(requestContext('https://example.com/archives/5/', d1), next);
@@ -235,7 +235,7 @@ describe('typecho-plugin-cache provider', () => {
     const d1 = new MemoryD1();
     await activate(kv, { ...defaultSettings, l3Ttl: '21600' });
     const next = vi.fn(async () => new Response('<html>from d1</html>', {
-      headers: { 'Content-Type': 'text/html' },
+      headers: { 'Content-Type': 'text/html', [PUBLIC_HTML_HEADER]: '1' },
     }));
     const url = 'https://example.com/archives/6/';
 
@@ -258,7 +258,7 @@ describe('typecho-plugin-cache provider', () => {
     const d1 = new MemoryD1();
     await activate(kv, { ...defaultSettings, l1Ttl: '0', l2Ttl: '86400', l3Ttl: '0' });
     const next = vi.fn(async () => new Response('<html>from d1</html>', {
-      headers: { 'Content-Type': 'text/html' },
+      headers: { 'Content-Type': 'text/html', [PUBLIC_HTML_HEADER]: '1' },
     }));
 
     await earlyRequestProvider.handle(requestContext('https://example.com/archives/7/', d1), next);
@@ -271,7 +271,7 @@ describe('typecho-plugin-cache provider', () => {
     const d1 = new MemoryD1();
     await activate(kv, { ...defaultSettings, l1Ttl: '0', l2Ttl: '0', l3Ttl: '21600' });
     const next = vi.fn(async () => new Response(`<html>${next.mock.calls.length}</html>`, {
-      headers: { 'Content-Type': 'text/html' },
+      headers: { 'Content-Type': 'text/html', [PUBLIC_HTML_HEADER]: '1' },
     }));
     const url = 'https://example.com/archives/8/';
 
@@ -289,7 +289,7 @@ describe('typecho-plugin-cache provider', () => {
     const d1 = new MemoryD1();
     await activate(kv, { ...defaultSettings, l1Ttl: 0, l2Ttl: 0, l3Ttl: 0 });
     const next = vi.fn(async () => new Response('<html>from d1</html>', {
-      headers: { 'Content-Type': 'text/html' },
+      headers: { 'Content-Type': 'text/html', [PUBLIC_HTML_HEADER]: '1' },
     }));
 
     const first = await earlyRequestProvider.handle(requestContext('https://example.com/archives/4/', d1), next);
@@ -310,7 +310,7 @@ describe('typecho-plugin-cache provider', () => {
     await activate(kv);
     let render = 0;
     const next = vi.fn(async () => new Response(`<html>${++render}</html>`, {
-      headers: { 'Content-Type': 'text/html' },
+      headers: { 'Content-Type': 'text/html', [PUBLIC_HTML_HEADER]: '1' },
     }));
     await earlyRequestProvider.handle(requestContext(), next);
     expect(await earlyRequestProvider.invalidate!({ reason: 'post', domains: ['all'] })).toBe(true);
@@ -329,7 +329,7 @@ describe('typecho-plugin-cache provider', () => {
     const next = vi.fn(async () => {
       markStarted();
       await renderGate;
-      return new Response('<html>coalesced</html>', { headers: { 'Content-Type': 'text/html' } });
+      return new Response('<html>coalesced</html>', { headers: { 'Content-Type': 'text/html', [PUBLIC_HTML_HEADER]: '1' } });
     });
 
     const first = earlyRequestProvider.handle(requestContext(), next);
@@ -347,7 +347,7 @@ describe('typecho-plugin-cache provider', () => {
     const kv = new MemoryKv();
     await activate(kv);
     const next = vi.fn(async () => new Response('<html>private variant</html>', {
-      headers: { 'Content-Type': 'text/html' },
+      headers: { 'Content-Type': 'text/html', [PUBLIC_HTML_HEADER]: '1' },
     }));
     const ordinaryCookie = requestContext();
     ordinaryCookie.request = new Request(ordinaryCookie.request, { headers: { Cookie: 'theme=dark' } });
@@ -374,7 +374,7 @@ describe('typecho-plugin-cache provider', () => {
     const kv = new MemoryKv();
     await activate(kv);
     const publicNext = vi.fn(async () => new Response('<html>public</html>', {
-      headers: { 'Content-Type': 'text/html' },
+      headers: { 'Content-Type': 'text/html', [PUBLIC_HTML_HEADER]: '1' },
     }));
     await earlyRequestProvider.handle(requestContext(), publicNext);
 
@@ -387,7 +387,7 @@ describe('typecho-plugin-cache provider', () => {
 
     await earlyRequestProvider.invalidate!({ reason: 'test', domains: ['all'] });
     const authenticatedNext = vi.fn(async () => new Response('<html>public after login</html>', {
-      headers: { 'Content-Type': 'text/html' },
+      headers: { 'Content-Type': 'text/html', [PUBLIC_HTML_HEADER]: '1' },
     }));
     const miss = await earlyRequestProvider.handle(authenticatedHit, authenticatedNext);
     expect(miss.headers.get('X-Typecho-Cache')).toBe('MISS');
@@ -400,11 +400,23 @@ describe('typecho-plugin-cache provider', () => {
     expect(publicNext).toHaveBeenCalledOnce();
   });
 
+  it('does not cache an unmarked response from a non-public theme', async () => {
+    const kv = new MemoryKv();
+    await activate(kv);
+    const next = vi.fn(async () => new Response('<html>private theme</html>', {
+      headers: { 'Content-Type': 'text/html' },
+    }));
+    const response = await earlyRequestProvider.handle(requestContext(), next);
+
+    expect(response.headers.get('X-Typecho-Cache')).toBe('BYPASS');
+    expect([...kv.store.keys()].some(key => key.includes(':p:'))).toBe(false);
+  });
+
   it('serves an authenticated request from L2 after the local L1 is cold', async () => {
     const kv = new MemoryKv();
     await activate(kv);
     const next = vi.fn(async () => new Response('<html>public</html>', {
-      headers: { 'Content-Type': 'text/html' },
+      headers: { 'Content-Type': 'text/html', [PUBLIC_HTML_HEADER]: '1' },
     }));
     await earlyRequestProvider.handle(requestContext(), next);
     _resetCaches();
@@ -432,10 +444,10 @@ describe('typecho-plugin-cache provider', () => {
     const authenticatedNext = vi.fn(async () => {
       markRenderStarted();
       await renderGate;
-      return new Response('<html>public from login</html>', { headers: { 'Content-Type': 'text/html' } });
+      return new Response('<html>public from login</html>', { headers: { 'Content-Type': 'text/html', [PUBLIC_HTML_HEADER]: '1' } });
     });
     const publicNext = vi.fn(async () => new Response('<html>public</html>', {
-      headers: { 'Content-Type': 'text/html' },
+      headers: { 'Content-Type': 'text/html', [PUBLIC_HTML_HEADER]: '1' },
     }));
 
     const authenticatedResponsePromise = earlyRequestProvider.handle(authenticated, authenticatedNext);
@@ -488,7 +500,7 @@ describe('typecho-plugin-cache provider', () => {
     expect(response.headers.get('X-Typecho-Cache')).toBe('BYPASS');
 
     const publicNext = vi.fn(async () => new Response('<html>public</html>', {
-      headers: { 'Content-Type': 'text/html' },
+      headers: { 'Content-Type': 'text/html', [PUBLIC_HTML_HEADER]: '1' },
     }));
     const anonymous = await earlyRequestProvider.handle(requestContext('https://example.com/archives/1/'), publicNext);
     expect(anonymous.headers.get('X-Typecho-Cache')).toBe('MISS');
@@ -787,7 +799,7 @@ describe('typecho-plugin-cache provider', () => {
       adminDataCacheBackend: 'd1',
     });
     await earlyRequestProvider.handle(requestContext('https://example.com/archives/44/', d1), async () =>
-      new Response('<html>page L3</html>', { headers: { 'Content-Type': 'text/html' } }),
+      new Response('<html>page L3</html>', { headers: { 'Content-Type': 'text/html', [PUBLIC_HTML_HEADER]: '1' } }),
     );
     registerEarlyRequestLoaders({ [CACHE_PLUGIN_ID]: async () => earlyRequestProvider });
     await loadQueryCache({
@@ -947,7 +959,7 @@ describe('typecho-plugin-cache provider', () => {
     const kv = new MemoryKv();
     await activate(kv);
     const next = vi.fn(async () => new Response('<html>same</html>', {
-      headers: { 'Content-Type': 'text/html' },
+      headers: { 'Content-Type': 'text/html', [PUBLIC_HTML_HEADER]: '1' },
     }));
     await earlyRequestProvider.handle(requestContext('https://example.com/?utm_source=a'), next);
     const response = await earlyRequestProvider.handle(requestContext('https://example.com/?utm_source=b'), next);
@@ -960,14 +972,14 @@ describe('typecho-plugin-cache provider', () => {
       new Response('{}', { headers: { 'Content-Type': 'application/json' } }),
       new Response('<html>x</html>', { headers: { 'Content-Type': 'text/html', 'Set-Cookie': 'x=1' } }),
       new Response('<html>x</html>', { headers: { 'Content-Type': 'text/html', 'Cache-Control': 'private' } }),
-      new Response(`<html>${'x'.repeat(5 * 1024 * 1024)}</html>`, { headers: { 'Content-Type': 'text/html' } }),
+      new Response(`<html>${'x'.repeat(5 * 1024 * 1024)}</html>`, { headers: { 'Content-Type': 'text/html', [PUBLIC_HTML_HEADER]: '1' } }),
     ];
     for (const original of scenarios) {
       const kv = new MemoryKv();
       await activate(kv);
       const next = vi.fn(async () => original.clone());
       const response = await earlyRequestProvider.handle(requestContext(), next);
-      if (original.headers.get('Content-Type') === 'text/html' && !original.headers.has('Set-Cookie') && !original.headers.get('Cache-Control')) {
+      if (original.headers.get('Content-Type') === 'text/html' && original.headers.get(PUBLIC_HTML_HEADER) === '1' && !original.headers.has('Set-Cookie') && !original.headers.get('Cache-Control')) {
         expect(response.headers.get('X-Typecho-Cache')).toBe('MISS');
         expect([...kv.store.keys()].some(key => key.includes(':p:'))).toBe(false);
       } else {

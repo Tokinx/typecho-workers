@@ -118,6 +118,9 @@ describe('plugin-config secret masking (G3-2)', () => {
     } as any);
 
     expect(response.status).toBe(200);
+    const responseBody = await response.json() as { settings: Record<string, unknown> };
+    expect(responseBody.settings.token).toBe('__PLUGIN_CONFIG_SECRET__');
+    expect(JSON.stringify(responseBody)).not.toContain('super-secret-token');
     const stored = await testDb.query.options.findFirst({ where: (o, { eq }) => eq(o.name, 'plugin:plugin-secret-fixture') });
     const parsed = JSON.parse(stored!.value!);
     expect(parsed.token).toBe('super-secret-token');
