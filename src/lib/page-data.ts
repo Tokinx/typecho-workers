@@ -26,6 +26,32 @@ import type {
 } from '@/lib/theme-props';
 import { getActiveTheme } from '@/lib/theme';
 import { loadQueryCache } from '@/lib/query-cache';
+import { sqlInChunks } from '@/lib/d1-in';
+
+const MAX_SEARCH_PATTERN_BYTES = 50;
+
+export function decodeSearchKeywords(value: string | undefined): { value: string; malformed: boolean } {
+  try {
+    return { value: decodeURIComponent(value || ''), malformed: false };
+  } catch {
+    return { value: '', malformed: true };
+  }
+}
+
+/** Keep the complete `%keyword%` LIKE pattern within the D1 byte budget. */
+export function truncateSearchKeyword(value: string, maxPatternBytes = MAX_SEARCH_PATTERN_BYTES): string {
+  const maxKeywordBytes = Math.max(0, maxPatternBytes - 2);
+  const encoder = new TextEncoder();
+  let result = '';
+  let bytes = 0;
+  for (const character of value) {
+    const characterBytes = encoder.encode(character).byteLength;
+    if (bytes + characterBytes > maxKeywordBytes) break;
+    result += character;
+    bytes += characterBytes;
+  }
+  return result;
+}
 
 // ─── Local row types (derived from Drizzle schema) ───────────────────────
 
@@ -174,7 +200,7 @@ async function fetchAuthors(db: Database, authorIds: number[]): Promise<AuthorMa
       screenName: schema.users.screenName,
     })
     .from(schema.users)
-    .where(sql`${schema.users.uid} IN (${sql.join(authorIds.map(id => sql`${id}`), sql`, `)})`);
+    .where(sqlInChunks(schema.users.uid, authorIds));
   return new Map(authors.map(a => [a.uid, a]));
 }
 
@@ -343,7 +369,7 @@ async function prepareArchiveData(
       .innerJoin(schema.metas, eq(schema.relationships.mid, schema.metas.mid))
       .where(
         and(
-          sql`${schema.relationships.cid} IN (${sql.join(postIds.map(id => sql`${id}`), sql`, `)})`,
+          sqlInChunks(schema.relationships.cid, postIds),
           eq(schema.metas.type, 'category')
         )
       );
@@ -359,7 +385,7 @@ async function prepareArchiveData(
             screenName: schema.users.screenName,
           })
           .from(schema.users)
-          .where(sql`${schema.users.uid} IN (${sql.join(authorIds.map(id => sql`${id}`), sql`, `)})`),
+          .where(sqlInChunks(schema.users.uid, authorIds)),
         categoryStatement,
       ]);
       authorMap = new Map(authors.map(author => [author.uid, author]));
@@ -735,7 +761,7 @@ export async function prepareSearchData(
 ): Promise<ThemeArchiveProps | Response> {
   // G4-5: bound keyword length both as a UX guard (single chars match
   // huge swaths of LIKE) and as a cheap rate-limit on D1 LIKE scans.
-  const trimmed = keywords.trim().slice(0, 50);
+  const trimmed = truncateSearchKeyword(keywords.trim());
   const isUsefulKeyword = trimmed.length >= 2;
 
   return prepareArchiveData(ctx, requestUrl, locals, url, {

@@ -7,6 +7,7 @@ import { applyFilterSafely } from '@/lib/plugin';
 import { getFeedRuntime } from '@/lib/feed-helpers';
 import { eq, and, desc, sql, or } from 'drizzle-orm';
 import { publishedPostCondition } from '@/lib/content-visibility';
+import { sqlInChunks } from '@/lib/d1-in';
 
 const FEED_ITEMS_DEFAULT = 10;
 const FEED_ITEMS_MIN = 5;
@@ -49,7 +50,7 @@ export const GET: APIRoute = async ({ locals, params }) => {
     .limit(feedLimit);
 
   // Fetch authors and categories in one D1 round trip.
-  const authorIds = [...new Set(posts.map((p) => p.authorId).filter(Boolean))];
+  const authorIds = [...new Set(posts.map((p) => p.authorId).filter((id): id is number => id !== null && id !== undefined))];
   const postIds = posts.map((p) => p.cid);
   const [authors, catData] = postIds.length > 0
     ? await db.batch([
@@ -60,14 +61,14 @@ export const GET: APIRoute = async ({ locals, params }) => {
             screenName: schema.users.screenName,
           })
           .from(schema.users)
-          .where(sql`${schema.users.uid} IN (${sql.join(authorIds.map(id => sql`${id}`), sql`, `)})`),
+          .where(sqlInChunks(schema.users.uid, authorIds)),
         db
         .select({ cid: schema.relationships.cid, name: schema.metas.name })
         .from(schema.relationships)
         .innerJoin(schema.metas, eq(schema.relationships.mid, schema.metas.mid))
         .where(
           and(
-            sql`${schema.relationships.cid} IN (${sql.join(postIds.map(id => sql`${id}`), sql`, `)})`,
+            sqlInChunks(schema.relationships.cid, postIds),
             eq(schema.metas.type, 'category')
           )
         ),

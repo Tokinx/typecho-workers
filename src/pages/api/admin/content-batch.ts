@@ -5,6 +5,7 @@ import { isAdminActionResponse, requireAdminAction, safeAdminRedirectUrl } from 
 import { doHook } from '@/lib/plugin';
 import { invalidatePublicCache } from '@/lib/cache';
 import { canViewContent } from '@/lib/content-visibility';
+import { parseBoundedIds, sqlInChunks } from '@/lib/d1-in';
 import { eq, sql } from 'drizzle-orm';
 
 export const POST: APIRoute = handler;
@@ -30,7 +31,9 @@ async function handler({ request, locals, url }: { request: Request; locals: App
 
   const formData = await request.formData();
   const rawCids = formData.getAll('cid[]').map(value => value.toString());
-  const cids = rawCids.map(value => parseInt(value, 10)).filter(Boolean);
+  const parsedCids = parseBoundedIds(rawCids);
+  if (parsedCids === null) return new Response('内容 ID 数据无效或超过 200 项', { status: 400 });
+  const cids = parsedCids;
   if (isPageSort) {
     // The order must be an exact, unique list of page IDs. This keeps a
     // drag operation scoped to the rows currently visible in the list.
@@ -67,7 +70,6 @@ async function handler({ request, locals, url }: { request: Request; locals: App
       return new Response('Invalid page parent', { status: 400 });
     }
 
-    const pageList = sql.join(cids.map(id => sql`${id}`), sql`, `);
     const pages = await auth.db.select({
       cid: schema.contents.cid,
       type: schema.contents.type,
@@ -76,7 +78,7 @@ async function handler({ request, locals, url }: { request: Request; locals: App
       created: schema.contents.created,
       authorId: schema.contents.authorId,
     }).from(schema.contents)
-      .where(sql`${schema.contents.cid} IN (${pageList})`);
+      .where(sqlInChunks(schema.contents.cid, cids));
     if (
       pages.length !== cids.length
       || pages.some(page => (
@@ -112,7 +114,7 @@ async function handler({ request, locals, url }: { request: Request; locals: App
     // G4-2: fetch all targeted contents in one query rather than per-cid
     // findFirst, then trigger plugin hooks and emit one big delete batch.
     const contents = await auth.db.select().from(schema.contents)
-      .where(sql`${schema.contents.cid} IN (${sql.join(cids.map(id => sql`${id}`), sql`, `)})`);
+      .where(sqlInChunks(schema.contents.cid, cids));
 
     const allowedContents = contents.filter(c => isAdmin || c.authorId === auth.uid);
     if (allowedContents.length === 0) {
@@ -136,7 +138,7 @@ async function handler({ request, locals, url }: { request: Request; locals: App
     // the actual decrement count.
     const rels = await auth.db.select({ cid: schema.relationships.cid, mid: schema.relationships.mid })
       .from(schema.relationships)
-      .where(sql`${schema.relationships.cid} IN (${sql.join(allowedCids.map(id => sql`${id}`), sql`, `)})`);
+      .where(sqlInChunks(schema.relationships.cid, allowedCids));
     const decrementByMid = new Map<number, number>();
     for (const rel of rels) {
       decrementByMid.set(rel.mid, (decrementByMid.get(rel.mid) || 0) + 1);
@@ -148,12 +150,11 @@ async function handler({ request, locals, url }: { request: Request; locals: App
         .set({ count: sql`MAX(0, ${schema.metas.count} - ${n})` })
         .where(eq(schema.metas.mid, mid))
     );
-    const cidList = sql.join(allowedCids.map(id => sql`${id}`), sql`, `);
     const deleteStmts = [
-      auth.db.delete(schema.relationships).where(sql`${schema.relationships.cid} IN (${cidList})`),
-      auth.db.delete(schema.comments).where(sql`${schema.comments.cid} IN (${cidList})`),
-      auth.db.delete(schema.fields).where(sql`${schema.fields.cid} IN (${cidList})`),
-      auth.db.delete(schema.contents).where(sql`${schema.contents.cid} IN (${cidList})`),
+      auth.db.delete(schema.relationships).where(sqlInChunks(schema.relationships.cid, allowedCids)),
+      auth.db.delete(schema.comments).where(sqlInChunks(schema.comments.cid, allowedCids)),
+      auth.db.delete(schema.fields).where(sqlInChunks(schema.fields.cid, allowedCids)),
+      auth.db.delete(schema.contents).where(sqlInChunks(schema.contents.cid, allowedCids)),
     ];
     const all = [...decrementStmts, ...deleteStmts];
     if (all.length > 0) {
@@ -178,7 +179,7 @@ async function handler({ request, locals, url }: { request: Request; locals: App
     }
 
     const contents = await auth.db.select().from(schema.contents)
-      .where(sql`${schema.contents.cid} IN (${sql.join(cids.map(id => sql`${id}`), sql`, `)})`);
+      .where(sqlInChunks(schema.contents.cid, cids));
     const allowedContents = contents.filter(c => isAdmin || c.authorId === auth.uid);
     const allowedCids = allowedContents.map(c => c.cid);
     affectsPublicCache = allowedContents.some(content => (
@@ -188,7 +189,7 @@ async function handler({ request, locals, url }: { request: Request; locals: App
     if (allowedCids.length > 0) {
       await auth.db.update(schema.contents)
         .set({ status: markStatus })
-        .where(sql`${schema.contents.cid} IN (${sql.join(allowedCids.map(id => sql`${id}`), sql`, `)})`);
+        .where(sqlInChunks(schema.contents.cid, allowedCids));
     }
   }
 

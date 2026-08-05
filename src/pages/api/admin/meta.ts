@@ -4,6 +4,7 @@ import { isAdminActionResponse, requireAdminAction } from '@/lib/admin-auth';
 import { generateSlug } from '@/lib/content';
 import { invalidatePublicCache } from '@/lib/cache';
 import { eq, and, sql } from 'drizzle-orm';
+import { D1_MAX_CLIENT_IDS, sqlInChunks } from '@/lib/d1-in';
 
 export const POST: APIRoute = handler;
 
@@ -15,6 +16,7 @@ type MetaIdValidation = { ids: number[] } | { error: string };
 
 function validateMetaIds(rawIds: string[], message = '分类数据无效'): MetaIdValidation {
   if (rawIds.length === 0) return { error: message };
+  if (rawIds.length > D1_MAX_CLIENT_IDS) return { error: `${message}（最多选择 ${D1_MAX_CLIENT_IDS} 项）` };
 
   const ids: number[] = [];
   for (const rawId of rawIds) {
@@ -191,7 +193,7 @@ async function handler({ request, locals, url }: { request: Request; locals: App
       .from(schema.metas)
       .where(and(
         eq(schema.metas.type, 'category'),
-        sql`${schema.metas.mid} IN (${sql.join(sortedIds.ids.map(id => sql`${id}`), sql`, `)})`,
+        sqlInChunks(schema.metas.mid, sortedIds.ids),
       ));
     if (categories.length !== sortedIds.ids.length
       || categories.some((category: { parent: number | null }) => (Number(category.parent) || 0) !== parent)) {
@@ -216,12 +218,11 @@ async function handler({ request, locals, url }: { request: Request; locals: App
     const targetName = formData.get('merge')?.toString().trim() || '';
     if (!targetName) return new Response('请填写合并目标标签', { status: 400 });
 
-    const sourceIdSql = sql.join(sourceIds.ids.map(id => sql`${id}`), sql`, `);
     const sourceTags = await db.select({ mid: schema.metas.mid })
       .from(schema.metas)
       .where(and(
         eq(schema.metas.type, 'tag'),
-        sql`${schema.metas.mid} IN (${sourceIdSql})`,
+        sqlInChunks(schema.metas.mid, sourceIds.ids),
       ));
     if (sourceTags.length !== sourceIds.ids.length) {
       return new Response('标签不存在', { status: 404 });
@@ -247,11 +248,10 @@ async function handler({ request, locals, url }: { request: Request; locals: App
     // the other selected tags are merged into it.
     const mergeIds = sourceIds.ids.filter(id => id !== targetTag!.mid);
     if (mergeIds.length > 0) {
-      const mergeIdSql = sql.join(mergeIds.map(id => sql`${id}`), sql`, `);
       const [sourceRelationships, targetRelationships] = await db.batch([
         db.select({ cid: schema.relationships.cid })
           .from(schema.relationships)
-          .where(sql`${schema.relationships.mid} IN (${mergeIdSql})`),
+          .where(sqlInChunks(schema.relationships.mid, mergeIds)),
         db.select({ cid: schema.relationships.cid })
           .from(schema.relationships)
           .where(eq(schema.relationships.mid, targetTag.mid)),
@@ -266,10 +266,10 @@ async function handler({ request, locals, url }: { request: Request; locals: App
 
       await runBatch(db, [
         ...relationshipInserts,
-        db.delete(schema.relationships).where(sql`${schema.relationships.mid} IN (${mergeIdSql})`),
+        db.delete(schema.relationships).where(sqlInChunks(schema.relationships.mid, mergeIds)),
         db.delete(schema.metas).where(and(
           eq(schema.metas.type, 'tag'),
-          sql`${schema.metas.mid} IN (${mergeIdSql})`,
+          sqlInChunks(schema.metas.mid, mergeIds),
         )),
       ]);
     }
@@ -327,7 +327,7 @@ async function handler({ request, locals, url }: { request: Request; locals: App
 
     const sourceRelationships = await db.select({ cid: schema.relationships.cid })
       .from(schema.relationships)
-      .where(sql`${schema.relationships.mid} IN (${sql.join(sourceIds.ids.map(id => sql`${id}`), sql`, `)})`);
+      .where(sqlInChunks(schema.relationships.mid, sourceIds.ids));
     const targetRelationships = await db.select({ cid: schema.relationships.cid })
       .from(schema.relationships)
       .where(eq(schema.relationships.mid, targetId));
@@ -345,14 +345,13 @@ async function handler({ request, locals, url }: { request: Request; locals: App
       .map((category: { mid: number }) => db.update(schema.metas)
         .set({ parent: targetId })
         .where(and(eq(schema.metas.mid, category.mid), eq(schema.metas.type, 'category'))));
-    const sourceIdSql = sql.join(sourceIds.ids.map(id => sql`${id}`), sql`, `);
     await runBatch(db, [
       ...relationshipInserts,
       ...childUpdates,
-      db.delete(schema.relationships).where(sql`${schema.relationships.mid} IN (${sourceIdSql})`),
+      db.delete(schema.relationships).where(sqlInChunks(schema.relationships.mid, sourceIds.ids)),
       db.delete(schema.metas).where(and(
         eq(schema.metas.type, 'category'),
-        sql`${schema.metas.mid} IN (${sourceIdSql})`,
+        sqlInChunks(schema.metas.mid, sourceIds.ids),
       )),
     ]);
 
@@ -380,13 +379,12 @@ async function handler({ request, locals, url }: { request: Request; locals: App
       return new Response(null, { status: 302, headers: { Location: redirectTo } });
     }
 
-    const deleteIdSql = sql.join(deleteIds.map(id => sql`${id}`), sql`, `);
     const selectedMetas = await db.select({
       mid: schema.metas.mid,
       parent: schema.metas.parent,
     }).from(schema.metas).where(and(
       eq(schema.metas.type, type),
-      sql`${schema.metas.mid} IN (${deleteIdSql})`,
+      sqlInChunks(schema.metas.mid, deleteIds),
     ));
     if (selectedMetas.length !== deleteIds.length) {
       return new Response(type === 'category' ? '分类不存在' : '标签不存在', { status: 404 });
@@ -404,7 +402,7 @@ async function handler({ request, locals, url }: { request: Request; locals: App
       }
       const used = await db.select({ mid: schema.relationships.mid })
         .from(schema.relationships)
-        .where(sql`${schema.relationships.mid} IN (${deleteIdSql})`);
+        .where(sqlInChunks(schema.relationships.mid, deleteIds));
       if (used.length > 0) {
         const inUseSet = new Set(used.map(r => r.mid));
         const targets = deleteIds.filter(id => inUseSet.has(id));
@@ -440,10 +438,10 @@ async function handler({ request, locals, url }: { request: Request; locals: App
       }
     }
     deleteStatements.push(
-      db.delete(schema.relationships).where(sql`${schema.relationships.mid} IN (${deleteIdSql})`),
+      db.delete(schema.relationships).where(sqlInChunks(schema.relationships.mid, deleteIds)),
       db.delete(schema.metas).where(and(
         eq(schema.metas.type, type),
-        sql`${schema.metas.mid} IN (${deleteIdSql})`,
+        sqlInChunks(schema.metas.mid, deleteIds),
       )),
     );
     await runBatch(db, deleteStatements);
@@ -478,7 +476,7 @@ async function handler({ request, locals, url }: { request: Request; locals: App
       metas = await db.select().from(schema.metas)
         .where(and(
           eq(schema.metas.type, type),
-          sql`${schema.metas.mid} IN (${sql.join(refreshIds.map(id => sql`${id}`), sql`, `)})`,
+          sqlInChunks(schema.metas.mid, refreshIds),
         ));
     } else if (type) {
       metas = await db.select().from(schema.metas).where(eq(schema.metas.type, type));
@@ -487,11 +485,10 @@ async function handler({ request, locals, url }: { request: Request; locals: App
     }
 
     if (metas.length > 0) {
-      const midList = sql.join(metas.map(m => sql`${m.mid}`), sql`, `);
       const counts = await db
         .select({ mid: schema.relationships.mid, count: sql<number>`count(*)` })
         .from(schema.relationships)
-        .where(sql`${schema.relationships.mid} IN (${midList})`)
+        .where(sqlInChunks(schema.relationships.mid, metas.map(m => m.mid)))
         .groupBy(schema.relationships.mid);
 
       const countMap = new Map<number, number>();

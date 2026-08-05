@@ -3,6 +3,7 @@ import { schema, type Database } from '@/db';
 import { hasPermission } from '@/lib/auth';
 import { doHook, type HookContext } from '@/lib/plugin';
 import { invalidatePublicCache } from '@/lib/cache';
+import { sqlInChunks } from '@/lib/d1-in';
 
 export const COMMENT_ACTIONS = ['approve', 'approved', 'waiting', 'spam', 'delete'] as const;
 export type CommentAction = typeof COMMENT_ACTIONS[number];
@@ -64,12 +65,11 @@ export async function getModeratableComments(
   user: UserRow,
 ): Promise<CommentRow[] | Response> {
   if (coids.length === 0) return [];
-  const idList = sql.join(coids.map(coid => sql`${coid}`), sql`, `);
   const rows = await db
     .select({ comment: schema.comments, contentAuthorId: schema.contents.authorId })
     .from(schema.comments)
     .leftJoin(schema.contents, eq(schema.comments.cid, schema.contents.cid))
-    .where(sql`${schema.comments.coid} IN (${idList})`);
+    .where(sqlInChunks(schema.comments.coid, coids));
   const byId = new Map(rows.map(row => [row.comment.coid, row]));
   const isAdmin = hasPermission(user.group || 'visitor', 'administrator');
   const comments: CommentRow[] = [];
@@ -195,24 +195,22 @@ export async function deleteSpamCommentsForUser(
   // Non-admin: clear spam attached to posts the user currently owns.
   // G7-4: use the live contents.authorId rather than the historical
   // comment.ownerId.
-  const ownedCids = await db
-    .select({ cid: schema.contents.cid })
-    .from(schema.contents)
-    .where(eq(schema.contents.authorId, user.uid));
-  if (ownedCids.length === 0) return 0;
-
-  const cidIn = sql.join(ownedCids.map(o => sql`${o.cid}`), sql`, `);
+  const ownedContent = sql`EXISTS (
+    SELECT 1 FROM ${schema.contents}
+    WHERE ${schema.contents.cid} = ${schema.comments.cid}
+      AND ${schema.contents.authorId} = ${user.uid}
+  )`;
   const before = await db
     .select({ coid: schema.comments.coid })
     .from(schema.comments)
     .where(and(
       eq(schema.comments.status, 'spam'),
-      sql`${schema.comments.cid} IN (${cidIn})`,
+      ownedContent,
     ));
   if (before.length === 0) return 0;
   await db.delete(schema.comments).where(and(
     eq(schema.comments.status, 'spam'),
-    sql`${schema.comments.cid} IN (${cidIn})`,
+    ownedContent,
   ));
   return before.length;
 }

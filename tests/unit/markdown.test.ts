@@ -7,7 +7,8 @@
  * constructs that span the boundary are resolved correctly.
  */
 import { describe, it, expect } from 'vitest';
-import { autop, escapeHtml, generateExcerpt, renderCommentText, renderContentExcerpt, renderMarkdown, stripHtmlTags, stripTypechoMarkers } from '@/lib/markdown';
+import { addHook, type HookContext } from '@/lib/plugin';
+import { autop, escapeHtml, generateExcerpt, renderCommentText, renderContentExcerpt, renderMarkdown, renderMarkdownFiltered, stripHtmlTags, stripTypechoMarkers } from '@/lib/markdown';
 
 // ---------------------------------------------------------------------------
 // renderMarkdown
@@ -37,6 +38,26 @@ describe('renderMarkdown', () => {
     const src = 'See [link][foo]<!--more-->\n\n[foo]: https://example.com';
     const html = renderMarkdown(src);
     expect(html).toContain('href="https://example.com"');
+  });
+});
+
+describe('renderMarkdownFiltered failure isolation', () => {
+  it('falls back to sanitized source when content:markdown fails', async () => {
+    const pluginId = 'audit-markdown-throws';
+    addHook('content:markdown', pluginId, () => { throw new Error('plugin failure'); });
+    const ctx: HookContext = { activatedPlugins: new Set([pluginId]) };
+    const html = await renderMarkdownFiltered(ctx, '**safe**\n\n<script>alert(1)</script>');
+    expect(html).not.toContain('<script>');
+    expect(html).toContain('<strong>safe</strong>');
+  });
+
+  it('keeps sanitized HTML when content:content fails', async () => {
+    const pluginId = 'audit-content-throws';
+    addHook('content:content', pluginId, () => { throw new Error('plugin failure'); });
+    const ctx: HookContext = { activatedPlugins: new Set([pluginId]) };
+    const html = await renderMarkdownFiltered(ctx, '**safe**\n\n<script>alert(1)</script>');
+    expect(html).not.toContain('<script>');
+    expect(html).toContain('<strong>safe</strong>');
   });
 });
 

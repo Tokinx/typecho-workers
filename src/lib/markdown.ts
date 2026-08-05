@@ -166,14 +166,23 @@ export async function renderMarkdownFiltered(ctx: HookContext, text: string): Pr
   // for list/excerpt views where renderContentExcerpt() is used instead.
   content = content.replace(MORE_COMMENT_RE, '');
 
-  // Apply content:markdown filter — plugins can modify the raw markdown
-  content = await applyFilter(ctx, 'content:markdown', content);
+  // A content transformer is optional application code. If it fails, render
+  // the original source through the sanitizer so one plugin cannot take down
+  // the article route. Security-critical filters elsewhere remain fail-closed.
+  try {
+    content = await applyFilter(ctx, 'content:markdown', content);
+  } catch (error) {
+    console.error('[markdown] content:markdown filter failed:', error);
+  }
 
   const html = marked.parse(content, { async: false }) as string;
   let sanitized = sanitizeHtml(html, SANITIZE_OPTIONS);
 
-  // Apply content:content filter — plugins can modify the rendered HTML
-  sanitized = await applyFilter(ctx, 'content:content', sanitized);
+  try {
+    sanitized = await applyFilter(ctx, 'content:content', sanitized);
+  } catch (error) {
+    console.error('[markdown] content:content filter failed:', error);
+  }
 
   return sanitized;
 }

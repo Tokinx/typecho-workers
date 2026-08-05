@@ -7,6 +7,7 @@ import { schema } from '@/db';
 import { formatDate, buildPermalink } from '@/lib/content';
 import { applyFilterSafely } from '@/lib/plugin';
 import { loadQueryCache } from '@/lib/query-cache';
+import { sqlInChunks } from '@/lib/d1-in';
 
 const ctx = await createContext(Astro.locals, Astro.request);
 // Posts management exposes other authors' content — contributor and
@@ -101,12 +102,12 @@ const loadPostList = async () => {
   const safePostIds = postIds.length > 0 ? postIds : [-1];
   const [authors, catData] = await db.batch([
     db.select({ uid: schema.users.uid, name: schema.users.name, screenName: schema.users.screenName }).from(schema.users)
-      .where(sql`${schema.users.uid} IN (${sql.join(safeAuthorIds.map(id => sql`${id}`), sql`, `)})`),
+      .where(sqlInChunks(schema.users.uid, safeAuthorIds)),
     db.select({ cid: schema.relationships.cid, name: schema.metas.name, mid: schema.metas.mid })
       .from(schema.relationships)
       .innerJoin(schema.metas, eq(schema.relationships.mid, schema.metas.mid))
       .where(and(
-        sql`${schema.relationships.cid} IN (${sql.join(safePostIds.map(id => sql`${id}`), sql`, `)})`,
+        sqlInChunks(schema.relationships.cid, safePostIds),
         eq(schema.metas.type, 'category')
       )),
   ]);

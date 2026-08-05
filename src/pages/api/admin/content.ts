@@ -10,6 +10,7 @@ import { jsonError, jsonOk } from '@/lib/http';
 import { canViewContent } from '@/lib/content-visibility';
 import { parseTrackbackUrls, sendTrackbacks, TrackbackInputError } from '@/lib/trackback';
 import { eq, and, sql } from 'drizzle-orm';
+import { parseBoundedIds, sqlInChunks } from '@/lib/d1-in';
 
 // Typecho convention: visibility dropdown maps to db status column.
 // 'password' visibility stores the password in a separate column, status falls back to 'publish'.
@@ -258,7 +259,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const allowPing = formData.get('allowPing') ? '1' : '0';
   const allowFeed = formData.get('allowFeed') ? '1' : '0';
   const tags = formData.get('tags')?.toString()?.trim() || '';
-  const categoryIds = [...new Set(formData.getAll('category[]').map((v) => parseInt(v.toString(), 10)).filter(Boolean))];
+  const parsedCategoryIds = parseBoundedIds(formData.getAll('category[]'));
+  if (parsedCategoryIds === null) return new Response('分类 ID 数据无效或超过 200 项', { status: 400 });
+  const categoryIds = parsedCategoryIds;
   const template = formData.get('template')?.toString()?.trim() || null;
   const order = parseInt(formData.get('order')?.toString() || '0', 10) || 0;
   let submittedPageParent: number | undefined;
@@ -437,7 +440,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
         ),
         db.update(schema.metas)
         .set({ count: sql`${schema.metas.count} + 1` })
-        .where(sql`${schema.metas.mid} IN (${sql.join(categoryIds.map(id => sql`${id}`), sql`, `)})`),
+        .where(sqlInChunks(schema.metas.mid, categoryIds)),
       );
     }
     await db.batch(createStatements as [any, ...any[]]);
@@ -516,7 +519,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       updateStatements.push(db.update(schema.metas)
         .set({ count: sql`MAX(0, ${schema.metas.count} - 1)` })
         .where(and(
-          sql`${schema.metas.mid} IN (${sql.join(oldMids.map(id => sql`${id}`), sql`, `)})`,
+          sqlInChunks(schema.metas.mid, oldMids),
           sql`${schema.metas.type} IN ('category', 'tag')`,
         )));
     }
@@ -528,7 +531,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
         ),
         db.update(schema.metas)
         .set({ count: sql`${schema.metas.count} + 1` })
-        .where(sql`${schema.metas.mid} IN (${sql.join(categoryIds.map(id => sql`${id}`), sql`, `)})`),
+        .where(sqlInChunks(schema.metas.mid, categoryIds)),
       );
     }
     if (autosaveDraftId > 0 && autosaveDraftId !== cid) {
@@ -587,7 +590,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       deleteStatements.push(db.update(schema.metas)
         .set({ count: sql`MAX(0, ${schema.metas.count} - 1)` })
         .where(and(
-          sql`${schema.metas.mid} IN (${sql.join(mids.map(id => sql`${id}`), sql`, `)})`,
+          sqlInChunks(schema.metas.mid, mids),
           sql`${schema.metas.type} IN ('category', 'tag')`,
         )));
     }

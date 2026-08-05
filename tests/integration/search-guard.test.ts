@@ -15,7 +15,7 @@ vi.mock('@/db', async () => {
   return { ...actual, getDb: (_d1: any) => testDb, schema: actual.schema };
 });
 
-import { prepareSearchData } from '@/lib/page-data';
+import { prepareSearchData, truncateSearchKeyword, decodeSearchKeywords } from '@/lib/page-data';
 import type { RequestContext } from '@/lib/context';
 import { schema } from '@/db';
 
@@ -66,14 +66,21 @@ describe('search keyword guard (G4-5)', () => {
     expect(props.posts[0].title).toBe('astro hello');
   });
 
-  it('truncates over-long keywords to 50 chars before matching', async () => {
+  it('truncates over-long keywords by UTF-8 bytes before matching', async () => {
     testDb = await createTestDb();
-    const long = 'astro' + 'a'.repeat(100);
+    const long = '中文'.repeat(100);
     const ctx = await buildCtx();
     const props = await prepareSearchData(ctx, long, `https://example.com/search/${encodeURIComponent(long)}/`, {}, new URL(`https://example.com/search/${encodeURIComponent(long)}/`));
     if (props instanceof Response) throw new Error('expected ThemeArchiveProps');
     // Title rendering uses the trimmed value.
     expect(props.archiveTitle.length).toBeLessThan(80);
+    expect(new TextEncoder().encode(`%${truncateSearchKeyword(long)}%`).byteLength).toBeLessThanOrEqual(50);
+  });
+
+  it('treats malformed URL encoding as a 404 input', () => {
+    expect(decodeSearchKeywords('%E0%A4%A').malformed).toBe(true);
+    expect(decodeSearchKeywords('%E0%A4%A').value).toBe('');
+    expect(decodeSearchKeywords('astro').malformed).toBe(false);
   });
 });
 

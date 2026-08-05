@@ -7,6 +7,7 @@ import {
   normalizeCommentAction,
 } from '@/lib/comment-moderation';
 import { invalidatePublicCache } from '@/lib/cache';
+import { parseBoundedIds } from '@/lib/d1-in';
 
 export const GET: APIRoute = async () =>
   new Response('Method Not Allowed', { status: 405 });
@@ -44,9 +45,9 @@ async function handler({ request, locals, url }: { request: Request; locals: App
   let coids: number[] = [];
   if (request.method === 'POST') {
     const formData = await request.formData();
-    coids = [...new Set(
-      formData.getAll('coid[]').map(v => parseInt(v.toString(), 10)).filter(Boolean),
-    )];
+    const parsed = parseBoundedIds(formData.getAll('coid[]'));
+    if (parsed === null) return new Response('评论 ID 数据无效或超过 200 项', { status: 400 });
+    coids = parsed;
   }
 
   if (coids.length === 0) {

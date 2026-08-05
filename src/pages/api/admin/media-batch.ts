@@ -5,6 +5,7 @@ import { isAdminActionResponse, requireAdminAction, safeAdminRedirectUrl } from 
 import { eq, sql } from 'drizzle-orm';
 import { env } from 'cloudflare:workers';
 import { invalidatePublicCache } from '@/lib/cache';
+import { parseBoundedIds, sqlInChunks } from '@/lib/d1-in';
 
 export const POST: APIRoute = handler;
 
@@ -20,7 +21,9 @@ async function handler({ request, locals, url }: { request: Request; locals: App
   let cids: number[] = [];
   if (request.method === 'POST') {
     const formData = await request.formData();
-    cids = formData.getAll('cid[]').map(v => parseInt(v.toString(), 10)).filter(Boolean);
+    const parsed = parseBoundedIds(formData.getAll('cid[]'));
+    if (parsed === null) return new Response('附件 ID 数据无效或超过 200 项', { status: 400 });
+    cids = parsed;
   }
 
   if (cids.length === 0) {
@@ -36,7 +39,7 @@ async function handler({ request, locals, url }: { request: Request; locals: App
     // G4-2: bulk-fetch attachments, run R2 deletes in parallel, then
     // emit a single content delete in one round-trip.
     const attachments = await auth.db.select().from(schema.contents)
-      .where(sql`${schema.contents.cid} IN (${sql.join(cids.map(id => sql`${id}`), sql`, `)})`);
+      .where(sqlInChunks(schema.contents.cid, cids));
     const targets = attachments.filter(a =>
       a.type === 'attachment' && (isAdmin || a.authorId === auth.uid),
     );
@@ -52,8 +55,7 @@ async function handler({ request, locals, url }: { request: Request; locals: App
         } catch { /* ignore */ }
       }));
 
-      const idList = sql.join(targets.map(t => sql`${t.cid}`), sql`, `);
-      await auth.db.delete(schema.contents).where(sql`${schema.contents.cid} IN (${idList})`);
+      await auth.db.delete(schema.contents).where(sqlInChunks(schema.contents.cid, targets.map(t => t.cid)));
       await invalidatePublicCache(auth.db, {
         reason: 'media-batch-delete',
         domains: [],

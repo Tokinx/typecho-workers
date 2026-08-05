@@ -3,6 +3,7 @@ import { schema } from '@/db';
 import { isAdminActionResponse, requireAdminAction, safeAdminRedirectUrl } from '@/lib/admin-auth';
 import { eq, sql } from 'drizzle-orm';
 import { invalidatePublicCache } from '@/lib/cache';
+import { parseBoundedIds, sqlInChunks } from '@/lib/d1-in';
 
 export const POST: APIRoute = handler;
 
@@ -17,7 +18,9 @@ async function handler({ request, locals, url }: { request: Request; locals: App
   let uids: number[] = [];
   if (request.method === 'POST') {
     const formData = await request.formData();
-    uids = formData.getAll('uid[]').map(v => parseInt(v.toString(), 10)).filter(Boolean);
+    const parsed = parseBoundedIds(formData.getAll('uid[]'));
+    if (parsed === null) return new Response('用户 ID 数据无效或超过 200 项', { status: 400 });
+    uids = parsed;
   }
 
   if (uids.length === 0) {
@@ -33,7 +36,7 @@ async function handler({ request, locals, url }: { request: Request; locals: App
     // G4-2: collect all candidate users in one query, plus a single
     // administrator-count check; only then run the writes.
     const candidates = await auth.db.select().from(schema.users)
-      .where(sql`${schema.users.uid} IN (${sql.join(uids.map(id => sql`${id}`), sql`, `)})`);
+      .where(sqlInChunks(schema.users.uid, uids));
 
     const adminCountResult = await auth.db.select({ count: sql<number>`count(*)` })
       .from(schema.users)
@@ -51,14 +54,13 @@ async function handler({ request, locals, url }: { request: Request; locals: App
     }
 
     if (targets.length > 0) {
-      const idList = sql.join(targets.map(id => sql`${id}`), sql`, `);
       await auth.db.update(schema.contents)
         .set({ authorId: auth.uid })
-        .where(sql`${schema.contents.authorId} IN (${idList})`);
+        .where(sqlInChunks(schema.contents.authorId, targets));
       await auth.db.update(schema.comments)
         .set({ authorId: auth.uid })
-        .where(sql`${schema.comments.authorId} IN (${idList})`);
-      await auth.db.delete(schema.users).where(sql`${schema.users.uid} IN (${idList})`);
+        .where(sqlInChunks(schema.comments.authorId, targets));
+      await auth.db.delete(schema.users).where(sqlInChunks(schema.users.uid, targets));
       await invalidatePublicCache(auth.db, {
         reason: 'user-delete',
         domains: [],
