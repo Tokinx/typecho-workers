@@ -60,6 +60,7 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
       const {
         dataCacheBackends: _legacyDataCacheBackends,
         legacyDataCacheBackends: _normalizedLegacyDataCacheBackends,
+        bypassCookieNames: _legacyBypassCookieNames,
         ...savedSettings
       } = extra.settings || {};
       return {
@@ -70,7 +71,6 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
           frontendDataCacheBackend: normalized.frontendDataCacheBackend,
           adminDataCacheBackend: normalized.adminDataCacheBackend,
           staticExtensions: normalized.staticExtensions.join(','),
-          bypassCookieNames: normalized.bypassCookieNames.join(','),
           l1Ttl: String(normalized.l1Ttl),
           l2Ttl: String(normalized.l2Ttl),
           l3Ttl: String(normalized.l3Ttl),

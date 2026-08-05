@@ -76,7 +76,6 @@ export interface CachePluginConfig {
   adminDataCacheBackend: DataCacheBackend;
   /** Preserves the retired per-domain configuration until it is saved again. */
   legacyDataCacheBackends?: DataCacheBackendSetting[];
-  bypassCookieNames: string[];
   staticCdnUrl: string;
   staticExtensions: string[];
   avatarCdnUrl: string;
@@ -155,13 +154,6 @@ function normalizeExtensions(value: unknown): string[] {
     .filter(item => /^[a-z0-9][a-z0-9_-]{0,15}$/.test(item)))];
 }
 
-function normalizeCookieNames(value: unknown): string[] {
-  const values = Array.isArray(value) ? value : String(value || '').split(/[,\r\n]+/);
-  return [...new Set(values
-    .map(item => String(item).trim())
-    .filter(item => /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(item)))];
-}
-
 function normalizeDataCacheBackend(value: unknown, label: string): DataCacheBackend {
   if (value === undefined || value === null || value === '') return 'kv';
   if (value === 'kv' || value === 'd1' || value === 'none') return value;
@@ -206,7 +198,6 @@ export function normalizeCacheConfig(settings: Record<string, unknown> | CachePl
     frontendDataCacheBackend: normalizeDataCacheBackend(settings.frontendDataCacheBackend, '前台数据缓存后端'),
     adminDataCacheBackend: normalizeDataCacheBackend(settings.adminDataCacheBackend, '后台数据缓存后端'),
     ...(legacyDataCacheBackends?.length ? { legacyDataCacheBackends } : {}),
-    bypassCookieNames: normalizeCookieNames(settings.bypassCookieNames),
     staticCdnUrl: normalizeUrl(settings.staticCdnUrl),
     staticExtensions: normalizeExtensions(settings.staticExtensions),
     avatarCdnUrl: normalizeUrl(settings.avatarCdnUrl),
@@ -830,7 +821,6 @@ function requestCachePolicy(request: Request, config: CachePluginConfig): Reques
   if (cacheControl.includes('no-cache') || cacheControl.includes('no-store')) return 'bypass';
 
   const cookieNames = parseCookieNames(request.headers.get('Cookie'));
-  if (config.bypassCookieNames.some(name => cookieNames.has(name))) return 'bypass';
   if (
     cookieNames.has('__typecho_uid') ||
     cookieNames.has('__typecho_authCode') ||

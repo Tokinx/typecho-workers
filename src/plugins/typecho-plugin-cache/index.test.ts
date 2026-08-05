@@ -98,7 +98,6 @@ const defaultSettings = {
   l1Ttl: '604800',
   l2Ttl: '259200',
   l3Ttl: '21600',
-  bypassCookieNames: '',
   staticCdnUrl: '',
   staticExtensions: 'jpg,png,css,js,zip',
   avatarCdnUrl: '',
@@ -342,16 +341,14 @@ describe('typecho-plugin-cache provider', () => {
     expect(await secondResponse.text()).toContain('coalesced');
   });
 
-  it('allows ordinary cookies but bypasses configured cookies and unsafe query variants', async () => {
+  it('allows ordinary cookies but bypasses unsafe query and request variants', async () => {
     const kv = new MemoryKv();
-    await activate(kv, { ...defaultSettings, bypassCookieNames: 'experiment' });
+    await activate(kv);
     const next = vi.fn(async () => new Response('<html>private variant</html>', {
       headers: { 'Content-Type': 'text/html' },
     }));
     const ordinaryCookie = requestContext();
     ordinaryCookie.request = new Request(ordinaryCookie.request, { headers: { Cookie: 'theme=dark' } });
-    const bypassCookie = requestContext();
-    bypassCookie.request = new Request(bypassCookie.request, { headers: { Cookie: 'experiment=one' } });
     const caseVariantCookie = requestContext();
     caseVariantCookie.request = new Request(caseVariantCookie.request, { headers: { Cookie: 'Experiment=one' } });
     const password = requestContext('https://example.com/archives/1/?password=secret');
@@ -364,11 +361,11 @@ describe('typecho-plugin-cache provider', () => {
     const ordinaryResponse = await earlyRequestProvider.handle(ordinaryCookie, next);
     expect(ordinaryResponse.headers.get('X-Typecho-Cache')).toBe('MISS');
     expect((await earlyRequestProvider.handle(caseVariantCookie, next)).headers.get('X-Typecho-Cache')).toBe('L1');
-    for (const context of [bypassCookie, password, unknown, authorization, noCache]) {
+    for (const context of [password, unknown, authorization, noCache]) {
       const response = await earlyRequestProvider.handle(context, next);
       expect(response.headers.get('X-Typecho-Cache')).toBe('BYPASS');
     }
-    expect(next).toHaveBeenCalledTimes(6);
+    expect(next).toHaveBeenCalledTimes(5);
   });
 
   it('serves authenticated cache hits but never stores authenticated misses', async () => {
@@ -995,7 +992,6 @@ describe('CDN rewriting', () => {
       l1Ttl: 0,
       l2Ttl: 0,
       l3Ttl: 0,
-      bypassCookieNames: [],
     });
     const defaults = normalizeCacheConfig({ listTtl: 86_400, detailTtl: 86_400 });
     expect(defaults).toMatchObject({ l1Ttl: 604_800, l2Ttl: 259_200, l3Ttl: 21_600 });
@@ -1120,12 +1116,11 @@ describe('plugin registration and controls', () => {
       settings: {
         ...defaultSettings,
         staticExtensions: '.JPG, png, bad/ext',
-        bypassCookieNames: 'analytics_id,\nThemePreference, invalid name',
       },
     });
     expect(accepted).toMatchObject({ success: true });
     expect(accepted.settings.staticExtensions).toBe('jpg,png');
-    expect(accepted.settings.bypassCookieNames).toBe('analytics_id,ThemePreference');
+    expect(accepted.settings.bypassCookieNames).toBeUndefined();
     expect(accepted.settings.l2Ttl).toBe('259200');
     expect(accepted.settings.l3Ttl).toBe('21600');
     expect(accepted.settings.frontendDataCacheBackend).toBe('kv');
@@ -1138,9 +1133,11 @@ describe('plugin registration and controls', () => {
       settings: {
         ...defaultSettings,
         dataCacheBackends: [{ domain: 'admin-dashboard', backend: 'd1' }],
+        bypassCookieNames: 'experiment',
       },
     });
     expect(migrated.settings.dataCacheBackends).toBeUndefined();
+    expect(migrated.settings.bypassCookieNames).toBeUndefined();
     expect(migrated.settings.frontendDataCacheBackend).toBe('kv');
     expect(migrated.settings.adminDataCacheBackend).toBe('kv');
 
