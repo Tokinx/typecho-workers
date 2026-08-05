@@ -268,6 +268,27 @@ describe('GET /api/comments', () => {
     expect(await second.text()).not.toContain('reader@example.com');
   });
 
+  it('reports the query-cache source on every comments response', async () => {
+    await seedOptions();
+    const post = await seedPost();
+    await testDb.insert(schema.comments).values({
+      cid: post.cid,
+      author: 'Reader',
+      text: 'public',
+      status: 'approved',
+      created: 100,
+      parent: 0,
+    });
+
+    const first = await GET(request(String(post.cid)));
+    expect(first.headers.get('X-Typecho-Comment-Cache')).toBe('MISS');
+    expect(first.headers.get('X-Typecho-Query-Cache')).toBe('comments=MISS');
+
+    const second = await GET(request(String(post.cid)));
+    expect(second.headers.get('X-Typecho-Comment-Cache')).toBe('HIT');
+    expect(second.headers.get('X-Typecho-Query-Cache')).toBe('comments=L0');
+  });
+
   it('uses lookahead pagination for anonymous public comment pages', async () => {
     await seedOptions({ commentsPageBreak: '1', commentsPageSize: '2', commentsThreaded: '0' });
     const post = await seedPost();
@@ -319,6 +340,25 @@ describe('GET /api/comments', () => {
     }
     expect(mockLoadPublicCommentPage).toHaveBeenCalledTimes(4);
     expect(mockLoadCommentPage).not.toHaveBeenCalled();
+  });
+
+  it('reports BYPASS for a request that carries a cookie', async () => {
+    await seedOptions();
+    const post = await seedPost();
+    await testDb.insert(schema.comments).values({
+      cid: post.cid,
+      author: 'Reader',
+      text: 'public',
+      status: 'approved',
+      created: 100,
+      parent: 0,
+    });
+
+    const response = await GET(request(String(post.cid), {
+      Cookie: 'theme=dark',
+    }));
+    expect(response.headers.get('X-Typecho-Comment-Cache')).toBe('BYPASS');
+    expect(response.headers.get('X-Typecho-Query-Cache')).toBe('comments=BYPASS');
   });
 
   it('uses lookahead pagination when page breaks are disabled', async () => {

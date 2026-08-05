@@ -30,9 +30,37 @@ export interface EarlyRequestProvider {
   writeSharedData?<T>(domain: SharedCacheDomain, key: string, value: T): Promise<boolean>;
 }
 
+export type SharedCacheSource = 'L0' | 'KV' | 'D1' | 'MISS' | 'BYPASS';
+
+/** Request-local diagnostics for explicitly enabled query-cache debugging. */
+export interface SharedCacheTrace {
+  sources: Map<SharedCacheDomain, SharedCacheSource>;
+}
+
+export function createSharedCacheTrace(): SharedCacheTrace {
+  return { sources: new Map() };
+}
+
+export function recordSharedCacheTrace(
+  trace: SharedCacheTrace | undefined,
+  domain: SharedCacheDomain,
+  source: SharedCacheSource,
+): void {
+  trace?.sources.set(domain, source);
+}
+
+export function formatSharedCacheTrace(trace: SharedCacheTrace | undefined): string {
+  if (!trace || trace.sources.size === 0) return '';
+  return [...trace.sources.entries()]
+    .map(([domain, source]) => `${domain}=${source}`)
+    .join(';');
+}
+
 export interface SharedDataRead<T> {
   handled: boolean;
   value: T | null;
+  /** Set only when the provider returned a value or explicitly bypassed it. */
+  source?: Exclude<SharedCacheSource, 'L0' | 'MISS'>;
 }
 
 export interface SharedDataFallbackContext {
@@ -223,6 +251,7 @@ export async function loadEarlyRequestSharedData<T>(
   fallback: (context: SharedDataFallbackContext) => Promise<T>,
   scope?: object,
   localVersion?: string | number,
+  trace?: SharedCacheTrace,
 ): Promise<T> {
   const snapshotKey = sharedSnapshotKey(domain, key, scope, localVersion);
   const localGeneration = sharedSnapshotGeneration(domain);
@@ -230,12 +259,16 @@ export async function loadEarlyRequestSharedData<T>(
   if (snapshot && snapshot.expiresAt > Date.now()) {
     sharedSnapshots.delete(snapshotKey);
     sharedSnapshots.set(snapshotKey, snapshot);
+    recordSharedCacheTrace(trace, domain, 'L0');
     return cloneSharedValue(snapshot.value as T);
   }
   if (snapshot) sharedSnapshots.delete(snapshotKey);
 
   const existing = pendingSharedLoads.get(snapshotKey);
-  if (existing) return cloneSharedValue(await existing as T);
+  if (existing) {
+    recordSharedCacheTrace(trace, domain, 'MISS');
+    return cloneSharedValue(await existing as T);
+  }
 
   const pending = (async (): Promise<T> => {
     const providers = await loadProviders();
@@ -245,6 +278,7 @@ export async function loadEarlyRequestSharedData<T>(
       try {
         const result = await provider.readSharedData<T>(domain, key);
         providerHandled = providerHandled || result.handled;
+        if (result.source) recordSharedCacheTrace(trace, domain, result.source);
         if (result.value !== null) {
           if (sharedSnapshotGeneration(domain) === localGeneration) {
             setSharedSnapshot(snapshotKey, result.value);
@@ -256,6 +290,9 @@ export async function loadEarlyRequestSharedData<T>(
       }
     }
 
+    if (trace?.sources.get(domain) !== 'BYPASS') {
+      recordSharedCacheTrace(trace, domain, 'MISS');
+    }
     const value = await fallback({ providerHandled });
     if (sharedSnapshotGeneration(domain) !== localGeneration) return value;
     setSharedSnapshot(snapshotKey, value);

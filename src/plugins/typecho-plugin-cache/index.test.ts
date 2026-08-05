@@ -4,6 +4,8 @@ import { _resetCaches } from '../../../tests/__mocks__/cloudflare-workers';
 import type { PluginInitContext } from 'typecho/plugin-sdk';
 import init from './index';
 import {
+  createSharedCacheTrace,
+  formatSharedCacheTrace,
   loadEarlyRequestSharedData,
   notifyEarlyRequestInvalidation,
   registerEarlyRequestLoaders,
@@ -528,6 +530,117 @@ describe('typecho-plugin-cache provider', () => {
 
     const entry = [...kv.putOptions.entries()].find(([key]) => key.includes(':s:comments:'));
     expect(entry?.[1]?.expirationTtl).toBe(604_800);
+  });
+
+  it('reports query cache source without exposing the cache key', async () => {
+    const kv = new MemoryKv();
+    await activate(kv);
+    registerEarlyRequestLoaders({ [CACHE_PLUGIN_ID]: async () => earlyRequestProvider });
+    const scope = {};
+
+    const missTrace = createSharedCacheTrace();
+    await loadEarlyRequestSharedData(
+      'comments',
+      'private-query-key-auth-code',
+      async () => ({ source: 'd1' }),
+      scope,
+      undefined,
+      missTrace,
+    );
+    expect(formatSharedCacheTrace(missTrace)).toBe('comments=MISS');
+    expect(formatSharedCacheTrace(missTrace)).not.toContain('private-query-key-auth-code');
+
+    const l0Trace = createSharedCacheTrace();
+    await loadEarlyRequestSharedData(
+      'comments',
+      'private-query-key-auth-code',
+      async () => ({ source: 'unexpected' }),
+      scope,
+      undefined,
+      l0Trace,
+    );
+    expect(formatSharedCacheTrace(l0Trace)).toBe('comments=L0');
+
+    resetEarlyRequestProvidersForTests();
+    resetCacheProviderForTests();
+    registerEarlyRequestLoaders({ [CACHE_PLUGIN_ID]: async () => earlyRequestProvider });
+    const kvTrace = createSharedCacheTrace();
+    await loadEarlyRequestSharedData(
+      'comments',
+      'private-query-key-auth-code',
+      async () => ({ source: 'unexpected' }),
+      scope,
+      undefined,
+      kvTrace,
+    );
+    expect(formatSharedCacheTrace(kvTrace)).toBe('comments=KV');
+
+    await earlyRequestProvider.lifecycle!({
+      type: 'config',
+      settings: { ...defaultSettings, frontendDataCacheBackend: 'none' },
+      options: { siteUrl: 'https://example.com' },
+    });
+    const bypassTrace = createSharedCacheTrace();
+    await loadEarlyRequestSharedData(
+      'comments',
+      'uncached-query',
+      async () => ({ source: 'd1' }),
+      {},
+      undefined,
+      bypassTrace,
+    );
+    expect(formatSharedCacheTrace(bypassTrace)).toBe('comments=BYPASS');
+  });
+
+  it('reports a D1 query-cache hit separately from a page L3 hit', async () => {
+    const d1 = new MemoryD1();
+    env.DB = d1 as any;
+    await earlyRequestProvider.sync!({
+      request: new Request('https://example.com/'),
+      active: true,
+      options: {
+        [`plugin:${CACHE_PLUGIN_ID}`]: JSON.stringify({
+          ...defaultSettings,
+          frontendDataCacheBackend: 'd1',
+        }),
+      },
+    });
+    registerEarlyRequestLoaders({ [CACHE_PLUGIN_ID]: async () => earlyRequestProvider });
+
+    const firstTrace = createSharedCacheTrace();
+    await loadEarlyRequestSharedData(
+      'comments',
+      'd1-query-key',
+      async () => ({ source: 'd1-origin' }),
+      {},
+      undefined,
+      firstTrace,
+    );
+    expect(formatSharedCacheTrace(firstTrace)).toBe('comments=MISS');
+
+    resetEarlyRequestProvidersForTests();
+    resetCacheProviderForTests();
+    await earlyRequestProvider.sync!({
+      request: new Request('https://example.com/'),
+      active: true,
+      options: {
+        [`plugin:${CACHE_PLUGIN_ID}`]: JSON.stringify({
+          ...defaultSettings,
+          frontendDataCacheBackend: 'd1',
+        }),
+      },
+    });
+    registerEarlyRequestLoaders({ [CACHE_PLUGIN_ID]: async () => earlyRequestProvider });
+    const d1Trace = createSharedCacheTrace();
+    await loadEarlyRequestSharedData(
+      'comments',
+      'd1-query-key',
+      async () => ({ source: 'unexpected' }),
+      {},
+      undefined,
+      d1Trace,
+    );
+    expect(formatSharedCacheTrace(d1Trace)).toBe('comments=D1');
   });
 
   it('isolates viewer query values and stores authenticated entries for seven days', async () => {

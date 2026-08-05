@@ -397,7 +397,7 @@ async function readSharedData<T>(domain: SharedCacheDomain, key: string): Promis
   const config = await dataCacheConfig();
   if (!config) return { handled: false, value: null };
   const backend = dataCacheBackend(config, domain);
-  if (backend === 'none') return { handled: true, value: null };
+  if (backend === 'none') return { handled: true, value: null, source: 'BYPASS' };
   const keyHash = await sha256(key);
   if (backend === 'd1') {
     const d1 = runtimeD1();
@@ -406,7 +406,7 @@ async function readSharedData<T>(domain: SharedCacheDomain, key: string): Promis
     const raw = await readD1Value(d1, `${D1_DATA_PREFIX}${domain}:${generationValue}:${keyHash}`);
     if (!raw) return { handled: true, value: null };
     try {
-      return { handled: true, value: JSON.parse(raw) as T };
+      return { handled: true, value: JSON.parse(raw) as T, source: 'D1' };
     } catch {
       return { handled: true, value: null };
     }
@@ -419,7 +419,7 @@ async function readSharedData<T>(domain: SharedCacheDomain, key: string): Promis
       type: 'json',
       cacheTtl: 60,
     });
-  return { handled: true, value };
+  return { handled: true, value, source: value === null ? undefined : 'KV' };
 }
 
 async function writeSharedData<T>(domain: SharedCacheDomain, key: string, value: T): Promise<boolean> {

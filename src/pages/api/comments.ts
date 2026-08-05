@@ -21,7 +21,12 @@ import {
 import { loadCommentPage, loadPublicCommentPage } from '@/lib/comment-page';
 import { buildCommentOptions, buildCommentTree, buildGravatarMap } from '@/lib/page-data';
 import { jsonError, jsonOk } from '@/lib/http';
-import { loadEarlyRequestSharedData } from '@/lib/early-request';
+import {
+  createSharedCacheTrace,
+  formatSharedCacheTrace,
+  loadEarlyRequestSharedData,
+  recordSharedCacheTrace,
+} from '@/lib/early-request';
 import type { CommentPagination } from '@/lib/comment-page';
 import type { CommentNode } from '@/lib/theme-props';
 import { appendClearedCommenterCookies, readRememberedCommenter } from '@/lib/commenter';
@@ -101,6 +106,7 @@ export const GET: APIRoute = async ({ request, locals, url }) => {
     ? await generateCommentToken(options.secret, cid)
     : '';
   const allowComment = content.allowComment === '1';
+  const queryCacheTrace = createSharedCacheTrace();
   const finishResponse = (response: Response): Response => {
     if (remembered.invalidNames.length > 0) {
       appendClearedCommenterCookies(response.headers, request, remembered.invalidNames);
@@ -112,12 +118,17 @@ export const GET: APIRoute = async ({ request, locals, url }) => {
   // already supplies allowComment; commenter identity is the only dynamic data
   // needed to render the form.
   if (!includeComments) {
+    recordSharedCacheTrace(queryCacheTrace, 'comments', 'BYPASS');
     return finishResponse(jsonOk({
       comments: [],
       gravatarMap: {},
       options: { ...buildCommentOptions(options, securityToken), allowComment },
       commenter,
-    }, { ...PRIVATE_HEADERS, 'X-Typecho-Comment-Cache': 'BYPASS' }));
+    }, {
+      ...PRIVATE_HEADERS,
+      'X-Typecho-Comment-Cache': 'BYPASS',
+      'X-Typecho-Query-Cache': formatSharedCacheTrace(queryCacheTrace),
+    }));
   }
 
   const loadPublicPage = async (): Promise<CachedPublicCommentPage> => {
@@ -143,9 +154,13 @@ export const GET: APIRoute = async ({ request, locals, url }) => {
         cacheMiss = true;
         return loadPublicPage();
       },
+      undefined,
+      undefined,
+      queryCacheTrace,
     );
     cacheStatus = cacheMiss ? 'MISS' : 'HIT';
   } else {
+    recordSharedCacheTrace(queryCacheTrace, 'comments', 'BYPASS');
     const unapprovedToken = getCookieValue(
       request.headers.get('cookie'),
       '__typecho_unapproved_comment',
@@ -179,7 +194,11 @@ export const GET: APIRoute = async ({ request, locals, url }) => {
     pagination: commentData.pagination,
     options: { ...buildCommentOptions(options, securityToken), allowComment },
     commenter,
-  }, { ...PRIVATE_HEADERS, 'X-Typecho-Comment-Cache': includeComments ? cacheStatus : 'BYPASS' });
+  }, {
+    ...PRIVATE_HEADERS,
+    'X-Typecho-Comment-Cache': includeComments ? cacheStatus : 'BYPASS',
+    'X-Typecho-Query-Cache': formatSharedCacheTrace(queryCacheTrace),
+  });
   return finishResponse(response);
 };
 

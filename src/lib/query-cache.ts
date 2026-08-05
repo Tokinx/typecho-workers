@@ -74,7 +74,12 @@ export async function loadQueryCache<T>(
   if (input.length > 512) return loader();
   const viewer = scope === 'viewer' ? await viewerScope(ctx) : 'public';
   const key = await sha256(`typecho:query-cache:v1\0${options.domain}\0${viewer}\0${input}`);
-  return loadEarlyRequestSharedData(options.domain, `query:${scope}:${key}`, async () => loader(), ctx.db as object);
+  return loadEarlyRequestSharedData(
+    options.domain,
+    `query:${scope}:${key}`,
+    async () => loader(),
+    ctx.db as object,
+  );
 }
 
 /** Invalidate cached read models without also purging rendered page HTML. */
