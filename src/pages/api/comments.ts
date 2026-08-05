@@ -3,7 +3,13 @@ import { env } from 'cloudflare:workers';
 import { eq } from 'drizzle-orm';
 import { getDb, schema } from '@/db';
 import { loadOptions } from '@/lib/options';
-import { getCookieValue, generateCommentToken, validateUnapprovedCommentToken } from '@/lib/auth';
+import {
+  getAuthCookies,
+  getCookieValue,
+  generateCommentToken,
+  validateAuthToken,
+  validateUnapprovedCommentToken,
+} from '@/lib/auth';
 import { getRequestCoreContextFromLocals } from '@/lib/context';
 import {
   applyFilter,
@@ -12,12 +18,13 @@ import {
   setActivatedPlugins,
   type HookContext,
 } from '@/lib/plugin';
-import { loadCommentPage, loadPublicCommentPage } from '@/lib/comment-page';
+import { buildCommentPaginationSummary, loadCommentPage, loadPublicCommentPage } from '@/lib/comment-page';
 import { buildCommentOptions, buildCommentTree, buildGravatarMap } from '@/lib/page-data';
 import { jsonError, jsonOk } from '@/lib/http';
 import { loadEarlyRequestSharedData } from '@/lib/early-request';
 import type { CommentPagination } from '@/lib/comment-page';
 import type { CommentNode } from '@/lib/theme-props';
+import { appendClearedCommenterCookies, readRememberedCommenter } from '@/lib/commenter';
 
 const PRIVATE_HEADERS = {
   'Cache-Control': 'private, no-store',
@@ -48,6 +55,23 @@ export const GET: APIRoute = async ({ request, locals, url }) => {
     await setActivatedPlugins(pluginCtx, parseActivatedPlugins(options.activatedPlugins));
   }
 
+  const { token } = getAuthCookies(request.headers.get('cookie'));
+  const authResult = token && options.secret
+    ? await validateAuthToken(token, options.secret, db)
+    : null;
+  const remembered = readRememberedCommenter(request.headers.get('cookie'));
+  const commenter = authResult
+    ? {
+        loggedIn: true,
+        author: authResult.user.screenName || authResult.user.name || '',
+        mail: authResult.user.mail || '',
+        url: authResult.user.url || '',
+      }
+    : {
+        loggedIn: false,
+        ...remembered.identity,
+      };
+
   const content = await db.query.contents.findFirst({ where: eq(schema.contents.cid, cid) });
   if (!content) return jsonError(404, '内容不存在', PRIVATE_HEADERS);
 
@@ -63,7 +87,7 @@ export const GET: APIRoute = async ({ request, locals, url }) => {
       request,
       db,
       options,
-      isLoggedIn: false,
+      isLoggedIn: !!authResult,
       readOnly: true,
     });
   } catch (error) {
@@ -72,6 +96,7 @@ export const GET: APIRoute = async ({ request, locals, url }) => {
   }
   if (!isPublicContent) return jsonError(404, '内容不存在', PRIVATE_HEADERS);
 
+  const includeComments = url.searchParams.get('includeComments') !== '0';
   const loadPublicPage = async (): Promise<CachedPublicCommentPage> => {
     const commentPage = options.commentsPageBreak
       ? await loadPublicCommentPage(db, cid, options, request.url)
@@ -85,10 +110,16 @@ export const GET: APIRoute = async ({ request, locals, url }) => {
     };
   };
 
-  const cacheable = isAnonymousCacheable(request);
+  const cacheable = includeComments && isAnonymousCacheable(request);
   let cacheStatus: 'HIT' | 'MISS' | 'BYPASS' = 'BYPASS';
   let commentData: CachedPublicCommentPage;
-  if (cacheable) {
+  if (!includeComments) {
+    commentData = {
+      comments: [],
+      gravatarMap: {},
+      pagination: buildCommentPaginationSummary(options, request.url, content.commentsNum || 0),
+    };
+  } else if (cacheable) {
     let cacheMiss = false;
     commentData = await loadEarlyRequestSharedData(
       'comments',
@@ -133,12 +164,17 @@ export const GET: APIRoute = async ({ request, locals, url }) => {
     : '';
   const allowComment = content.allowComment === '1';
 
-  return jsonOk({
+  const response = jsonOk({
     comments: commentData.comments,
     gravatarMap: publicAvatarMap,
     pagination: commentData.pagination,
     options: { ...buildCommentOptions(options, securityToken), allowComment },
-  }, { ...PRIVATE_HEADERS, 'X-Typecho-Comment-Cache': cacheStatus });
+    commenter,
+  }, { ...PRIVATE_HEADERS, 'X-Typecho-Comment-Cache': includeComments ? cacheStatus : 'BYPASS' });
+  if (remembered.invalidNames.length > 0) {
+    appendClearedCommenterCookies(response.headers, request, remembered.invalidNames);
+  }
+  return response;
 };
 
 function redactCommentMail(comments: CommentNode[]): PublicCommentNode[] {

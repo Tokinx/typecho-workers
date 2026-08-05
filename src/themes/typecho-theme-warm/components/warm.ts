@@ -5,25 +5,46 @@ export const WARM_THEME_ID = 'typecho-theme-warm';
 
 export type WarmSection = 'home' | 'articles' | 'notes' | 'about' | 'none';
 export type WarmContinuousLoadMode = 'manual' | 'auto-2' | 'infinite';
-export type WarmCommentInitialLoadMode = 'manual' | 'auto-first' | 'dwell' | 'dwell-auto-2' | 'infinite';
+export type WarmCommentComponentLoadMode = 'auto' | 'dwell' | 'manual';
+export type WarmCommentInitialLoadMode = 'manual' | 'auto-first' | 'auto-2' | 'infinite';
 
 export interface WarmSettings {
   githubUrl: string;
   socialUrl: string;
   email: string;
   continuousLoadMode: WarmContinuousLoadMode;
+  commentComponentLoadMode: WarmCommentComponentLoadMode;
   commentInitialLoadMode: WarmCommentInitialLoadMode;
 }
 
 export function warmSettings(options: ThemeBaseProps['options']): WarmSettings {
   const settings = loadThemeConfig(options, WARM_THEME_ID);
+  const savedSettings = readSavedWarmSettings(options);
+  const legacyCommentMode = savedSettings?.commentInitialLoadMode;
+  const componentLoadMode = Object.prototype.hasOwnProperty.call(savedSettings || {}, 'commentComponentLoadMode')
+    ? settings.commentComponentLoadMode
+    : legacyCommentMode === 'dwell' || legacyCommentMode === 'dwell-auto-2'
+      ? 'dwell'
+      : settings.commentComponentLoadMode;
   return {
     githubUrl: safeExternalUrl(settings.githubUrl),
     socialUrl: safeExternalUrl(settings.socialUrl),
     email: safeEmail(settings.email),
     continuousLoadMode: normalizeContinuousLoadMode(settings.continuousLoadMode),
+    commentComponentLoadMode: normalizeCommentComponentLoadMode(componentLoadMode),
     commentInitialLoadMode: normalizeCommentInitialLoadMode(settings.commentInitialLoadMode),
   };
+}
+
+function readSavedWarmSettings(options: ThemeBaseProps['options']): Record<string, unknown> | null {
+  const raw = options?.[`theme:${WARM_THEME_ID}`];
+  if (!raw) return null;
+  try {
+    const saved = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return saved && typeof saved === 'object' && !Array.isArray(saved) ? saved as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
 }
 
 export function normalizeContinuousLoadMode(value: unknown): WarmContinuousLoadMode {
@@ -31,11 +52,16 @@ export function normalizeContinuousLoadMode(value: unknown): WarmContinuousLoadM
   return value === 'infinite' ? value : 'manual';
 }
 
+export function normalizeCommentComponentLoadMode(value: unknown): WarmCommentComponentLoadMode {
+  return value === 'dwell' || value === 'manual' ? value : 'auto';
+}
+
 export function normalizeCommentInitialLoadMode(value: unknown): WarmCommentInitialLoadMode {
-  return value === 'manual' || value === 'auto-first' || value === 'dwell'
-    || value === 'dwell-auto-2' || value === 'infinite'
-    ? value
-    : 'auto-first';
+  if (value === 'auto-2' || value === 'dwell-auto-2') return 'auto-2';
+  if (value === 'infinite') return 'infinite';
+  if (value === 'manual') return 'manual';
+  if (value === 'auto-first' || value === 'dwell' || value === 'auto') return 'auto-first';
+  return 'auto-first';
 }
 
 export function safeExternalUrl(value: unknown): string {

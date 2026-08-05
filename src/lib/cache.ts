@@ -19,6 +19,9 @@ import { notifyEarlyRequestInvalidation } from '@/lib/early-request';
 export type PublicCacheDomain = 'home' | 'post' | 'page' | 'note' | 'archive' | 'other';
 export type SharedCacheDomain = 'options' | 'navigation' | 'sidebar' | 'metas' | 'comments' | 'notes';
 
+/** Internal response marker consumed by the page cache provider. */
+export const PUBLIC_HTML_HEADER = 'X-Typecho-Public-HTML';
+
 export interface PublicCacheInvalidation {
   reason: string;
   domains: PublicCacheDomain[] | ['all'];

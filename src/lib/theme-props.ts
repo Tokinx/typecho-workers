@@ -151,6 +151,8 @@ export interface CommentOptions {
   // ─── Display Settings ────────────────────────
   /** Only show comments, not pingback/trackback */
   showCommentOnly: boolean;
+  /** Require a website URL from anonymous commenters. */
+  requireUrl: boolean;
   /** Support Markdown syntax in comments */
   markdown: boolean;
   /** Add nofollow attribute to comment author URLs */

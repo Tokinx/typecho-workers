@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  normalizeCommentComponentLoadMode,
   normalizeCommentInitialLoadMode,
   normalizeContinuousLoadMode,
   plainExcerpt,
@@ -19,21 +20,33 @@ describe('typecho-theme-warm', () => {
     expect(pkg.keywords).toEqual(expect.arrayContaining(['typecho', 'theme']));
     expect(manifest.id).toBe('typecho-theme-warm');
     expect(manifest.stylesheet).toBe('style.css');
+    expect(manifest.publicHtml).toBe(true);
     expect(manifest.config).not.toHaveProperty('tagline');
     expect(manifest.config).not.toHaveProperty('footerDescription');
     expect(manifest.config.continuousLoadMode).toMatchObject({
-      type: 'select', default: 'manual',
-      options: expect.objectContaining({ manual: expect.any(String), 'auto-2': expect.any(String), infinite: expect.any(String) }),
+      type: 'select', label: '内容列表', default: 'manual',
+      options: {
+        manual: '手动加载',
+        'auto-2': '滚动加载 2 次',
+        infinite: '无限滚动加载',
+      },
+    });
+    expect(manifest.config.commentComponentLoadMode).toMatchObject({
+      type: 'select', label: '评论组件', default: 'manual',
+      options: {
+        manual: '手动加载',
+        dwell: '停留 3 秒加载',
+        auto: '自动加载',
+      },
     });
     expect(manifest.config.commentInitialLoadMode).toMatchObject({
-      type: 'select', default: 'auto-first',
-      options: expect.objectContaining({
-        manual: expect.any(String),
-        'auto-first': expect.any(String),
-        dwell: expect.any(String),
-        'dwell-auto-2': expect.any(String),
-        infinite: expect.any(String),
-      }),
+      type: 'select', label: '评论列表', default: 'manual',
+      options: {
+        manual: '手动加载',
+        'auto-first': '加载第一页',
+        'auto-2': '滚动加载 2 次',
+        infinite: '无限滚动加载',
+      },
     });
   });
 
@@ -91,9 +104,11 @@ describe('typecho-theme-warm', () => {
     const post = readFileSync(join(themeRoot, 'components/Post.astro'), 'utf8');
     expect(post).not.toContain('warm-back');
     expect(post).not.toContain('continuousLoadMode={settings.continuousLoadMode}');
+    expect(post).toContain('componentLoadMode={settings.commentComponentLoadMode}');
     expect(post).toContain('initialLoadMode={settings.commentInitialLoadMode}');
     const page = readFileSync(join(themeRoot, 'components/Page.astro'), 'utf8');
     expect(page).not.toContain('continuousLoadMode={settings.continuousLoadMode}');
+    expect(page).toContain('componentLoadMode={settings.commentComponentLoadMode}');
     expect(page).toContain('initialLoadMode={settings.commentInitialLoadMode}');
     const css = readFileSync(join(themeRoot, 'style.css'), 'utf8');
     expect(css).not.toContain('.warm-list-heading');
@@ -101,8 +116,13 @@ describe('typecho-theme-warm', () => {
     expect(readFileSync(join(themeRoot, 'components/instantclick.ts'), 'utf8')).toContain('InstantClick 3.1.0');
     const comments = readFileSync(join(themeRoot, 'components/WarmComments.astro'), 'utf8');
     expect(comments).toContain('/api/comments');
+    expect(comments).toContain('includeComments: \'0\'');
+    expect(comments).not.toContain('commentOptions: CommentOptions');
     expect(comments).toContain('data-comment-loading');
     expect(comments).not.toContain('data-comment-total');
+    expect(comments).toContain('data-comment-component-load');
+    expect(comments).toContain('data-comment-load-component');
+    expect(comments).toContain('>加载评论组件</button>');
     expect(comments).toContain('data-comment-initial-load');
     expect(comments).not.toContain('continuousLoadMode');
     expect(comments).not.toContain('data-comment-load-mode');
@@ -117,9 +137,10 @@ describe('typecho-theme-warm', () => {
     expect(comments).toContain("setPaginationStatus('正在加载...')");
     expect(comments).toContain("initialMode === 'auto-first'");
     expect(comments).toContain('loadComments(1)');
-    expect(comments).toContain("initialMode === 'dwell-auto-2' ? 2");
+    expect(comments).toContain("initialMode === 'auto-2' ? 2");
     expect(comments).toContain("initialMode === 'infinite' ? Infinity");
-    expect(comments).toContain("initialMode === 'dwell' || initialMode === 'dwell-auto-2'");
+    expect(comments).toContain("componentMode === 'auto'");
+    expect(comments).toContain('componentMode === \'manual\'');
     expect(comments).toContain('commentsLoaded = true');
     expect(comments.indexOf('commentsLoaded = true')).toBeLessThan(comments.indexOf('renderPagination(activePagination)'));
     expect(comments).toContain('3_000');
@@ -146,11 +167,15 @@ describe('typecho-theme-warm', () => {
     expect(safeExternalUrl('https://example.com')).toBe('https://example.com/');
     expect(safeEmail('hello@example.com')).toBe('hello@example.com');
     expect(safeEmail('not-an-email')).toBe('');
+    expect(normalizeCommentComponentLoadMode('dwell')).toBe('dwell');
+    expect(normalizeCommentComponentLoadMode('manual')).toBe('manual');
+    expect(normalizeCommentComponentLoadMode('invalid')).toBe('auto');
     expect(normalizeContinuousLoadMode('auto-2')).toBe('auto-2');
     expect(normalizeContinuousLoadMode('invalid')).toBe('manual');
-    expect(normalizeCommentInitialLoadMode('dwell')).toBe('dwell');
+    expect(normalizeCommentInitialLoadMode('dwell')).toBe('auto-first');
     expect(normalizeCommentInitialLoadMode('auto-first')).toBe('auto-first');
-    expect(normalizeCommentInitialLoadMode('dwell-auto-2')).toBe('dwell-auto-2');
+    expect(normalizeCommentInitialLoadMode('auto-2')).toBe('auto-2');
+    expect(normalizeCommentInitialLoadMode('dwell-auto-2')).toBe('auto-2');
     expect(normalizeCommentInitialLoadMode('infinite')).toBe('infinite');
     expect(normalizeCommentInitialLoadMode('auto')).toBe('auto-first');
     expect(normalizeCommentInitialLoadMode('invalid')).toBe('auto-first');

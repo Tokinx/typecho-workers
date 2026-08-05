@@ -1,10 +1,11 @@
 ---
 import Base from '@/layouts/Base.astro';
 import type { ThemeBaseProps } from '@/lib/theme-props';
+import { PUBLIC_HTML_HEADER } from '@/lib/cache';
 import { warmSettings, type WarmSection } from './warm';
 import { instantClickSource } from './instantclick';
 
-interface Props extends ThemeBaseProps {
+interface Props extends Omit<ThemeBaseProps, 'user' | 'isLoggedIn'> {
   title?: string;
   description?: string;
   section?: WarmSection;
@@ -16,14 +17,13 @@ const {
   section = 'none',
   options,
   urls,
-  user,
-  isLoggedIn,
-  page,
   pages,
   sidebarData,
   pluginCtx,
   currentPath
 } = Astro.props;
+
+Astro.response.headers.set(PUBLIC_HTML_HEADER, '1');
 
 const settings = warmSettings(options);
 const categories = sidebarData.categories.slice(0, 8);
@@ -41,8 +41,6 @@ const socialLinks = [
   description={description}
   options={options}
   urls={urls}
-  user={user}
-  isLoggedIn={isLoggedIn}
   pluginCtx={pluginCtx}
   bodyClass="warm-theme"
 >

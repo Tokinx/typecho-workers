@@ -23,7 +23,7 @@ type WarmPostItem = {
 type WarmNoteItem = NoteListItem & { type: 'note' };
 
 const {
-  options, urls, user, isLoggedIn, pages, sidebarData, currentPath, pluginCtx,
+  options, urls, pages, sidebarData, currentPath, pluginCtx,
   posts, pagination,
 } = Astro.props;
 
@@ -63,7 +63,6 @@ if (notesEnabled && stream !== 'posts') {
       page: pagination.currentPage,
       pageSize: pagination.pageSize,
       topic,
-      viewerUid: user?.uid,
     },
     { siteUrl: urls.siteUrl, permalinkPattern: options.permalinkPattern },
   );
@@ -139,8 +138,6 @@ if (isNotesStreamOutOfRange) Astro.response.status = 404;
   <NotFound
     options={options}
     urls={urls}
-    user={user}
-    isLoggedIn={isLoggedIn}
     pages={pages}
     sidebarData={sidebarData}
     currentPath={currentPath}
@@ -152,8 +149,6 @@ if (isNotesStreamOutOfRange) Astro.response.status = 404;
   <WarmShell
   options={options}
   urls={urls}
-  user={user}
-  isLoggedIn={isLoggedIn}
   pages={pages}
   sidebarData={sidebarData}
   currentPath={currentPath}
@@ -181,7 +176,6 @@ if (isNotesStreamOutOfRange) Astro.response.status = 404;
           <span class="warm-note-label">笔记</span>
           <span aria-hidden="true">·</span>
           <time datetime={new Date(item.created * 1000).toISOString()}>{formatWarmDate(item.created, true)}</time>
-          {item.status === 'private' && <span class="warm-private">私密</span>}
         </div>
         <div class="warm-note__content" set:html={item.html} />
         {item.images.length > 0 && (

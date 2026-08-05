@@ -6,7 +6,7 @@ import { formatWarmDate, plainExcerpt, warmSettings } from './warm';
 
 type Props = ThemeArchiveProps;
 const {
-  options, urls, user, isLoggedIn, pages, sidebarData, currentPath, pluginCtx,
+  options, urls, pages, sidebarData, currentPath, pluginCtx,
   archiveTitle, posts, pagination,
 } = Astro.props;
 const settings = warmSettings(options);
@@ -15,8 +15,6 @@ const settings = warmSettings(options);
   title={archiveTitle}
   options={options}
   urls={urls}
-  user={user}
-  isLoggedIn={isLoggedIn}
   pages={pages}
   sidebarData={sidebarData}
   currentPath={currentPath}

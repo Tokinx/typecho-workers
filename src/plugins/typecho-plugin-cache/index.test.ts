@@ -16,6 +16,7 @@ import {
   classifyCacheDomain,
   earlyRequestProvider,
   normalizeCacheConfig,
+  PUBLIC_HTML_HEADER,
   resetCacheProviderForTests,
   rewriteHtmlString,
   rewriteResourceUrl,
@@ -444,6 +445,25 @@ describe('typecho-plugin-cache provider', () => {
     expect(await privateResponse.text()).toContain('private toolbar');
     expect(privateNext).toHaveBeenCalledOnce();
     expect(publicNext).toHaveBeenCalledOnce();
+  });
+
+  it('stores a marked Warm response from a sensitive cookie request', async () => {
+    const kv = new MemoryKv();
+    await activate(kv);
+    const context = requestContext('https://example.com/archives/1/');
+    context.request = new Request(context.request, {
+      headers: { Cookie: '__typecho_uid=1; __typecho_authCode=token' },
+    });
+    const next = vi.fn(async () => new Response('<html>warm public</html>', {
+      headers: { 'Content-Type': 'text/html', [PUBLIC_HTML_HEADER]: '1' },
+    }));
+
+    const response = await earlyRequestProvider.handle(context, next);
+
+    expect(response.headers.get('X-Typecho-Cache')).toBe('MISS');
+    expect(response.headers.has(PUBLIC_HTML_HEADER)).toBe(false);
+    expect([...kv.store.keys()].some(key => key.includes(':p:'))).toBe(true);
+    expect(await response.text()).toContain('warm public');
   });
 
   it('treats an unapproved-comment cookie as read-only on a cold cache', async () => {

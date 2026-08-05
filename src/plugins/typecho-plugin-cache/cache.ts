@@ -7,9 +7,12 @@ import type {
   SharedDataRead,
 } from '@/lib/early-request';
 import type { PublicCacheDomain, PublicCacheInvalidation, SharedCacheDomain } from '@/lib/cache';
+import { PUBLIC_HTML_HEADER } from '@/lib/cache';
 import { env } from 'cloudflare:workers';
 import { compilePermalinkPattern, type PermalinkPatternKind } from '@/lib/permalink-pattern';
 import { loadPluginConfig } from '@/lib/plugin';
+
+export { PUBLIC_HTML_HEADER } from '@/lib/cache';
 
 export const CACHE_PLUGIN_ID = 'typecho-plugin-cache';
 export const CACHE_CONTROL_KEY = 'typecho:edge-cache:v1:control';
@@ -319,15 +322,17 @@ function withCacheHeader(
   l1Ttl?: number,
 ): Response {
   const headers = new Headers(response.headers);
+  headers.delete(PUBLIC_HTML_HEADER);
   headers.set('X-Typecho-Cache', value);
   if (l1Ttl === 0) headers.set('Cache-Control', NO_CACHE_CONTROL);
   else if (l1Ttl) headers.set('Cache-Control', `public, max-age=0, s-maxage=${l1Ttl}`);
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
-function canCacheResponse(response: Response): boolean {
+function canCacheResponse(response: Response, requirePublicHtml = false): boolean {
   if (response.status !== 200) return false;
   if (!response.headers.get('Content-Type')?.toLowerCase().includes('text/html')) return false;
+  if (requirePublicHtml && response.headers.get(PUBLIC_HTML_HEADER) !== '1') return false;
   if (response.headers.has('Set-Cookie') || response.headers.has('Content-Encoding')) return false;
   const cacheControl = response.headers.get('Cache-Control')?.toLowerCase() || '';
   if (cacheControl.includes('private') || cacheControl.includes('no-store')) return false;
@@ -336,7 +341,7 @@ function canCacheResponse(response: Response): boolean {
 }
 
 function responseHeadersForStorage(headers: Headers): Array<[string, string]> {
-  const skipped = new Set(['set-cookie', 'content-length', 'content-encoding', 'transfer-encoding', 'connection', 'x-typecho-cache']);
+  const skipped = new Set(['set-cookie', 'content-length', 'content-encoding', 'transfer-encoding', 'connection', 'x-typecho-cache', PUBLIC_HTML_HEADER.toLowerCase()]);
   return [...headers.entries()].filter(([name]) => !skipped.has(name.toLowerCase()));
 }
 
@@ -398,6 +403,7 @@ async function storeResponse(
   if (l1Ttl > 0) {
     const l1Headers = new Headers(response.headers);
     l1Headers.delete('Set-Cookie');
+    l1Headers.delete(PUBLIC_HTML_HEADER);
     l1Headers.set('Cache-Control', `public, max-age=0, s-maxage=${l1Ttl}`);
     l1Headers.delete('X-Typecho-Cache');
     const l1Response = new Response(response.clone().body, {
@@ -646,6 +652,7 @@ async function renderAndCache(
   l2Key: string,
   l2Ttl: number,
   l3Ttl: number,
+  requirePublicHtml: boolean,
 ): Promise<Response> {
   let response = await next();
   try {
@@ -653,7 +660,7 @@ async function renderAndCache(
   } catch (error) {
     console.error('[edge-cache] HTML rewrite failed:', error);
   }
-  if (!canCacheResponse(response)) return withCacheHeader(response, 'BYPASS', control.config.l1Ttl);
+  if (!canCacheResponse(response, requirePublicHtml)) return withCacheHeader(response, 'BYPASS', control.config.l1Ttl);
 
   const cacheable = response.clone();
   const write = storeResponse(d1, kv, l1Key, l2Key, cacheable, control.config.l1Ttl, l2Ttl, l3Ttl)
@@ -752,20 +759,40 @@ async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNex
   }
 
   if (policy === 'read-only') {
-    const response = await next();
-    const rewritten = await rewriteHtmlResponse(response, control.config, context.url.origin, control.options.siteUrl)
-      .catch(() => response);
-    return withCacheHeader(rewritten, 'BYPASS', control.config.l1Ttl);
+    return renderAndCache(
+      context,
+      next,
+      control,
+      d1,
+      kv,
+      l1Key,
+      l2Key,
+      l2Ttl,
+      l3Ttl,
+      true,
+    );
   }
 
-  const existing = inFlight.get(cacheId);
+  const inFlightKey = cacheId;
+  const existing = inFlight.get(inFlightKey);
   if (existing) return (await existing).clone();
-  const pending = renderAndCache(context, next, control, d1, kv, l1Key, l2Key, l2Ttl, l3Ttl);
-  inFlight.set(cacheId, pending);
+  const pending = renderAndCache(
+    context,
+    next,
+    control,
+    d1,
+    kv,
+    l1Key,
+    l2Key,
+    l2Ttl,
+    l3Ttl,
+    false,
+  );
+  inFlight.set(inFlightKey, pending);
   try {
     return (await pending).clone();
   } finally {
-    if (inFlight.get(cacheId) === pending) inFlight.delete(cacheId);
+    if (inFlight.get(inFlightKey) === pending) inFlight.delete(inFlightKey);
   }
 }
 

@@ -60,6 +60,7 @@ describe('page data comment moderation state', () => {
       id: 'typecho-theme-warm',
       name: 'Warm',
       commentsMode: 'api',
+      publicHtml: true,
     }, '/themes/typecho-theme-warm/style.css');
   });
 
@@ -158,5 +159,38 @@ describe('page data comment moderation state', () => {
     expect(result.comments).toEqual([]);
     expect(result.commentPagination.totalComments).toBe(2);
     expect(loadCommentPageSpy).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 for private, draft, and future Warm details', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const rows = await testDb.insert(schema.contents).values([
+      { title: 'Private', slug: 'private', type: 'post', status: 'private', created: now - 10 },
+      { title: 'Draft', slug: 'draft', type: 'post_draft', status: 'draft', created: now - 10 },
+      { title: 'Future', slug: 'future', type: 'post', status: 'publish', created: now + 3600 },
+      { title: 'Public', slug: 'public', type: 'post', status: 'publish', created: now - 10 },
+    ]).returning();
+
+    for (const row of rows.slice(0, 3)) {
+      const result = await preparePostData(
+        buildContext('typecho-theme-warm') as any,
+        row.cid,
+        `https://example.com/archives/${row.cid}/`,
+        null,
+        row,
+        null,
+      );
+      expect(result).toBeInstanceOf(Response);
+      expect((result as Response).status).toBe(404);
+    }
+
+    const publicResult = await preparePostData(
+      buildContext('typecho-theme-warm') as any,
+      rows[3].cid,
+      `https://example.com/archives/${rows[3].cid}/`,
+      null,
+      rows[3],
+      null,
+    );
+    expect(publicResult).not.toBeInstanceOf(Response);
   });
 });

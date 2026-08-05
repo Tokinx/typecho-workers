@@ -1,28 +1,13 @@
 ---
-import type { CommentOptions } from '@/lib/theme-props';
-import type { CommentPagination } from '@/lib/comment-page';
-import type { UserRow } from '@/lib/context';
-import type { WarmCommentInitialLoadMode } from './warm';
+import type { WarmCommentComponentLoadMode, WarmCommentInitialLoadMode } from './warm';
 
 interface Props {
   cid: number;
-  commentPagination: CommentPagination;
-  commentOptions: CommentOptions;
-  user: UserRow | null;
-  isLoggedIn: boolean;
-  password?: string;
+  componentLoadMode: WarmCommentComponentLoadMode;
   initialLoadMode: WarmCommentInitialLoadMode;
 }
 
-const {
-  cid,
-  commentPagination,
-  commentOptions,
-  user,
-  isLoggedIn,
-  password = '',
-  initialLoadMode,
-} = Astro.props;
+const { cid, componentLoadMode, initialLoadMode } = Astro.props;
 const requestedCommentPage = Astro.url.searchParams.get('commentPage');
 ---
 <section
@@ -30,69 +15,10 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
   id="comments"
   data-comments-root
   data-cid={cid}
+  data-comment-component-load={componentLoadMode}
   data-current-page={requestedCommentPage || undefined}
   data-comment-initial-load={initialLoadMode}
->
-  <div class="warm-comments__heading">
-    <h2>讨论与交流</h2>
-    <p>欢迎分享你的思考</p>
-  </div>
-
-  {commentOptions.allowComment ? (
-    <form class="warm-comment-form" method="post" action="/api/comment" data-comment-form>
-      <input type="hidden" name="cid" value={cid} />
-      <input type="hidden" name="parent" value="0" data-comment-parent />
-      <input type="hidden" name="_" value={commentOptions.securityToken} data-comment-token />
-      {password && <input type="hidden" name="password" value={password} />}
-
-      <div class="warm-replying" data-replying hidden>
-        <span>回复 <strong data-replying-author></strong></span>
-        <button type="button" data-cancel-reply>取消</button>
-      </div>
-
-      {isLoggedIn ? (
-        <p class="warm-comment-form__identity">以 <strong>{user?.screenName || user?.name}</strong> 的身份评论</p>
-      ) : (
-        <div class="warm-form-grid">
-          <label>
-            <span>昵称 / 姓名 <i>*</i></span>
-            <input name="author" type="text" autocomplete="name" required placeholder="你的称呼" />
-          </label>
-          <label>
-            <span>电子邮箱 {commentOptions.requireMail && <i>*</i>}</span>
-            <input name="mail" type="email" autocomplete="email" required={commentOptions.requireMail} placeholder="不会公开" />
-          </label>
-          {commentOptions.showUrl && (
-            <label class="warm-form-grid__wide">
-              <span>个人网站</span>
-              <input name="url" type="url" autocomplete="url" placeholder="https://" />
-            </label>
-          )}
-        </div>
-      )}
-
-      <label class="warm-comment-form__content">
-        <span>留言内容 <i>*</i></span>
-        <textarea name="text" rows="5" required maxlength="10000" placeholder="静水流深，留下你的想法..."></textarea>
-      </label>
-      <div class="warm-comment-form__actions">
-        <span>{commentOptions.markdown ? '支持 Markdown 语法' : '良言善语'}</span>
-        <button type="submit">发送评论</button>
-      </div>
-      <p class="warm-comment-form__message" data-comment-message role="status" aria-live="polite"></p>
-    </form>
-  ) : (
-    <p class="warm-comments__closed">评论已关闭。</p>
-  )}
-
-  <div class="warm-comment-list" data-comment-list aria-live="polite">
-    <div class:list={["warm-comment-deferred", { "is-loading": initialLoadMode === 'auto-first' || initialLoadMode === 'infinite' }]} data-comment-deferred>
-      <span class="warm-comments__empty" data-comment-loading data-comment-deferred-message aria-live="polite"></span>
-      <button type="button" data-comment-load-initial hidden={initialLoadMode !== 'manual'}>加载评论</button>
-    </div>
-  </div>
-
-</section>
+></section>
 
 <script is:inline>
   (() => {
@@ -121,49 +47,101 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
       </article>`;
     };
 
+    const renderForm = (options, commenter, password, cid) => {
+      if (!options.allowComment) return '<p class="warm-comments__closed">评论已关闭。</p>';
+      const loggedIn = commenter?.loggedIn === true;
+      const identity = loggedIn
+        ? `<p class="warm-comment-form__identity">以 <strong>${escapeHtml(commenter.author || '当前用户')}</strong> 的身份评论</p>`
+        : `<div class="warm-form-grid">
+            <label>
+              <span>昵称 / 姓名 <i>*</i></span>
+              <input name="author" type="text" autocomplete="name" required value="${escapeHtml(commenter?.author)}" placeholder="你的称呼">
+            </label>
+            <label>
+              <span>电子邮箱 ${options.requireMail ? '<i>*</i>' : ''}</span>
+              <input name="mail" type="email" autocomplete="email" ${options.requireMail ? 'required' : ''} value="${escapeHtml(commenter?.mail)}" placeholder="不会公开">
+            </label>
+            ${options.showUrl ? `<label class="warm-form-grid__wide">
+              <span>个人网站 ${options.requireUrl ? '<i>*</i>' : ''}</span>
+              <input name="url" type="url" autocomplete="url" ${options.requireUrl ? 'required' : ''} value="${escapeHtml(commenter?.url)}" placeholder="https://">
+            </label>` : ''}
+          </div>
+          <label class="warm-comment-form__remember"><input name="remember" type="checkbox" value="1" checked> 记住我的信息</label>`;
+      const passwordInput = password
+        ? `<input type="hidden" name="password" value="${escapeHtml(password)}">`
+        : '';
+      return `<form class="warm-comment-form" method="post" action="/api/comment" data-comment-form>
+        <input type="hidden" name="cid" value="${escapeHtml(cid)}">
+        <input type="hidden" name="parent" value="0" data-comment-parent>
+        <input type="hidden" name="_" value="${escapeHtml(options.securityToken)}" data-comment-token>
+        ${passwordInput}
+        <div class="warm-replying" data-replying hidden><span>回复 <strong data-replying-author></strong></span><button type="button" data-cancel-reply>取消</button></div>
+        ${identity}
+        <label class="warm-comment-form__content">
+          <span>留言内容 <i>*</i></span>
+          <textarea name="text" rows="5" required maxlength="10000" placeholder="静水流深，留下你的想法..."></textarea>
+        </label>
+        <div class="warm-comment-form__actions"><span>${options.markdown ? '支持 Markdown 语法' : '良言善语'}</span><button type="submit">发送评论</button></div>
+        <p class="warm-comment-form__message" data-comment-message role="status" aria-live="polite"></p>
+      </form>`;
+    };
+
+    const renderFrame = (root, data) => {
+      const password = new URL(window.location.href).searchParams.get('password') || '';
+      root.innerHTML = `<div class="warm-comments__heading"><h2>讨论与交流</h2><p>欢迎分享你的思考</p></div>
+        ${renderForm(data.options, data.commenter, password, root.dataset.cid)}
+        <div class="warm-comment-list" data-comment-list aria-live="polite">
+          <div class="warm-comment-deferred" data-comment-deferred>
+            <span class="warm-comments__empty" data-comment-loading data-comment-deferred-message aria-live="polite"></span>
+            <button type="button" data-comment-load-initial hidden>加载评论</button>
+          </div>
+        </div>`;
+    };
+
+    const renderComponentPrompt = (root, message, showButton, loadingState) => {
+      root.innerHTML = `<div class="warm-comment-deferred${loadingState ? ' is-loading' : ''}" data-comment-component-deferred>
+        <span class="warm-comments__empty" aria-live="polite">${escapeHtml(message)}</span>
+        <button type="button" data-comment-load-component${showButton ? '' : ' hidden'}>加载评论组件</button>
+      </div>`;
+    };
+
     document.querySelectorAll('[data-comments-root]').forEach(root => {
       const cid = root.dataset.cid;
-      const list = root.querySelector('[data-comment-list]');
-      const form = root.querySelector('[data-comment-form]');
-      const message = root.querySelector('[data-comment-message]');
-      const parentInput = root.querySelector('[data-comment-parent]');
-      const tokenInput = root.querySelector('[data-comment-token]');
-      const replying = root.querySelector('[data-replying]');
-      const replyingAuthor = root.querySelector('[data-replying-author]');
-      const deferred = root.querySelector('[data-comment-deferred]');
-      const deferredMessage = root.querySelector('[data-comment-deferred-message]');
-      const initialButton = root.querySelector('[data-comment-load-initial]');
+      const componentMode = root.dataset.commentComponentLoad || 'auto';
       const initialMode = root.dataset.commentInitialLoad || 'auto-first';
       const parsedPage = Number(root.dataset.currentPage);
-      // A forward-only stream must begin at page one. Explicit legacy page
-      // links keep their requested position, while successful submissions use
-      // the Typecho default page so the new comment remains visible.
       let page = Number.isSafeInteger(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+      let metadataLoaded = false;
+      let metadataRequest = null;
       let commentsLoaded = false;
       let loading = false;
       let automaticLoads = 0;
       let automaticPaused = false;
       let activePagination = null;
-      let initialObserver = null;
       let paginationObserver = null;
       let dwellTimer = null;
-      let dwellVisible = false;
-
-      const autoLimit = initialMode === 'dwell-auto-2' ? 2 : initialMode === 'infinite' ? Infinity : 0;
+      let componentObserver = null;
+      let componentVisible = false;
+      const autoLimit = initialMode === 'auto-2' ? 2 : initialMode === 'infinite' ? Infinity : 0;
 
       const setDeferredPrompt = (text, showButton, loadingState) => {
+        const deferred = root.querySelector('[data-comment-deferred]');
         if (!deferred) return;
         deferred.hidden = false;
         deferred.classList.toggle('is-loading', loadingState);
+        const deferredMessage = deferred.querySelector('[data-comment-deferred-message]');
+        const initialButton = deferred.querySelector('[data-comment-load-initial]');
         if (deferredMessage) deferredMessage.textContent = text;
         if (initialButton) initialButton.hidden = !showButton;
       };
 
       const stopInitialLoader = () => {
+        componentObserver?.disconnect();
+        componentObserver = null;
         if (dwellTimer) window.clearTimeout(dwellTimer);
         dwellTimer = null;
-        initialObserver?.disconnect();
-        initialObserver = null;
+        paginationObserver?.disconnect();
+        paginationObserver = null;
       };
 
       const canAutomaticallyLoad = () => (
@@ -183,21 +161,16 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
       const syncPaginationControls = () => {
         const button = root.querySelector('[data-comment-load-more]');
         if (!button) return;
-        const hasNext = button.hasAttribute('data-comment-next-page');
-        button.disabled = loading || !hasNext;
-        if (button.disabled) {
-          button.setAttribute('aria-disabled', 'true');
-        } else {
-          button.removeAttribute('aria-disabled');
-        }
+        button.disabled = loading || !button.hasAttribute('data-comment-next-page');
+        if (button.disabled) button.setAttribute('aria-disabled', 'true');
+        else button.removeAttribute('aria-disabled');
       };
 
       const setupPaginationObserver = () => {
         paginationObserver?.disconnect();
         paginationObserver = null;
         syncPaginationControls();
-        const nav = root.querySelector('[data-comment-pagination]');
-        const sentinel = nav?.querySelector('[data-comment-load-sentinel]');
+        const sentinel = root.querySelector('[data-comment-load-sentinel]');
         if (!canAutomaticallyLoad() || !sentinel || !('IntersectionObserver' in window)) return;
         paginationObserver = new IntersectionObserver(entries => {
           if (!entries.some(entry => entry.isIntersecting)) return;
@@ -224,11 +197,12 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
           nav.innerHTML = '<button type="button" data-comment-load-more data-comment-load-status disabled aria-disabled="true" aria-live="polite">已加载全部内容</button>';
           return;
         }
-        nav.innerHTML = `<button type="button" data-comment-load-more data-comment-load-status data-comment-next-page="${pagination.currentPage + 1}">加载更多评论</button><span class="warm-comment-pagination__sentinel" data-comment-load-sentinel aria-hidden="true"></span>`;
+        nav.innerHTML = '<button type="button" data-comment-load-more data-comment-load-status data-comment-next-page="' + (pagination.currentPage + 1) + '">加载更多评论</button><span class="warm-comment-pagination__sentinel" data-comment-load-sentinel aria-hidden="true"></span>';
         setupPaginationObserver();
       };
 
       const loadComments = async (requestedPage, append = false, automatic = false) => {
+        const list = root.querySelector('[data-comment-list]');
         if (!list || loading) return false;
         stopInitialLoader();
         paginationObserver?.disconnect();
@@ -242,8 +216,7 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
           const params = new URLSearchParams({ cid });
           if (requestedPage !== null) params.set('commentPage', String(requestedPage));
           const response = await fetch(`/api/comments?${params}`, {
-            credentials: 'same-origin',
-            headers: { Accept: 'application/json' },
+            credentials: 'same-origin', headers: { Accept: 'application/json' },
           });
           const data = await response.json();
           if (!response.ok) throw new Error(data.error || '评论加载失败');
@@ -256,6 +229,7 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
           } else {
             list.innerHTML = renderedComments;
           }
+          const tokenInput = root.querySelector('[data-comment-token]');
           if (tokenInput) tokenInput.value = data.options.securityToken || '';
           commentsLoaded = true;
           activePagination = data.pagination;
@@ -264,11 +238,11 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
           renderPagination(activePagination);
           return true;
         } catch (error) {
+          const message = root.querySelector('[data-comment-message]');
           if (message) message.textContent = error instanceof Error ? error.message : '评论加载失败';
           if (automatic) automaticPaused = true;
-          if (!commentsLoaded) {
-            setDeferredPrompt('评论加载失败，点击重试。', true, false);
-          } else {
+          if (!commentsLoaded) setDeferredPrompt('评论加载失败，点击重试。', true, false);
+          else {
             renderPagination(activePagination);
             setPaginationStatus('加载失败，请重试。');
           }
@@ -280,11 +254,34 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
         }
       };
 
+      const loadMetadata = () => {
+        if (metadataLoaded) return Promise.resolve();
+        if (metadataRequest) return metadataRequest;
+        metadataRequest = (async () => {
+          const params = new URLSearchParams({ cid, includeComments: '0' });
+          if (root.dataset.currentPage) params.set('commentPage', root.dataset.currentPage);
+          const response = await fetch(`/api/comments?${params}`, {
+            credentials: 'same-origin', headers: { Accept: 'application/json' },
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || '评论配置加载失败');
+          renderFrame(root, data);
+          metadataLoaded = true;
+        })().finally(() => {
+          metadataRequest = null;
+        });
+        return metadataRequest;
+      };
+
       root.addEventListener('click', event => {
         const target = event.target instanceof Element
-          ? event.target.closest('[data-reply-to], [data-cancel-reply], [data-comment-load-initial], [data-comment-load-more]')
+          ? event.target.closest('[data-comment-load-component], [data-reply-to], [data-cancel-reply], [data-comment-load-initial], [data-comment-load-more]')
           : null;
         if (!target) return;
+        if (target.hasAttribute('data-comment-load-component')) {
+          void bootstrap();
+          return;
+        }
         if (target.hasAttribute('data-comment-load-initial')) {
           loadComments(page);
           return;
@@ -294,6 +291,10 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
           loadComments(Number(target.getAttribute('data-comment-next-page') || 1), true);
           return;
         }
+        const form = root.querySelector('[data-comment-form]');
+        const parentInput = form?.querySelector('[data-comment-parent]');
+        const replying = form?.querySelector('[data-replying]');
+        const replyingAuthor = form?.querySelector('[data-replying-author]');
         if (!parentInput || !replying || !replyingAuthor) return;
         if (target.hasAttribute('data-cancel-reply')) {
           parentInput.value = '0';
@@ -303,12 +304,17 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
         parentInput.value = target.getAttribute('data-reply-to') || '0';
         replyingAuthor.textContent = target.getAttribute('data-reply-author') || '';
         replying.hidden = false;
-        form?.querySelector('textarea')?.focus();
+        form.querySelector('textarea')?.focus();
       });
 
-      form?.addEventListener('submit', async event => {
+      root.addEventListener('submit', async event => {
+        const form = event.target instanceof HTMLFormElement && event.target.matches('[data-comment-form]')
+          ? event.target
+          : null;
+        if (!form) return;
         event.preventDefault();
         const submit = form.querySelector('button[type="submit"]');
+        const message = form.querySelector('[data-comment-message]');
         if (submit) submit.disabled = true;
         if (message) message.textContent = '正在发送...';
         try {
@@ -320,6 +326,8 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
           if (!response.ok) throw new Error(data.error || '评论发送失败');
           const textarea = form.querySelector('textarea');
           if (textarea) textarea.value = '';
+          const parentInput = form.querySelector('[data-comment-parent]');
+          const replying = form.querySelector('[data-replying]');
           if (parentInput) parentInput.value = '0';
           if (replying) replying.hidden = true;
           if (message) message.textContent = data.status === 'approved' ? '评论已发布。' : '评论已提交，等待审核。';
@@ -332,31 +340,62 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
         }
       });
 
-      if (initialMode === 'manual') {
-        setDeferredPrompt('', true, false);
-      } else if ((initialMode === 'dwell' || initialMode === 'dwell-auto-2') && 'IntersectionObserver' in window) {
-        setDeferredPrompt('', false, false);
-        initialObserver = new IntersectionObserver(entries => {
-          dwellVisible = entries.some(entry => entry.isIntersecting);
-          if (!dwellVisible) {
-            if (dwellTimer) window.clearTimeout(dwellTimer);
-            dwellTimer = null;
-            setDeferredPrompt('', false, false);
-            return;
-          }
-          if (dwellTimer || commentsLoaded || loading) return;
-          setDeferredPrompt('', false, true);
+      const bootstrap = async () => {
+        stopInitialLoader();
+        try {
+          await loadMetadata();
+        } catch (error) {
+          renderComponentPrompt(root, error instanceof Error ? error.message : '评论配置加载失败', true, false);
+          return;
+        }
+
+        const deferred = root.querySelector('[data-comment-deferred]');
+        const initialButton = root.querySelector('[data-comment-load-initial]');
+        if (initialMode === 'manual') {
+          setDeferredPrompt('', true, false);
+        } else if (initialMode === 'auto-first') {
+          loadComments(1);
+        } else {
+          loadComments(page);
+        }
+        if (initialButton) initialButton.hidden = initialMode !== 'manual';
+      };
+
+      const startComponentLoader = () => {
+        if (componentMode === 'auto') {
+          void bootstrap();
+          return;
+        }
+        renderComponentPrompt(root, '', componentMode === 'manual', false);
+        if (componentMode === 'manual') return;
+        const deferred = root.querySelector('[data-comment-component-deferred]');
+        if (!deferred || !('IntersectionObserver' in window)) {
           dwellTimer = window.setTimeout(() => {
             dwellTimer = null;
-            if (dwellVisible) loadComments(page);
+            void bootstrap();
+          }, 3_000);
+          return;
+        }
+        componentObserver = new IntersectionObserver(entries => {
+          componentVisible = entries.some(entry => entry.isIntersecting);
+          if (!componentVisible) {
+            if (dwellTimer) window.clearTimeout(dwellTimer);
+            dwellTimer = null;
+            deferred.classList.remove('is-loading');
+            return;
+          }
+          if (dwellTimer || metadataLoaded || metadataRequest) return;
+          deferred.classList.add('is-loading');
+          dwellTimer = window.setTimeout(() => {
+            dwellTimer = null;
+            if (componentVisible) void bootstrap();
           }, 3_000);
         }, { threshold: 0.15 });
-        initialObserver.observe(deferred || root);
-      } else if (initialMode === 'auto-first') {
-        loadComments(1);
-      } else {
-        loadComments(page);
-      }
+        componentObserver.observe(deferred);
+      };
+
+      startComponentLoader();
+      window.addEventListener('instantclick:newpage', stopInitialLoader, { once: true });
     });
   })();
 </script>

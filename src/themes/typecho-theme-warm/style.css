@@ -437,6 +437,7 @@ body.warm-theme {
 }
 
 .warm-pagination--progressive a[data-warm-load-more],
+.warm-comment-deferred button[data-comment-load-component],
 .warm-comment-deferred button[data-comment-load-initial],
 .warm-comment-pagination button[data-comment-load-more] {
   display: inline-flex;
@@ -456,6 +457,7 @@ body.warm-theme {
 }
 
 .warm-pagination--progressive a[data-warm-load-more]:hover,
+.warm-comment-deferred button[data-comment-load-component]:hover,
 .warm-comment-deferred button[data-comment-load-initial]:hover,
 .warm-comment-pagination button[data-comment-load-more]:hover {
   border-color: var(--warm-accent);
@@ -463,6 +465,7 @@ body.warm-theme {
 }
 
 .warm-pagination--progressive a[data-warm-load-more][hidden],
+.warm-comment-deferred button[data-comment-load-component][hidden],
 .warm-comment-deferred button[data-comment-load-initial][hidden],
 .warm-comment-pagination button[data-comment-load-more][hidden] {
   display: none !important;
@@ -761,6 +764,22 @@ body.warm-theme {
 
 .warm-comment-form__identity {
   margin: 0 0 10px;
+}
+
+.warm-comment-form__remember {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 12px;
+  color: var(--warm-muted);
+  font-size: 12px;
+}
+
+.warm-comment-form__remember input[type="checkbox"] {
+  width: 14px;
+  min-height: 14px;
+  margin: 0;
+  accent-color: var(--warm-accent);
 }
 
 .warm-comment-form button,

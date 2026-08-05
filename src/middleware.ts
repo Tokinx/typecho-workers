@@ -14,6 +14,7 @@ import { eq, and } from 'drizzle-orm';
 import { env } from 'cloudflare:workers';
 import { publishedPostCondition } from '@/lib/content-visibility';
 import { runEarlyRequestProviders, syncEarlyRequestProviders } from '@/lib/early-request';
+import { PUBLIC_HTML_HEADER } from '@/lib/cache';
 
 // Plugin loader registration (generated at build time by plugin-loader.ts).
 // Statically imported so the lazy plugin loader table exists before the first
@@ -316,14 +317,24 @@ const coreMiddleware = defineMiddleware(async (context, next) => {
   return response;
 });
 
-export const onRequest = defineMiddleware((context, next) => runEarlyRequestProviders({
-  request: context.request,
-  url: context.url,
-  env: env as unknown as Record<string, unknown>,
-  waitUntil: context.locals.cfContext
-    ? promise => context.locals.cfContext!.waitUntil(promise)
-    : undefined,
-}, () => coreMiddleware(context, next) as Promise<Response>));
+export const onRequest = defineMiddleware(async (context, next) => {
+  const response = await runEarlyRequestProviders({
+    request: context.request,
+    url: context.url,
+    env: env as unknown as Record<string, unknown>,
+    waitUntil: context.locals.cfContext
+      ? promise => context.locals.cfContext!.waitUntil(promise)
+      : undefined,
+  }, () => coreMiddleware(context, next) as Promise<Response>);
+  if (!response.headers.has(PUBLIC_HTML_HEADER)) return response;
+  const headers = new Headers(response.headers);
+  headers.delete(PUBLIC_HTML_HEADER);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+});
 
 /**
  * Paths that plugins MUST NOT be able to claim via route:request.

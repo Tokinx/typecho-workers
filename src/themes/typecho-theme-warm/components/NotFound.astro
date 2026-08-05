@@ -3,14 +3,12 @@ import type { ThemeNotFoundProps } from '@/lib/theme-props';
 import WarmShell from './WarmShell.astro';
 
 type Props = ThemeNotFoundProps;
-const { options, urls, user, isLoggedIn, pages, sidebarData, currentPath, pluginCtx, errorTitle } = Astro.props;
+const { options, urls, pages, sidebarData, currentPath, pluginCtx, errorTitle } = Astro.props;
 ---
 <WarmShell
   title={errorTitle}
   options={options}
   urls={urls}
-  user={user}
-  isLoggedIn={isLoggedIn}
   pages={pages}
   sidebarData={sidebarData}
   currentPath={currentPath}

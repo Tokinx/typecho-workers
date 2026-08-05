@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as schema from '@/db/schema';
-import { createTestDb, disposeTestDb, type TestDatabase } from '../helpers';
+import { createTestDb, disposeTestDb, makeAuthCookie, type TestDatabase } from '../helpers';
 import { generateUnapprovedCommentToken } from '@/lib/auth';
 import { resetEarlyRequestProvidersForTests } from '@/lib/early-request';
 
@@ -79,6 +79,13 @@ function request(cid: string, headers: HeadersInit = {}) {
   return { request: req, url: new URL(req.url), locals: {} } as any;
 }
 
+function requestWithQuery(cid: string, query: string, headers: HeadersInit = {}) {
+  const req = new Request(`https://example.com/api/comments?cid=${cid}&${query}`, {
+    headers: { accept: 'application/json', ...headers },
+  });
+  return { request: req, url: new URL(req.url), locals: {} } as any;
+}
+
 describe('GET /api/comments', () => {
   beforeEach(async () => {
     resetEarlyRequestProvidersForTests();
@@ -102,6 +109,63 @@ describe('GET /api/comments', () => {
     const post = await seedPost({ created: Math.floor(Date.now() / 1000) + 3600 });
     const response = await GET(request(String(post.cid)));
     expect(response.status).toBe(404);
+  });
+
+  it('loads only comment metadata first and fills an anonymous commenter from cookies', async () => {
+    await seedOptions();
+    const post = await seedPost();
+    const response = await GET(requestWithQuery(String(post.cid), 'includeComments=0', {
+      Cookie: '__typecho_remember_author=Reader%20Name; __typecho_remember_mail=reader%40example.com; __typecho_remember_url=https%3A%2F%2Freader.example.com%2F',
+    }));
+    const body = await response.json() as any;
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(response.headers.get('vary')).toBe('Cookie');
+    expect(body.comments).toEqual([]);
+    expect(body.commenter).toEqual({
+      loggedIn: false,
+      author: 'Reader Name',
+      mail: 'reader@example.com',
+      url: 'https://reader.example.com/',
+    });
+    expect(mockLoadCommentPage).not.toHaveBeenCalled();
+  });
+
+  it('cleans invalid remembered commenter cookies without exposing them', async () => {
+    await seedOptions();
+    const post = await seedPost();
+    const response = await GET(requestWithQuery(String(post.cid), 'includeComments=0', {
+      Cookie: '__typecho_remember_author=%00bad; __typecho_remember_mail=not-an-email; __typecho_remember_url=javascript%3Aalert(1)',
+    }));
+    const body = await response.json() as any;
+    const setCookie = response.headers.get('set-cookie') || '';
+
+    expect(body.commenter).toEqual({ loggedIn: false, author: '', mail: '', url: '' });
+    expect(setCookie).toContain('__typecho_remember_author=;');
+    expect(setCookie).toContain('__typecho_remember_mail=;');
+    expect(setCookie).toContain('__typecho_remember_url=;');
+    expect(JSON.stringify(body)).not.toContain('not-an-email');
+  });
+
+  it('returns the validated logged-in identity instead of anonymous remembered data', async () => {
+    await seedOptions();
+    const post = await seedPost();
+    const [user] = await testDb.insert(schema.users).values({
+      name: 'reader', screenName: '登录读者', mail: 'login@example.com', url: 'https://login.example.com', authCode: 'auth-code',
+    }).returning();
+    const cookie = await makeAuthCookie(testDb, user.uid, 'auth-code', 'public-comments-secret');
+    const response = await GET(requestWithQuery(String(post.cid), 'includeComments=0', {
+      Cookie: `${cookie}; __typecho_remember_author=Anonymous`,
+    }));
+    const body = await response.json() as any;
+
+    expect(body.commenter).toEqual({
+      loggedIn: true,
+      author: '登录读者',
+      mail: 'login@example.com',
+      url: 'https://login.example.com',
+    });
   });
 
   it('returns sanitized public comments without email addresses', async () => {

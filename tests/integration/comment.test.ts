@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as schema from '@/db/schema';
-import { createTestDb, type TestDatabase } from '../helpers';
+import { createTestDb, makeAuthCookie, type TestDatabase } from '../helpers';
 import { generateCommentToken } from '@/lib/auth';
 
 let testDb: TestDatabase;
@@ -182,6 +182,58 @@ describe('POST /api/comment', () => {
     const body = await res.json();
     expect(body).toMatchObject({ success: true, status: 'approved' });
     expect(body.location).toMatch(/#comment-\d+$/);
+  });
+
+  it('remembers anonymous commenter fields with secure 30-day cookies', async () => {
+    await seedOptions(testDb);
+    const content = await seedContent(testDb);
+    const req = makeCommentRequest({
+      cid: String(content.cid), text: 'Remember me', author: 'Alice', mail: 'alice@example.com', url: 'https://alice.example.com', remember: '1',
+    });
+    const res = await POST({ request: req, locals: {} } as any);
+    const cookies = res.headers.get('set-cookie') || '';
+
+    expect(res.status).toBe(302);
+    expect(cookies).toContain('__typecho_remember_author=Alice;');
+    expect(cookies).toContain('__typecho_remember_mail=alice%40example.com;');
+    expect(cookies).toContain('__typecho_remember_url=https%3A%2F%2Falice.example.com%2F;');
+    expect(cookies).toContain('Max-Age=2592000');
+    expect(cookies).toContain('HttpOnly');
+    expect(cookies).toContain('Secure');
+    expect(cookies).toContain('SameSite=Lax');
+  });
+
+  it('clears anonymous commenter cookies when remembering is unchecked', async () => {
+    await seedOptions(testDb);
+    const content = await seedContent(testDb);
+    const req = makeCommentRequest({
+      cid: String(content.cid), text: 'Forget me', author: 'Alice', mail: 'alice@example.com', remember: '0',
+    });
+    const res = await POST({ request: req, locals: {} } as any);
+    const cookies = res.headers.get('set-cookie') || '';
+
+    expect(cookies).toContain('__typecho_remember_author=;');
+    expect(cookies).toContain('__typecho_remember_mail=;');
+    expect(cookies).toContain('__typecho_remember_url=;');
+    expect(cookies).toContain('Max-Age=0');
+  });
+
+  it('does not write anonymous commenter cookies for logged-in users', async () => {
+    await seedOptions(testDb);
+    const content = await seedContent(testDb);
+    const [user] = await testDb.insert(schema.users).values({
+      name: 'member', screenName: 'Member', authCode: 'member-auth',
+    }).returning();
+    const cookie = await makeAuthCookie(testDb, user.uid, 'member-auth', 'test-secret');
+    const req = makeCommentRequest(
+      { cid: String(content.cid), text: 'Logged in', author: 'Anonymous', remember: '1' },
+      { Cookie: cookie },
+    );
+    const res = await POST({ request: req, locals: {} } as any);
+    const cookies = res.headers.get('set-cookie') || '';
+
+    expect(res.status).toBe(302);
+    expect(cookies).not.toContain('__typecho_remember_');
   });
 
   it('returns a JSON error to an API client without changing HTML form errors', async () => {

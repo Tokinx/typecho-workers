@@ -142,6 +142,7 @@ export function buildCommentOptions(options: SiteOptions, securityToken: string)
   return {
     allowComment: true,
     requireMail: !!options.commentsRequireMail,
+    requireUrl: !!options.commentsRequireURL,
     showUrl: !!options.commentsShowUrl,
     showAvatar: !!options.commentsAvatar,
     avatarRating: options.commentsAvatarRating || 'G',
@@ -389,6 +390,16 @@ export interface ContentDataOptions {
   previewMode?: boolean;
 }
 
+function isPublicThemeHtml(ctx: RequestContext): boolean {
+  return getActiveTheme(String(ctx.options.theme || 'typecho-theme-minimal')).manifest.publicHtml === true;
+}
+
+function canViewPublicThemeContent(content: ContentRow, now = Math.floor(Date.now() / 1000)): boolean {
+  return (content.type === 'post' || content.type === 'page' || content.type === 'note')
+    && content.status === 'publish'
+    && (content.created || 0) <= now;
+}
+
 export async function preparePostData(
   ctx: RequestContext,
   cidNum: number,
@@ -406,7 +417,9 @@ export async function preparePostData(
 
   if (!contentRow) return new Response('Not Found', { status: 404 });
 
-  if (!dataOptions.previewMode && !canViewContent(contentRow, { isLoggedIn, uid: user?.uid })) {
+  if (!dataOptions.previewMode && (isPublicThemeHtml(ctx)
+    ? !canViewPublicThemeContent(contentRow)
+    : !canViewContent(contentRow, { isLoggedIn, uid: user?.uid }))) {
     return new Response('Not Found', { status: 404 });
   }
 
@@ -546,7 +559,9 @@ export async function preparePageData(
 
   if (!pageRow) return new Response('Not Found', { status: 404 });
 
-  if (!dataOptions.previewMode && !canViewContent(pageRow, { isLoggedIn, uid: user?.uid })) {
+  if (!dataOptions.previewMode && (isPublicThemeHtml(ctx)
+    ? !canViewPublicThemeContent(pageRow)
+    : !canViewContent(pageRow, { isLoggedIn, uid: user?.uid }))) {
     return new Response('Not Found', { status: 404 });
   }
 

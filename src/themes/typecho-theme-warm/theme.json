@@ -8,6 +8,7 @@
   "homepage": "https://github.com/Tokinx/typecho-workers/tree/master/src/themes/typecho-theme-warm",
   "license": "MIT",
   "commentsMode": "api",
+  "publicHtml": true,
   "tags": ["warm", "minimal", "notes", "single-column"],
   "config": {
     "githubUrl": {
@@ -27,25 +28,35 @@
     },
     "continuousLoadMode": {
       "type": "select",
-      "label": "连续加载",
-      "description": "控制首页、分类和笔记列表后续页的加载方式。",
+      "label": "内容列表",
+      "description": "控制首页、分类和笔记内容列表后续页的加载方式。",
       "default": "manual",
       "options": {
         "manual": "手动加载",
-        "auto-2": "自动加载 2 次",
-        "infinite": "无限自动加载"
+        "auto-2": "滚动加载 2 次",
+        "infinite": "无限滚动加载"
+      }
+    },
+    "commentComponentLoadMode": {
+      "type": "select",
+      "label": "评论组件",
+      "description": "控制评论框及其表单配置的加载方式。",
+      "default": "manual",
+      "options": {
+        "manual": "手动加载",
+        "dwell": "停留 3 秒加载",
+        "auto": "自动加载"
       }
     },
     "commentInitialLoadMode": {
       "type": "select",
-      "label": "评论列表首次加载",
-      "default": "auto-first",
+      "label": "评论列表",
+      "default": "manual",
       "options": {
-        "manual": "手动加载评论列表",
-        "auto-first": "自动加载第一页",
-        "dwell": "停留 3 秒加载",
-        "dwell-auto-2": "停留 3 秒加载（后续自动加载 2 次）",
-        "infinite": "无限自动加载"
+        "manual": "手动加载",
+        "auto-first": "加载第一页",
+        "auto-2": "滚动加载 2 次",
+        "infinite": "无限滚动加载"
       }
     }
   }

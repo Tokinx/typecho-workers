@@ -47,6 +47,8 @@ export interface ThemeManifest {
   pageTemplates?: Record<string, { name: string; component: string }>;
   /** Whether comment rows are rendered during SSR or loaded from the public API. */
   commentsMode?: 'ssr' | 'api';
+  /** Whether the theme's frontend HTML is safe to share across viewers. */
+  publicHtml?: boolean;
   /** Typecho-style appearance settings rendered on /admin/options-theme */
   config?: Record<string, PluginConfigField>;
 }
@@ -100,6 +102,7 @@ const FALLBACK_THEME: ThemeManifest = {
   stylesheet: '/themes/typecho-theme-minimal/style.css',
   license: 'GPL-2.0',
   commentsMode: 'ssr',
+  publicHtml: false,
   config: MINIMAL_THEME_CONFIG,
 };
 
@@ -296,7 +299,7 @@ function getThemeInfo(themeId: string): ThemeInfo | undefined {
 
 function normalizeThemeManifest(themeId: string, manifest: ThemeManifest): ThemeManifest {
   const commentsMode = manifest.commentsMode === 'api' ? 'api' : 'ssr';
-  if (themeId !== FALLBACK_THEME.id) return { ...manifest, id: themeId, commentsMode };
+  if (themeId !== FALLBACK_THEME.id) return { ...manifest, id: themeId, commentsMode, publicHtml: manifest.publicHtml === true };
 
   // Preserve metadata from an installed default theme, while ensuring a
   // long-running registry still receives the built-in 1.3-compatible asset
@@ -306,6 +309,7 @@ function normalizeThemeManifest(themeId: string, manifest: ThemeManifest): Theme
     ...manifest,
     id: themeId,
     commentsMode,
+    publicHtml: manifest.publicHtml === true,
     config: {
       ...MINIMAL_THEME_CONFIG,
       ...manifest.config,

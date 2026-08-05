@@ -17,6 +17,7 @@ import { eq, and, sql } from 'drizzle-orm';
 import { env } from 'cloudflare:workers';
 import { jsonError } from '@/lib/http';
 import { invalidatePublicCache } from '@/lib/cache';
+import { appendRememberedCommenterCookies } from '@/lib/commenter';
 
 export const POST: APIRoute = async ({ request, locals }) => {
   const wantsJson = request.headers.get('accept')?.includes('application/json') ?? false;
@@ -46,6 +47,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   let author = formData.get('author')?.toString()?.trim() || '';
   let mail = formData.get('mail')?.toString()?.trim() || '';
   let url = formData.get('url')?.toString()?.trim() || '';
+  const remember = ['1', 'true', 'on'].includes((formData.get('remember')?.toString() || '').toLowerCase());
 
   if (!cid || !text) {
     return commentError(wantsJson, 400, '评论内容不能为空');
@@ -315,6 +317,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
     const token = await generateUnapprovedCommentToken(options.secret as string, cid, newCoid);
     const secureFlag = shouldUseSecureCookie(request) ? '; Secure' : '';
     headers.append('Set-Cookie', `__typecho_unapproved_comment=${encodeURIComponent(token)}; Path=/; HttpOnly${secureFlag}; SameSite=Lax`);
+  }
+  if (!userId) {
+    appendRememberedCommenterCookies(headers, request, { author, mail, url }, remember);
   }
   if (wantsJson) {
     headers.set('Content-Type', 'application/json');

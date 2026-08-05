@@ -6,20 +6,17 @@ import { formatWarmDate, plainExcerpt, warmSettings } from './warm';
 
 type Props = ThemePageProps;
 const {
-  options, urls, user, isLoggedIn, pages, sidebarData, currentPath, pluginCtx,
-  page, commentPagination, commentOptions,
+  options, urls, pages, sidebarData, currentPath, pluginCtx,
+  page, commentPagination,
 } = Astro.props;
 const isAbout = page.slug.toLowerCase() === 'about' || page.title === '关于';
 const settings = warmSettings(options);
-const password = page.hasPassword && page.passwordVerified ? Astro.url.searchParams.get('password') || '' : '';
 ---
 <WarmShell
   title={page.title}
   description={plainExcerpt(page.content, 160)}
   options={options}
   urls={urls}
-  user={user}
-  isLoggedIn={isLoggedIn}
   pages={pages}
   sidebarData={sidebarData}
   currentPath={currentPath}
@@ -37,11 +34,7 @@ const password = page.hasPassword && page.passwordVerified ? Astro.url.searchPar
   {(page.allowComment || commentPagination.totalComments > 0) && (
     <WarmComments
       cid={page.cid}
-      commentPagination={commentPagination}
-      commentOptions={commentOptions}
-      user={user}
-      isLoggedIn={isLoggedIn}
-      password={password}
+      componentLoadMode={settings.commentComponentLoadMode}
       initialLoadMode={settings.commentInitialLoadMode}
     />
   )}
