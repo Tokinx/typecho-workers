@@ -12,23 +12,25 @@ interface Props {
 
 const { hasPrev, hasNext, prevUrl, nextUrl, mode, label } = Astro.props;
 ---
-{(hasPrev || hasNext) && (
-  <nav
-    class="warm-pagination warm-pagination--progressive"
-    aria-label={label}
-    data-warm-stream-pagination
-    data-warm-load-mode={mode}
-    data-warm-next-url={hasNext ? nextUrl || undefined : undefined}
-  >
-    {hasPrev && prevUrl && <a href={prevUrl} rel="prev" aria-label="上一页">←</a>}
-    {hasNext && nextUrl && (
-      <a href={nextUrl} rel="next" data-warm-load-more data-no-instant>
-        加载更多
-      </a>
-    )}
-    {hasNext && <span class="warm-pagination__sentinel" data-warm-load-sentinel aria-hidden="true"></span>}
-  </nav>
-)}
+<nav
+  class="warm-pagination warm-pagination--progressive"
+  aria-label={label}
+  data-warm-stream-pagination
+  data-warm-load-mode={mode}
+  data-warm-next-url={hasNext ? nextUrl || undefined : undefined}
+>
+  {hasPrev && prevUrl && <a href={prevUrl} rel="prev" aria-label="上一页">←</a>}
+  {hasNext && nextUrl ? (
+    <a href={nextUrl} rel="next" data-warm-load-more data-no-instant>
+      加载更多
+    </a>
+  ) : (
+    <a data-warm-load-more data-no-instant aria-disabled="true">
+      已加载全部内容
+    </a>
+  )}
+  {hasNext && <span class="warm-pagination__sentinel" data-warm-load-sentinel aria-hidden="true"></span>}
+</nav>
 
 <script is:inline>
   (() => {
@@ -41,38 +43,77 @@ const { hasPrev, hasNext, prevUrl, nextUrl, mode, label } = Astro.props;
       const stream = pagination.parentElement?.querySelector('[data-warm-stream]');
       const link = pagination.querySelector('[data-warm-load-more]');
       const sentinel = pagination.querySelector('[data-warm-load-sentinel]');
-      const status = pagination.querySelector('[data-warm-load-more]');
       const limit = autoLimit(pagination.dataset.warmLoadMode || 'manual');
       let automaticLoads = 0;
+      let automaticPaused = false;
       let loading = false;
+      let userHasScrolled = false;
+      let automaticCooldown = false;
+      let cooldownTimer = null;
       let observer = null;
+      const initialScrollTop = window.scrollY;
 
       if (!stream || !link) return;
 
       const setStatus = message => {
-        if (status) status.textContent = message;
+        if (link) link.textContent = message;
       };
 
       const canAutomaticallyLoad = () => (
-        !!pagination.dataset.warmNextUrl && automaticLoads < limit
+        !automaticPaused
+        && !automaticCooldown
+        && !!pagination.dataset.warmNextUrl
+        && automaticLoads < limit
       );
 
       const syncControls = () => {
         const hasNext = !!pagination.dataset.warmNextUrl;
-        link.hidden = hasNext && canAutomaticallyLoad();
         if (!hasNext) {
-          link.remove();
+          link.removeAttribute('href');
+          link.removeAttribute('rel');
+          link.setAttribute('aria-disabled', 'true');
           sentinel?.remove();
           observer?.disconnect();
+          return;
         }
+        if (loading) {
+          link.setAttribute('aria-disabled', 'true');
+          return;
+        }
+        link.removeAttribute('aria-disabled');
+      };
+
+      const setupObserver = () => {
+        observer?.disconnect();
+        observer = null;
+        if (!userHasScrolled || !canAutomaticallyLoad() || !sentinel || !('IntersectionObserver' in window)) return;
+        observer = new IntersectionObserver(entries => {
+          if (entries.some(entry => entry.isIntersecting)) loadNext(true);
+        }, { rootMargin: '160px 0px' });
+        observer.observe(sentinel);
+      };
+
+      const scheduleAutomaticCooldown = () => {
+        if (cooldownTimer !== null) window.clearTimeout(cooldownTimer);
+        cooldownTimer = window.setTimeout(() => {
+          cooldownTimer = null;
+          automaticCooldown = false;
+          setupObserver();
+        }, 1_000);
       };
 
       const loadNext = async automatic => {
         const nextUrl = pagination.dataset.warmNextUrl;
         if (!nextUrl || loading || (automatic && !canAutomaticallyLoad())) return;
+        if (automatic) {
+          automaticCooldown = true;
+          observer?.disconnect();
+          observer = null;
+        }
         loading = true;
         link.setAttribute('aria-busy', 'true');
         link.setAttribute('aria-disabled', 'true');
+        syncControls();
         setStatus('正在加载...');
         try {
           const response = await fetch(nextUrl, {
@@ -93,8 +134,10 @@ const { hasPrev, hasNext, prevUrl, nextUrl, mode, label } = Astro.props;
           pagination.dataset.warmNextUrl = nextPagination?.getAttribute('data-warm-next-url') || '';
           if (pagination.dataset.warmNextUrl) link.href = pagination.dataset.warmNextUrl;
           if (automatic) automaticLoads += 1;
+          automaticPaused = false;
           setStatus(pagination.dataset.warmNextUrl ? '加载更多' : '已加载全部内容');
         } catch (error) {
+          automaticPaused = true;
           setStatus('加载失败，请重试。');
           console.error('[warm] failed to load the next stream page:', error);
         } finally {
@@ -102,6 +145,7 @@ const { hasPrev, hasNext, prevUrl, nextUrl, mode, label } = Astro.props;
           link.removeAttribute('aria-busy');
           link.removeAttribute('aria-disabled');
           syncControls();
+          if (automatic) scheduleAutomaticCooldown();
         }
       };
 
@@ -110,11 +154,24 @@ const { hasPrev, hasNext, prevUrl, nextUrl, mode, label } = Astro.props;
         loadNext(false);
       });
 
+      const onUserScroll = () => {
+        if (window.scrollY === initialScrollTop) return;
+        userHasScrolled = true;
+        window.removeEventListener('scroll', onUserScroll);
+        setupObserver();
+      };
+
+      const cleanupStalePage = () => {
+        if (pagination.isConnected) return;
+        window.removeEventListener('scroll', onUserScroll);
+        window.removeEventListener('instantclick:newpage', cleanupStalePage);
+        observer?.disconnect();
+        if (cooldownTimer !== null) window.clearTimeout(cooldownTimer);
+      };
+
       if (limit > 0 && sentinel && 'IntersectionObserver' in window) {
-        observer = new IntersectionObserver(entries => {
-          if (entries.some(entry => entry.isIntersecting)) loadNext(true);
-        }, { rootMargin: '160px 0px' });
-        observer.observe(sentinel);
+        window.addEventListener('scroll', onUserScroll, { passive: true });
+        window.addEventListener('instantclick:newpage', cleanupStalePage);
       }
       syncControls();
     };

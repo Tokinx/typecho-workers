@@ -175,10 +175,21 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
         && activePagination.hasNext === true
       );
 
+      const setPaginationStatus = text => {
+        const button = root.querySelector('[data-comment-load-more]');
+        if (button) button.textContent = text;
+      };
+
       const syncPaginationControls = () => {
-        const nav = root.querySelector('[data-comment-pagination]');
-        const button = nav?.querySelector('[data-comment-load-more]');
-        if (button) button.hidden = canAutomaticallyLoad();
+        const button = root.querySelector('[data-comment-load-more]');
+        if (!button) return;
+        const hasNext = button.hasAttribute('data-comment-next-page');
+        button.disabled = loading || !hasNext;
+        if (button.disabled) {
+          button.setAttribute('aria-disabled', 'true');
+        } else {
+          button.removeAttribute('aria-disabled');
+        }
       };
 
       const setupPaginationObserver = () => {
@@ -199,12 +210,6 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
       const renderPagination = pagination => {
         let nav = root.querySelector('[data-comment-pagination]');
         const hasNext = pagination.hasNext === true;
-        if (!hasNext) {
-          nav?.remove();
-          paginationObserver?.disconnect();
-          paginationObserver = null;
-          return;
-        }
         if (!nav) {
           nav = document.createElement('nav');
           nav.className = 'warm-comment-pagination';
@@ -213,7 +218,13 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
           nav.setAttribute('data-no-instant', '');
           root.appendChild(nav);
         }
-        nav.innerHTML = `<button type="button" data-comment-load-more data-comment-next-page="${pagination.currentPage + 1}">加载更多评论</button><span class="warm-comment-pagination__status" data-comment-load-status role="status" aria-live="polite"></span><span class="warm-comment-pagination__sentinel" data-comment-load-sentinel aria-hidden="true"></span>`;
+        if (!hasNext) {
+          paginationObserver?.disconnect();
+          paginationObserver = null;
+          nav.innerHTML = '<button type="button" data-comment-load-more data-comment-load-status disabled aria-disabled="true" aria-live="polite">已加载全部内容</button>';
+          return;
+        }
+        nav.innerHTML = `<button type="button" data-comment-load-more data-comment-load-status data-comment-next-page="${pagination.currentPage + 1}">加载更多评论</button><span class="warm-comment-pagination__sentinel" data-comment-load-sentinel aria-hidden="true"></span>`;
         setupPaginationObserver();
       };
 
@@ -224,6 +235,8 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
         paginationObserver = null;
         loading = true;
         list.setAttribute('aria-busy', 'true');
+        setPaginationStatus('正在加载...');
+        syncPaginationControls();
         setDeferredPrompt('', false, true);
         try {
           const params = new URLSearchParams({ cid });
@@ -257,11 +270,13 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
             setDeferredPrompt('评论加载失败，点击重试。', true, false);
           } else {
             renderPagination(activePagination);
+            setPaginationStatus('加载失败，请重试。');
           }
           return false;
         } finally {
           loading = false;
           list.removeAttribute('aria-busy');
+          syncPaginationControls();
         }
       };
 
@@ -275,6 +290,7 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
           return;
         }
         if (target.hasAttribute('data-comment-load-more')) {
+          if (target.hasAttribute('disabled') || target.getAttribute('aria-disabled') === 'true') return;
           loadComments(Number(target.getAttribute('data-comment-next-page') || 1), true);
           return;
         }
