@@ -50,7 +50,7 @@ export const GET: APIRoute = async ({ locals, params }) => {
     .limit(feedLimit);
 
   // Fetch authors and categories in one D1 round trip.
-  const authorIds = [...new Set(posts.map((p) => p.authorId).filter((id): id is number => id !== null && id !== undefined))];
+  const authorIds = [...new Set(posts.map((p) => p.authorId).filter((id): id is number => id !== null && id !== undefined && id > 0))];
   const postIds = posts.map((p) => p.cid);
   const [authors, catData] = postIds.length > 0
     ? await db.batch([

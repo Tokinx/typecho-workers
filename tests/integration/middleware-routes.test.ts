@@ -306,7 +306,7 @@ describe('Middleware: no redirect loops when DB is ready', () => {
       rewrite: (path: string) => new Response(null, { status: 302, headers: { Location: path } }),
     } as any);
     const next = vi.fn(async () => new Response('<html>cached before D1</html>', {
-      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      headers: { 'Content-Type': 'text/html; charset=utf-8', 'X-Typecho-Public-HTML': '1' },
     }));
     expect((await onRequest(makeContext(), next) as Response).headers.get('X-Typecho-Cache')).toBe('MISS');
 
