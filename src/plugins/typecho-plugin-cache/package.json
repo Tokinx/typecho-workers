@@ -42,7 +42,7 @@
         },
         "l2Ttl": {
           "type": "select",
-          "label": "L2 KV 缓存",
+          "label": "L2 Workers KV 缓存",
           "default": "259200",
           "options": { "0": "不缓存", "86400": "1 天", "259200": "3 天", "604800": "7 天" }
         },
@@ -54,17 +54,17 @@
         },
         "frontendDataCacheBackend": {
           "type": "select",
-          "label": "前台数据缓存后端",
-          "description": "用于站点选项、导航、侧栏、元数据、评论、笔记、公开归档和内容。登录用户的前台权限裁剪结果也会写入所选后端。",
+          "label": "前台数据缓存",
+          "description": "站点选项、导航、侧栏、元数据、评论、笔记、公开归档和内容。",
           "default": "kv",
-          "options": { "kv": "Cloudflare KV", "d1": "D1 KV" }
+          "options": { "kv": "Workers KV", "d1": "D1 KV", "none": "不缓存" }
         },
         "adminDataCacheBackend": {
           "type": "select",
-          "label": "后台数据缓存后端",
-          "description": "用于仪表盘及后台的内容、评论、分类标签、媒体、用户和只读选项列表。登录用户结果会按已验证身份隔离后写入所选后端。",
+          "label": "后台数据缓存",
+          "description": "仪表盘及后台的内容、评论、分类标签、媒体、用户和只读选项列表。",
           "default": "kv",
-          "options": { "kv": "Cloudflare KV", "d1": "D1 KV" }
+          "options": { "kv": "Workers KV", "d1": "D1 KV", "none": "不缓存" }
         },
         "bypassCookieNames": {
           "type": "textarea",

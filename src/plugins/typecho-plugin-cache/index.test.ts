@@ -708,6 +708,8 @@ describe('typecho-plugin-cache provider', () => {
     expect(settings.adminDataCacheBackend).toBe('kv');
     expect(normalizeCacheConfig({}).frontendDataCacheBackend).toBe('kv');
     expect(normalizeCacheConfig({}).adminDataCacheBackend).toBe('kv');
+    expect(normalizeCacheConfig({ frontendDataCacheBackend: 'none' }).frontendDataCacheBackend).toBe('none');
+    expect(normalizeCacheConfig({ adminDataCacheBackend: 'none' }).adminDataCacheBackend).toBe('none');
 
     const legacy = normalizeCacheConfig({
       dataCacheBackends: [{ domain: 'admin-dashboard', backend: 'd1' }],
@@ -722,6 +724,28 @@ describe('typecho-plugin-cache provider', () => {
     ] })).toThrow('缓存域无效');
     expect(() => normalizeCacheConfig({ frontendDataCacheBackend: 'unknown' }))
       .toThrow('前台数据缓存后端无效');
+  });
+
+  it('keeps the L0 snapshot when a data group is configured as uncached', async () => {
+    const kv = new MemoryKv();
+    await activate(kv, { ...defaultSettings, adminDataCacheBackend: 'none' });
+    registerEarlyRequestLoaders({ [CACHE_PLUGIN_ID]: async () => earlyRequestProvider });
+    const context = {
+      db: {},
+      isLoggedIn: true,
+      user: { uid: 11, group: 'administrator', authCode: 'none-backend' },
+    } as any;
+    const firstLoader = vi.fn(async () => ({ value: 'l0' }));
+    expect(await loadQueryCache(context, {
+      domain: 'admin-dashboard', scope: 'viewer', key: { view: 'dashboard' },
+    }, firstLoader)).toEqual({ value: 'l0' });
+    const secondLoader = vi.fn(async () => ({ value: 'unexpected' }));
+    expect(await loadQueryCache(context, {
+      domain: 'admin-dashboard', scope: 'viewer', key: { view: 'dashboard' },
+    }, secondLoader)).toEqual({ value: 'l0' });
+    expect(firstLoader).toHaveBeenCalledOnce();
+    expect(secondLoader).not.toHaveBeenCalled();
+    expect([...kv.store.keys()].some(key => key.includes(':s:admin-dashboard:'))).toBe(false);
   });
 
   it('advances only the requested shared-data generation', async () => {

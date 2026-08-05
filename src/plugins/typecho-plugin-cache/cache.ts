@@ -82,7 +82,7 @@ export interface CachePluginConfig {
   avatarCdnUrl: string;
 }
 
-export type DataCacheBackend = 'kv' | 'd1';
+export type DataCacheBackend = 'kv' | 'd1' | 'none';
 export interface DataCacheBackendSetting {
   domain: SharedCacheDomain;
   backend: DataCacheBackend;
@@ -164,7 +164,7 @@ function normalizeCookieNames(value: unknown): string[] {
 
 function normalizeDataCacheBackend(value: unknown, label: string): DataCacheBackend {
   if (value === undefined || value === null || value === '') return 'kv';
-  if (value === 'kv' || value === 'd1') return value;
+  if (value === 'kv' || value === 'd1' || value === 'none') return value;
   throw new Error(`${label}无效`);
 }
 
@@ -179,7 +179,7 @@ function normalizeLegacyDataCacheBackends(value: unknown): DataCacheBackendSetti
     const domain = String((raw as Record<string, unknown>).domain || '') as SharedCacheDomain;
     const backend = String((raw as Record<string, unknown>).backend || '') as DataCacheBackend;
     if (!DATA_CACHE_DOMAINS.includes(domain)) throw new Error('数据缓存域无效');
-    if (backend !== 'kv' && backend !== 'd1') throw new Error('数据缓存后端无效');
+    if (backend !== 'kv' && backend !== 'd1' && backend !== 'none') throw new Error('数据缓存后端无效');
     if (seen.has(domain)) throw new Error('数据缓存域不能重复');
     seen.add(domain);
     settings.push({ domain, backend });
@@ -403,6 +403,7 @@ async function readSharedData<T>(domain: SharedCacheDomain, key: string): Promis
   const config = await dataCacheConfig();
   if (!config) return { handled: false, value: null };
   const backend = dataCacheBackend(config, domain);
+  if (backend === 'none') return { handled: true, value: null };
   const keyHash = await sha256(key);
   if (backend === 'd1') {
     const d1 = runtimeD1();
@@ -431,6 +432,7 @@ async function writeSharedData<T>(domain: SharedCacheDomain, key: string, value:
   const config = await dataCacheConfig();
   if (!config) return false;
   const backend = dataCacheBackend(config, domain);
+  if (backend === 'none') return false;
   const keyHash = await sha256(key);
   let serialized: string;
   try {
