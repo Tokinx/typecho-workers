@@ -36,21 +36,15 @@
         },
         "l1Ttl": {
           "type": "select",
-          "label": "L1 缓存时间",
+          "label": "L1 边缘节点缓存",
           "default": "86400",
-          "options": { "86400": "1 天", "259200": "3 天", "604800": "7 天" }
+          "options": { "0": "不缓存", "3600": "1 小时", "43200": "12 小时", "86400": "1 天", "259200": "3 天", "604800": "7 天", "2592000": "30 天" }
         },
-        "listTtl": {
+        "l2Ttl": {
           "type": "select",
-          "label": "列表 L2 缓存时间",
-          "default": "86400",
-          "options": { "86400": "1 天", "259200": "3 天", "604800": "7 天" }
-        },
-        "detailTtl": {
-          "type": "select",
-          "label": "详情 L2 缓存时间",
+          "label": "L2 KV 缓存",
           "default": "604800",
-          "options": { "86400": "1 天", "259200": "3 天", "604800": "7 天" }
+          "options": { "0": "不缓存", "86400": "1 天", "259200": "3 天", "604800": "7 天" }
         },
         "bypassCookieNames": {
           "type": "textarea",
@@ -60,21 +54,21 @@
         },
         "staticCdnUrl": {
           "type": "text",
-          "label": "静态文件 CDN URL",
+          "label": "静态文件 CDN",
           "default": "",
-          "description": "例如 https://cdn.example.com，可包含固定路径前缀"
+          "description": "用于加速页面静态文件"
         },
         "staticExtensions": {
           "type": "text",
-          "label": "静态文件扩展名",
+          "label": "静态文件支持格式",
           "default": "jpg,jpeg,png,gif,webp,avif,svg,ico,css,js,mjs,woff,woff2,ttf,mp3,mp4,zip,rar,7z,pdf",
           "description": "使用英文逗号分隔"
         },
         "avatarCdnUrl": {
           "type": "text",
-          "label": "Avatar CDN URL",
+          "label": "Gravatar CDN",
           "default": "",
-          "description": "替换 Gravatar /avatar/ 地址"
+          "description": "用于加速 Gravatar 头像服务"
         }
       }
     }

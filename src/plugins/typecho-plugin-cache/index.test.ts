@@ -23,6 +23,7 @@ import {
 
 class MemoryKv implements KVNamespace {
   store = new Map<string, string>();
+  getKeys: string[] = [];
   putOptions = new Map<string, KVNamespacePutOptions | undefined>();
   failGet = false;
   put = vi.fn(async (
@@ -38,6 +39,7 @@ class MemoryKv implements KVNamespace {
   });
 
   async get<T = unknown>(key: string, options?: KVNamespaceGetOptions<any>): Promise<T | string | ArrayBuffer | null> {
+    this.getKeys.push(key);
     if (this.failGet) throw new Error('KV unavailable');
     const value = this.store.get(key);
     if (value === undefined) return null;
@@ -50,8 +52,7 @@ class MemoryKv implements KVNamespace {
 const defaultSettings = {
   cacheScopes: ['home', 'post', 'page', 'note', 'archive', 'other'],
   l1Ttl: '86400',
-  listTtl: '86400',
-  detailTtl: '604800',
+  l2Ttl: '604800',
   bypassCookieNames: '',
   staticCdnUrl: '',
   staticExtensions: 'jpg,png,css,js,zip',
@@ -124,6 +125,60 @@ describe('typecho-plugin-cache provider', () => {
     const refilled = await earlyRequestProvider.handle(requestContext('https://example.com/archives/1/'), next);
     expect(refilled.headers.get('X-Typecho-Cache')).toBe('L1');
     expect(refilled.headers.get('Cache-Control')).toContain('s-maxage=259200');
+  });
+
+  it('disables L1 reads and writes while keeping L2 available', async () => {
+    const kv = new MemoryKv();
+    await activate(kv, { ...defaultSettings, l1Ttl: '0', l2Ttl: '86400' });
+    const next = vi.fn(async () => new Response('<html>from d1</html>', {
+      headers: { 'Content-Type': 'text/html' },
+    }));
+
+    const first = await earlyRequestProvider.handle(requestContext('https://example.com/archives/2/'), next);
+    const second = await earlyRequestProvider.handle(requestContext('https://example.com/archives/2/'), next);
+
+    expect(first.headers.get('X-Typecho-Cache')).toBe('MISS');
+    expect(first.headers.get('Cache-Control')).toBe('no-store, no-cache, must-revalidate');
+    expect(second.headers.get('X-Typecho-Cache')).toBe('L2');
+    expect(second.headers.get('Cache-Control')).toBe('no-store, no-cache, must-revalidate');
+    expect(next).toHaveBeenCalledOnce();
+    expect([...kv.store.keys()].some(key => key.includes(':p:'))).toBe(true);
+  });
+
+  it('disables L2 page reads and writes while retaining L1 hits', async () => {
+    const kv = new MemoryKv();
+    await activate(kv, { ...defaultSettings, l1Ttl: '86400', l2Ttl: '0' });
+    const next = vi.fn(async () => new Response('<html>from d1</html>', {
+      headers: { 'Content-Type': 'text/html' },
+    }));
+
+    const first = await earlyRequestProvider.handle(requestContext('https://example.com/archives/3/'), next);
+    const second = await earlyRequestProvider.handle(requestContext('https://example.com/archives/3/'), next);
+
+    expect(first.headers.get('X-Typecho-Cache')).toBe('MISS');
+    expect(second.headers.get('X-Typecho-Cache')).toBe('L1');
+    expect(next).toHaveBeenCalledOnce();
+    expect(kv.getKeys.some(key => key.includes(':p:'))).toBe(false);
+    expect([...kv.store.keys()].some(key => key.includes(':p:'))).toBe(false);
+  });
+
+  it('passes through D1 on every request when both cache layers are disabled', async () => {
+    const kv = new MemoryKv();
+    await activate(kv, { ...defaultSettings, l1Ttl: 0, l2Ttl: 0 });
+    const next = vi.fn(async () => new Response('<html>from d1</html>', {
+      headers: { 'Content-Type': 'text/html' },
+    }));
+
+    const first = await earlyRequestProvider.handle(requestContext('https://example.com/archives/4/'), next);
+    const second = await earlyRequestProvider.handle(requestContext('https://example.com/archives/4/'), next);
+
+    expect(first.headers.get('X-Typecho-Cache')).toBe('BYPASS');
+    expect(second.headers.get('X-Typecho-Cache')).toBe('BYPASS');
+    expect(first.headers.get('Cache-Control')).toBe('no-store, no-cache, must-revalidate');
+    expect(second.headers.get('Cache-Control')).toBe('no-store, no-cache, must-revalidate');
+    expect(next).toHaveBeenCalledTimes(2);
+    expect(kv.getKeys.some(key => key.includes(':p:') || key.includes(':g:'))).toBe(false);
+    expect([...kv.store.keys()].some(key => key.includes(':p:'))).toBe(false);
   });
 
   it('advances a generation so the next request renders again', async () => {
@@ -526,13 +581,22 @@ describe('cache domain classification', () => {
 });
 
 describe('CDN rewriting', () => {
-  it('defaults page-cache TTLs to one day for lists and seven days for details', () => {
-    expect(normalizeCacheConfig({})).toMatchObject({
-      l1Ttl: 86_400,
-      listTtl: 86_400,
-      detailTtl: 604_800,
+  it('normalizes the new L1 and L2 TTL options and ignores legacy fields', () => {
+    for (const value of [0, 3_600, 43_200, 86_400, 259_200, 604_800, 2_592_000]) {
+      expect(normalizeCacheConfig({ l1Ttl: value }).l1Ttl).toBe(value);
+    }
+    for (const value of [0, 86_400, 259_200, 604_800]) {
+      expect(normalizeCacheConfig({ l2Ttl: String(value) }).l2Ttl).toBe(value);
+    }
+    expect(normalizeCacheConfig({ l1Ttl: 0, l2Ttl: '0' })).toMatchObject({
+      l1Ttl: 0,
+      l2Ttl: 0,
       bypassCookieNames: [],
     });
+    const defaults = normalizeCacheConfig({ listTtl: 86_400, detailTtl: 86_400 });
+    expect(defaults).toMatchObject({ l1Ttl: 86_400, l2Ttl: 604_800 });
+    expect(defaults).not.toHaveProperty('listTtl');
+    expect(defaults).not.toHaveProperty('detailTtl');
   });
 
   it('rewrites selected same-origin assets and Gravatar while preserving other URLs', () => {
@@ -658,6 +722,16 @@ describe('plugin registration and controls', () => {
     expect(accepted).toMatchObject({ success: true });
     expect(accepted.settings.staticExtensions).toBe('jpg,png');
     expect(accepted.settings.bypassCookieNames).toBe('analytics_id,ThemePreference');
+    expect(accepted.settings.l2Ttl).toBe('604800');
+    expect(accepted.settings.listTtl).toBeUndefined();
+    expect(accepted.settings.detailTtl).toBeUndefined();
+
+    const disabled = hook({ success: true }, {
+      pluginId: 'typecho-plugin-cache',
+      settings: { ...defaultSettings, l1Ttl: 0, l2Ttl: '0' },
+    });
+    expect(disabled.settings.l1Ttl).toBe('0');
+    expect(disabled.settings.l2Ttl).toBe('0');
   });
 
   it('renders binding status and performs a scoped manual invalidation', async () => {

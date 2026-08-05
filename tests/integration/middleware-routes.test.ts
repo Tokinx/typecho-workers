@@ -167,8 +167,7 @@ describe('Middleware: no redirect loops when DB is ready', () => {
         value: JSON.stringify({
           cacheScopes: ['home', 'post', 'page', 'note', 'archive', 'other'],
           l1Ttl: '86400',
-          listTtl: '86400',
-          detailTtl: '604800',
+          l2Ttl: '604800',
           staticCdnUrl: 'https://cdn.example.com/assets',
           staticExtensions: 'jpg,jpeg,png,css,js,zip',
           avatarCdnUrl: 'https://avatar.example.com/avatar',
@@ -281,8 +280,7 @@ describe('Middleware: no redirect loops when DB is ready', () => {
       settings: {
         cacheScopes: ['other'],
         l1Ttl: '86400',
-        listTtl: '86400',
-        detailTtl: '604800',
+        l2Ttl: '604800',
         staticCdnUrl: '',
         staticExtensions: 'css,js,png',
         avatarCdnUrl: '',

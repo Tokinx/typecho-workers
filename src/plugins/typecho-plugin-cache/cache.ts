@@ -33,12 +33,14 @@ const ALL_DOMAINS: PublicCacheDomain[] = ['home', 'post', 'page', 'note', 'archi
 const DETAIL_DOMAINS = new Set<PublicCacheDomain>(['post', 'page', 'note']);
 const ALL_SHARED_DOMAINS: SharedCacheDomain[] = ['options', 'navigation', 'sidebar', 'metas', 'comments', 'notes'];
 const TRACKING_PARAMS = new Set(['fbclid', 'gclid', 'dclid', 'msclkid']);
+const NO_CACHE_CONTROL = 'no-store, no-cache, must-revalidate';
+const L1_TTL_OPTIONS = [0, 3_600, 43_200, 86_400, 259_200, 604_800, 2_592_000];
+const L2_TTL_OPTIONS = [0, 86_400, 259_200, 604_800];
 
 export interface CachePluginConfig {
   cacheScopes: PublicCacheDomain[];
   l1Ttl: number;
-  listTtl: number;
-  detailTtl: number;
+  l2Ttl: number;
   bypassCookieNames: string[];
   staticCdnUrl: string;
   staticExtensions: string[];
@@ -106,7 +108,7 @@ function normalizeCookieNames(value: unknown): string[] {
 }
 
 function ttl(value: unknown, allowed: number[], fallback: number): number {
-  const parsed = Number.parseInt(String(value || ''), 10);
+  const parsed = Number.parseInt(String(value ?? ''), 10);
   return allowed.includes(parsed) ? parsed : fallback;
 }
 
@@ -115,9 +117,8 @@ export function normalizeCacheConfig(settings: Record<string, unknown> | CachePl
   const cacheScopes = ALL_DOMAINS.filter(domain => requestedScopes.includes(domain));
   return {
     cacheScopes,
-    l1Ttl: ttl(settings.l1Ttl, [86_400, 259_200, 604_800], 86_400),
-    listTtl: ttl(settings.listTtl, [86_400, 259_200, 604_800], 86_400),
-    detailTtl: ttl(settings.detailTtl, [86_400, 259_200, 604_800], 604_800),
+    l1Ttl: ttl(settings.l1Ttl, L1_TTL_OPTIONS, 86_400),
+    l2Ttl: ttl(settings.l2Ttl, L2_TTL_OPTIONS, 604_800),
     bypassCookieNames: normalizeCookieNames(settings.bypassCookieNames),
     staticCdnUrl: normalizeUrl(settings.staticCdnUrl),
     staticExtensions: normalizeExtensions(settings.staticExtensions),
@@ -311,7 +312,8 @@ function withCacheHeader(
 ): Response {
   const headers = new Headers(response.headers);
   headers.set('X-Typecho-Cache', value);
-  if (l1Ttl) headers.set('Cache-Control', `public, max-age=0, s-maxage=${l1Ttl}`);
+  if (l1Ttl === 0) headers.set('Cache-Control', NO_CACHE_CONTROL);
+  else if (l1Ttl) headers.set('Cache-Control', `public, max-age=0, s-maxage=${l1Ttl}`);
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
@@ -338,27 +340,31 @@ async function storeResponse(
   l1Ttl: number,
   l2Ttl: number,
 ): Promise<void> {
-  const l1Headers = new Headers(response.headers);
-  l1Headers.delete('Set-Cookie');
-  l1Headers.set('Cache-Control', `public, max-age=0, s-maxage=${l1Ttl}`);
-  l1Headers.delete('X-Typecho-Cache');
-  const l1Response = new Response(response.clone().body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: l1Headers,
-  });
-
-  const body = await response.clone().text();
-  const bodyBytes = new TextEncoder().encode(body).byteLength;
-  const writes: Promise<unknown>[] = [caches.default.put(l1Key, l1Response)];
-  if (bodyBytes <= MAX_HTML_BYTES) {
-    const stored: StoredResponse = {
+  const writes: Promise<unknown>[] = [];
+  if (l1Ttl > 0) {
+    const l1Headers = new Headers(response.headers);
+    l1Headers.delete('Set-Cookie');
+    l1Headers.set('Cache-Control', `public, max-age=0, s-maxage=${l1Ttl}`);
+    l1Headers.delete('X-Typecho-Cache');
+    const l1Response = new Response(response.clone().body, {
       status: response.status,
       statusText: response.statusText,
-      headers: responseHeadersForStorage(response.headers),
-      body,
-    };
-    writes.push(kv.put(l2Key, JSON.stringify(stored), { expirationTtl: l2Ttl }));
+      headers: l1Headers,
+    });
+    writes.push(caches.default.put(l1Key, l1Response));
+  }
+  if (l2Ttl > 0) {
+    const body = await response.clone().text();
+    const bodyBytes = new TextEncoder().encode(body).byteLength;
+    if (bodyBytes <= MAX_HTML_BYTES) {
+      const stored: StoredResponse = {
+        status: response.status,
+        statusText: response.statusText,
+        headers: responseHeadersForStorage(response.headers),
+        body,
+      };
+      writes.push(kv.put(l2Key, JSON.stringify(stored), { expirationTtl: l2Ttl }));
+    }
   }
   await Promise.all(writes);
 }
@@ -541,10 +547,11 @@ async function renderWithRuntimeRewrite(
     return withCacheHeader(
       await rewriteHtmlResponse(response, control.config, context.url.origin, control.options.siteUrl),
       'BYPASS',
+      control.config.l1Ttl,
     );
   } catch (error) {
     console.error('[edge-cache] HTML rewrite failed:', error);
-    return withCacheHeader(response, 'BYPASS');
+    return withCacheHeader(response, 'BYPASS', control.config.l1Ttl);
   }
 }
 
@@ -563,7 +570,7 @@ async function renderAndCache(
   } catch (error) {
     console.error('[edge-cache] HTML rewrite failed:', error);
   }
-  if (!canCacheResponse(response)) return withCacheHeader(response, 'BYPASS');
+  if (!canCacheResponse(response)) return withCacheHeader(response, 'BYPASS', control.config.l1Ttl);
 
   const cacheable = response.clone();
   const write = storeResponse(kv, l1Key, l2Key, cacheable, control.config.l1Ttl, l2Ttl)
@@ -591,11 +598,19 @@ async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNex
   const domainEnabled = control.config.cacheScopes.includes(domain);
   const policy = requestCachePolicy(context.request, control.config);
   const bypass = policy === 'bypass' || !normalizedUrl;
+  const l2Ttl = control.config.l2Ttl;
   if (!domainEnabled || bypass) {
     const response = await next();
     const rewritten = await rewriteHtmlResponse(response, control.config, context.url.origin, control.options.siteUrl)
       .catch(() => response);
-    return withCacheHeader(rewritten, 'BYPASS');
+    return withCacheHeader(rewritten, 'BYPASS', control.config.l1Ttl);
+  }
+
+  if (control.config.l1Ttl === 0 && l2Ttl === 0) {
+    const response = await next();
+    const rewritten = await rewriteHtmlResponse(response, control.config, context.url.origin, control.options.siteUrl)
+      .catch(() => response);
+    return withCacheHeader(rewritten, 'BYPASS', 0);
   }
 
   let cacheId: string;
@@ -610,20 +625,26 @@ async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNex
     cacheId = `${domain}:${globalGeneration}:${domainGeneration}:${urlHash}`;
     l1Key = l1Request(cacheId);
     l2Key = `${PAGE_PREFIX}${cacheId}`;
-    const l1 = await caches.default.match(l1Key);
-    if (l1) return withCacheHeader(l1, 'L1', control.config.l1Ttl);
+    if (control.config.l1Ttl > 0) {
+      const l1 = await caches.default.match(l1Key);
+      if (l1) return withCacheHeader(l1, 'L1', control.config.l1Ttl);
+    }
 
-    const l2 = await kv.get<StoredResponse>(l2Key, { type: 'json', cacheTtl: 60 });
-    const l2Response = l2 ? responseFromStored(l2) : null;
-    if (l2Response) {
-      const refill = withCacheHeader(l2Response.clone(), 'L2', control.config.l1Ttl);
-      refill.headers.delete('X-Typecho-Cache');
-      const write = caches.default.put(l1Key, refill).catch(error => {
-        console.error('[edge-cache] L1 refill failed:', error);
-      });
-      if (context.waitUntil) context.waitUntil(write);
-      else await write;
-      return withCacheHeader(l2Response, 'L2', control.config.l1Ttl);
+    if (l2Ttl > 0) {
+      const l2 = await kv.get<StoredResponse>(l2Key, { type: 'json', cacheTtl: 60 });
+      const l2Response = l2 ? responseFromStored(l2) : null;
+      if (l2Response) {
+        if (control.config.l1Ttl > 0) {
+          const refill = withCacheHeader(l2Response.clone(), 'L2', control.config.l1Ttl);
+          refill.headers.delete('X-Typecho-Cache');
+          const write = caches.default.put(l1Key, refill).catch(error => {
+            console.error('[edge-cache] L1 refill failed:', error);
+          });
+          if (context.waitUntil) context.waitUntil(write);
+          else await write;
+        }
+        return withCacheHeader(l2Response, 'L2', control.config.l1Ttl);
+      }
     }
   } catch (error) {
     console.error('[edge-cache] Cache lookup failed; falling back to D1:', error);
@@ -634,12 +655,11 @@ async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNex
     const response = await next();
     const rewritten = await rewriteHtmlResponse(response, control.config, context.url.origin, control.options.siteUrl)
       .catch(() => response);
-    return withCacheHeader(rewritten, 'BYPASS');
+    return withCacheHeader(rewritten, 'BYPASS', control.config.l1Ttl);
   }
 
   const existing = inFlight.get(cacheId);
   if (existing) return (await existing).clone();
-  const l2Ttl = DETAIL_DOMAINS.has(domain) ? control.config.detailTtl : control.config.listTtl;
   const pending = renderAndCache(context, next, control, kv, l1Key, l2Key, l2Ttl);
   inFlight.set(cacheId, pending);
   try {
