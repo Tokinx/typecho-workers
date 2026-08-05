@@ -6,6 +6,7 @@ import { eq, and, desc, sql } from 'drizzle-orm';
 import { schema } from '@/db';
 import { formatDate, buildPermalink } from '@/lib/content';
 import { applyFilterSafely } from '@/lib/plugin';
+import { loadQueryCache } from '@/lib/query-cache';
 
 const ctx = await createContext(Astro.locals, Astro.request);
 // Posts management exposes other authors' content — contributor and
@@ -65,41 +66,62 @@ const categoryCondition = categoryFilter
     )`
   : undefined;
 const listWhere = categoryCondition ? and(where, categoryCondition) : where;
-const [countResult, posts, allCategories, draftCount, waitingCount] = await db.batch([
-  db.select({ count: sql<number>`count(*)` })
-    .from(schema.contents)
-    .where(listWhere),
-  db.select().from(schema.contents)
-    .where(listWhere)
-    .orderBy(desc(schema.contents.created))
-    .limit(pageSize)
-    .offset((page - 1) * pageSize),
-  db.select().from(schema.metas)
-    .where(eq(schema.metas.type, 'category'))
-    .orderBy(schema.metas.order),
-  db.select({ count: sql<number>`count(*)` }).from(schema.contents)
-    .where(and(eq(schema.contents.type, 'post_draft'), ...(!isAdmin ? [eq(schema.contents.authorId, user!.uid)] : []))),
-  db.select({ count: sql<number>`count(*)` }).from(schema.contents)
-    .where(and(eq(schema.contents.type, 'post'), eq(schema.contents.status, 'waiting'), ...(!isAdmin ? [eq(schema.contents.authorId, user!.uid)] : []))),
-]);
+const postColumns = {
+  cid: schema.contents.cid,
+  title: schema.contents.title,
+  slug: schema.contents.slug,
+  type: schema.contents.type,
+  status: schema.contents.status,
+  created: schema.contents.created,
+  commentsNum: schema.contents.commentsNum,
+  authorId: schema.contents.authorId,
+  hasPassword: sql<number>`case when coalesce(${schema.contents.password}, '') <> '' then 1 else 0 end`,
+};
+const loadPostList = async () => {
+  const [countResult, posts, allCategories, draftCount, waitingCount] = await db.batch([
+    db.select({ count: sql<number>`count(*)` })
+      .from(schema.contents)
+      .where(listWhere),
+    db.select(postColumns).from(schema.contents)
+      .where(listWhere)
+      .orderBy(desc(schema.contents.created))
+      .limit(pageSize)
+      .offset((page - 1) * pageSize),
+    db.select({ mid: schema.metas.mid, name: schema.metas.name, order: schema.metas.order }).from(schema.metas)
+      .where(eq(schema.metas.type, 'category'))
+      .orderBy(schema.metas.order),
+    db.select({ count: sql<number>`count(*)` }).from(schema.contents)
+      .where(and(eq(schema.contents.type, 'post_draft'), ...(!isAdmin ? [eq(schema.contents.authorId, user!.uid)] : []))),
+    db.select({ count: sql<number>`count(*)` }).from(schema.contents)
+      .where(and(eq(schema.contents.type, 'post'), eq(schema.contents.status, 'waiting'), ...(!isAdmin ? [eq(schema.contents.authorId, user!.uid)] : []))),
+  ]);
+  const authorIds = [...new Set(posts.map(p => p.authorId).filter(Boolean))];
+  const postIds = posts.map(p => p.cid);
+  const safeAuthorIds = authorIds.length > 0 ? authorIds : [-1];
+  const safePostIds = postIds.length > 0 ? postIds : [-1];
+  const [authors, catData] = await db.batch([
+    db.select({ uid: schema.users.uid, name: schema.users.name, screenName: schema.users.screenName }).from(schema.users)
+      .where(sql`${schema.users.uid} IN (${sql.join(safeAuthorIds.map(id => sql`${id}`), sql`, `)})`),
+    db.select({ cid: schema.relationships.cid, name: schema.metas.name, mid: schema.metas.mid })
+      .from(schema.relationships)
+      .innerJoin(schema.metas, eq(schema.relationships.mid, schema.metas.mid))
+      .where(and(
+        sql`${schema.relationships.cid} IN (${sql.join(safePostIds.map(id => sql`${id}`), sql`, `)})`,
+        eq(schema.metas.type, 'category')
+      )),
+  ]);
+  return { countResult, posts, allCategories, draftCount, waitingCount, authors, catData };
+};
+const postListData = keywords
+  ? await loadPostList()
+  : await loadQueryCache(ctx, {
+    domain: 'admin-content',
+    scope: 'viewer',
+    key: { view: 'posts', page, status, category: categoryFilter },
+  }, loadPostList);
+const { countResult, posts, allCategories, draftCount, waitingCount, authors, catData } = postListData;
 const totalPosts = countResult[0]?.count || 0;
 const totalPages = Math.max(1, Math.ceil(totalPosts / pageSize));
-
-const authorIds = [...new Set(posts.map(p => p.authorId).filter(Boolean))];
-const postIds = posts.map(p => p.cid);
-const safeAuthorIds = authorIds.length > 0 ? authorIds : [-1];
-const safePostIds = postIds.length > 0 ? postIds : [-1];
-const [authors, catData] = await db.batch([
-  db.select().from(schema.users)
-    .where(sql`${schema.users.uid} IN (${sql.join(safeAuthorIds.map(id => sql`${id}`), sql`, `)})`),
-  db.select({ cid: schema.relationships.cid, name: schema.metas.name, mid: schema.metas.mid })
-    .from(schema.relationships)
-    .innerJoin(schema.metas, eq(schema.relationships.mid, schema.metas.mid))
-    .where(and(
-      sql`${schema.relationships.cid} IN (${sql.join(safePostIds.map(id => sql`${id}`), sql`, `)})`,
-      eq(schema.metas.type, 'category')
-    )),
-]);
 const authorMap = new Map(authors.map(a => [a.uid, a]));
 
 // Categories for posts
@@ -213,7 +235,7 @@ const titleActionHtml = new Map<number, string>(
                       {post.status === 'hidden' && <em class="status">隐藏</em>}
                       {post.status === 'waiting' && <em class="status">待审核</em>}
                       {post.status === 'private' && <em class="status">私密</em>}
-                      {post.password && post.status === 'publish' && <em class="status">密码保护</em>}
+                      {!!post.hasPassword && post.status === 'publish' && <em class="status">密码保护</em>}
                       <a href={`/admin/write-post?cid=${post.cid}`} title={`编辑 ${post.title}`}><i class="i-edit"></i></a>
                       {!isDraft && (
                         <a href={buildPermalink({ cid: post.cid, slug: post.slug, type: post.type, created: post.created }, urls.siteUrl, options.permalinkPattern as string | undefined)}

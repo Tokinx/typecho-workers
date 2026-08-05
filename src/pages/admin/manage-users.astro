@@ -5,6 +5,7 @@ import { hasPermission } from '@/lib/auth';
 import { eq, sql, desc } from 'drizzle-orm';
 import { schema } from '@/db';
 import { formatDate } from '@/lib/content';
+import { loadQueryCache } from '@/lib/query-cache';
 
 const ctx = await createContext(Astro.locals, Astro.request);
 const authCheck = requireAuth(ctx);
@@ -26,10 +27,16 @@ if (keywords) {
 
 const where = conditions.length > 0 ? sql.join(conditions, sql` AND `) : undefined;
 
-const [countResult, userRows] = await db.batch([
+const loadUsers = () => db.batch([
   db.select({ count: sql<number>`count(*)` }).from(schema.users).where(where),
   db.select({
-    user: schema.users,
+    user: {
+      uid: schema.users.uid,
+      name: schema.users.name,
+      screenName: schema.users.screenName,
+      mail: schema.users.mail,
+      group: schema.users.group,
+    },
     postCount: sql<number>`(
       SELECT count(*) FROM ${schema.contents}
       WHERE ${schema.contents.authorId} = ${schema.users.uid}
@@ -41,6 +48,14 @@ const [countResult, userRows] = await db.batch([
     .limit(pageSize)
     .offset((page - 1) * pageSize),
 ]);
+const usersData = keywords
+  ? await loadUsers()
+  : await loadQueryCache(ctx, {
+    domain: 'admin-users',
+    scope: 'viewer',
+    key: { view: 'users', page },
+  }, loadUsers);
+const [countResult, userRows] = usersData;
 const users = userRows.map(row => row.user);
 const totalUsers = countResult[0]?.count || 0;
 const totalPages = Math.max(1, Math.ceil(totalUsers / pageSize));

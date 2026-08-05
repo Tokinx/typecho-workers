@@ -4,6 +4,7 @@ import { createContext, requireAuth } from '@/lib/context';
 import { hasPermission } from '@/lib/auth';
 import { and, desc, eq } from 'drizzle-orm';
 import { schema } from '@/db';
+import { loadQueryCache } from '@/lib/query-cache';
 
 const ctx = await createContext(Astro.locals, Astro.request);
 const authCheck = requireAuth(ctx);
@@ -18,14 +19,23 @@ const { db, options, urls, user, csrfToken } = ctx;
 // Editing
 const editMid = Astro.url.searchParams.get('mid');
 const editId = editMid ? parseInt(editMid, 10) : 0;
-const [tags, editRows] = await db.batch([
-  db.select().from(schema.metas)
+const loadTags = () => db.batch([
+  db.select({ mid: schema.metas.mid, name: schema.metas.name, slug: schema.metas.slug, count: schema.metas.count })
+    .from(schema.metas)
     .where(eq(schema.metas.type, 'tag'))
     .orderBy(desc(schema.metas.mid)),
   db.select().from(schema.metas)
     .where(and(eq(schema.metas.mid, editId || -1), eq(schema.metas.type, 'tag')))
     .limit(1),
 ]);
+const tagData = editId
+  ? await loadTags()
+  : await loadQueryCache(ctx, {
+    domain: 'admin-metas',
+    scope: 'viewer',
+    key: { view: 'tags' },
+  }, loadTags);
+const [tags, editRows] = tagData;
 const editTag: any = editRows[0] ?? null;
 const pageTitle = editTag ? `编辑标签 ${editTag.name || '未命名标签'}` : '管理标签';
 

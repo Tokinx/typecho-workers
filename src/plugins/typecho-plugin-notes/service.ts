@@ -4,6 +4,8 @@ import { buildPermalink, renderMarkdown } from 'typecho/plugin-sdk';
 import { invalidatePublicCache } from '@/lib/cache';
 import { getClientIp } from '@/lib/context';
 import { loadEarlyRequestSharedData } from '@/lib/early-request';
+import { loadQueryCache } from '@/lib/query-cache';
+import type { RequestContext } from '@/lib/context';
 import { renderCommentText } from '@/lib/markdown';
 import { parseAttachmentMeta } from '@/lib/attachment';
 import { jsonError, jsonOk } from '@/lib/http';
@@ -587,10 +589,18 @@ export async function getNotesStreamForTheme(
   mode: ThemeNotesStreamMode,
   query: ThemeNotesQuery = {},
   themeOptions: ThemeNotesOptions | string = {},
+  viewerContext?: RequestContext,
 ): Promise<ThemeNotesStream> {
   const resolvedOptions = resolveThemeOptions(themeOptions);
   const load = () => listThemeNotesStreamData(db, mode, query, resolvedOptions);
-  if (clampInteger(query.viewerUid, 0, 0, Number.MAX_SAFE_INTEGER) > 0) return load();
+  if (clampInteger(query.viewerUid, 0, 0, Number.MAX_SAFE_INTEGER) > 0) {
+    if (!viewerContext || viewerContext.user?.uid !== query.viewerUid) return load();
+    return loadQueryCache(viewerContext, {
+      domain: 'notes',
+      scope: 'viewer',
+      key: { stream: mode, query: themeNotesStreamCacheKey(mode, query, resolvedOptions) },
+    }, load);
+  }
   return loadEarlyRequestSharedData(
     'notes',
     themeNotesStreamCacheKey(mode, query, resolvedOptions),
@@ -634,8 +644,16 @@ export async function getNoteForTheme(
   cid: number,
   siteUrl = '',
   viewerUid?: number | null,
+  viewerContext?: RequestContext,
 ): Promise<NoteListItem | null> {
-  const result = await listNotesData(db, { cid, pageSize: 1, admin: false, siteUrl, viewerUid });
+  const load = () => listNotesData(db, { cid, pageSize: 1, admin: false, siteUrl, viewerUid });
+  const result = viewerUid && viewerContext?.user?.uid === viewerUid
+    ? await loadQueryCache(viewerContext, {
+      domain: 'notes',
+      scope: 'viewer',
+      key: { note: cid, siteUrl },
+    }, load)
+    : await load();
   return result.data[0] || null;
 }
 
@@ -706,7 +724,7 @@ async function createNote(body: unknown, context: NotesActionContext): Promise<R
   if (!cid) return jsonError(500, '笔记创建失败');
   await synchronizeNoteTopics(context.db, cid, topicMids);
   if (input.status === 'publish') {
-    await invalidatePublicCache(context.db, { reason: 'note-create', domains: ['home', 'note'], sharedDomains: ['comments', 'notes'] });
+    await invalidatePublicCache(context.db, { reason: 'note-create', domains: ['home', 'note'], sharedDomains: ['sidebar', 'comments', 'notes', 'archive', 'content'] });
   }
   return jsonOk({ success: true, cid, topics: topicMids });
 }
@@ -729,7 +747,7 @@ async function updateNote(body: Record<string, unknown>, context: NotesActionCon
   }).where(and(eq(schema.contents.cid, cid), eq(schema.contents.type, NOTE_TYPE)));
   await synchronizeNoteTopics(context.db, cid, topicMids);
   if (existing.status === 'publish' || input.status === 'publish') {
-    await invalidatePublicCache(context.db, { reason: 'note-update', domains: ['home', 'note'], sharedDomains: ['comments', 'notes'] });
+    await invalidatePublicCache(context.db, { reason: 'note-update', domains: ['home', 'note'], sharedDomains: ['sidebar', 'comments', 'notes', 'archive', 'content'] });
   }
   return jsonOk({ success: true, topics: topicMids });
 }
@@ -753,7 +771,7 @@ async function deleteNote(body: Record<string, unknown>, context: NotesActionCon
   ]);
   await recountTopics(context.db, oldTopics.map(topic => topic.mid));
   if (existing.status === 'publish') {
-    await invalidatePublicCache(context.db, { reason: 'note-delete', domains: ['home', 'note'], sharedDomains: ['comments', 'notes'] });
+    await invalidatePublicCache(context.db, { reason: 'note-delete', domains: ['home', 'note'], sharedDomains: ['sidebar', 'comments', 'notes', 'archive', 'content'] });
   }
   return jsonOk({ success: true });
 }
@@ -823,7 +841,7 @@ async function replyToNoteComment(
   await invalidatePublicCache(context.db, {
     reason: 'note-comment',
     domains: [],
-    sharedDomains: ['sidebar', 'comments', 'notes'],
+    sharedDomains: ['sidebar', 'comments', 'notes', 'archive', 'content'],
   });
 
   return jsonOk({ success: true, coid });

@@ -7,6 +7,7 @@ import { eq, and, desc, sql } from 'drizzle-orm';
 import { schema } from '@/db';
 import { formatDate } from '@/lib/content';
 import { renderCommentText } from '@/lib/markdown';
+import { loadQueryCache } from '@/lib/query-cache';
 
 const ctx = await createContext(Astro.locals, Astro.request);
 // Comment moderation page exposes commenter mail + IP — gate behind
@@ -67,7 +68,7 @@ function commentsUrl(overrides: {
   return `/admin/manage-comments${query ? `?${query}` : ''}`;
 }
 
-const [countResult, commentsList, waitingCount, spamCount] = await db.batch([
+const loadCommentsList = () => db.batch([
   db.select({ count: sql<number>`count(*)` }).from(schema.comments)
     .innerJoin(schema.contents, eq(schema.comments.cid, schema.contents.cid))
     .where(where),
@@ -99,6 +100,14 @@ const [countResult, commentsList, waitingCount, spamCount] = await db.batch([
     .innerJoin(schema.contents, eq(schema.comments.cid, schema.contents.cid))
     .where(countWhere('spam')),
 ]);
+const commentListData = keywords
+  ? await loadCommentsList()
+  : await loadQueryCache(ctx, {
+    domain: 'admin-comments',
+    scope: 'viewer',
+    key: { view: 'comments', page, status, cid: cid || null, scope: showAllComments ? 'all' : 'mine' },
+  }, loadCommentsList);
+const [countResult, commentsList, waitingCount, spamCount] = commentListData;
 const totalComments = countResult[0]?.count || 0;
 const totalPages = Math.max(1, Math.ceil(totalComments / pageSize));
 

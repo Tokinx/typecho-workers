@@ -25,10 +25,13 @@ import type {
   PostListItem, CommentNode, CommentOptions,
 } from '@/lib/theme-props';
 import { getActiveTheme } from '@/lib/theme';
+import { loadQueryCache } from '@/lib/query-cache';
 
 // ─── Local row types (derived from Drizzle schema) ───────────────────────
 
 type ContentRow = typeof schema.contents.$inferSelect;
+type PublicArchivePostRow = Pick<ContentRow,
+  'cid' | 'title' | 'slug' | 'type' | 'text' | 'created' | 'commentsNum' | 'authorId'>;
 type CommentRow = typeof schema.comments.$inferSelect;
 type MetaRow = typeof schema.metas.$inferSelect;
 type UserRow = typeof schema.users.$inferSelect;
@@ -195,7 +198,7 @@ function mapPostCategories(
 }
 
 function toPostListItem(
-  post: ContentRow,
+  post: PublicArchivePostRow,
   authorMap: AuthorMap,
   categoryMap: CategoryMap,
   siteUrl: string,
@@ -267,23 +270,49 @@ async function prepareArchiveData(
     ? and(eq(schema.relationships.mid, params.joinMid!), ...baseConditions)
     : and(...baseConditions);
 
-  const makeListStatement = (offset: number) => hasJoin
-    ? db.select({ content: schema.contents }).from(schema.contents)
+  const publicPostColumns = {
+    cid: schema.contents.cid,
+    title: schema.contents.title,
+    slug: schema.contents.slug,
+    type: schema.contents.type,
+    text: schema.contents.text,
+    created: schema.contents.created,
+    commentsNum: schema.contents.commentsNum,
+    authorId: schema.contents.authorId,
+  };
+  type ArchiveListRows = PublicArchivePostRow[] | Array<{ content: PublicArchivePostRow }>;
+  const makeListStatement = async (offset: number): Promise<ArchiveListRows> => {
+    if (hasJoin) {
+      return db.select({ content: publicPostColumns }).from(schema.contents)
         .innerJoin(schema.relationships, eq(schema.contents.cid, schema.relationships.cid))
         .where(countWhere)
         .orderBy(desc(schema.contents.created))
         .limit(pageSize + 1)
-        .offset(offset)
-    : db.select().from(schema.contents)
-        .where(countWhere)
-        .orderBy(desc(schema.contents.created))
-        .limit(pageSize + 1)
         .offset(offset);
+    }
+    return db.select(publicPostColumns).from(schema.contents)
+      .where(countWhere)
+      .orderBy(desc(schema.contents.created))
+      .limit(pageSize + 1)
+      .offset(offset);
+  };
 
   const requestedPage = Math.max(1, Math.floor(page));
+  const queryKey = {
+    type: params.archiveType,
+    page: requestedPage,
+    pageSize,
+    joinMid: params.joinMid ?? null,
+    baseUrl: params.archiveType === 'author' ? params.baseUrl : undefined,
+  };
+  const initialPostsPromise = params.archiveType === 'search'
+    ? makeListStatement((requestedPage - 1) * pageSize)
+    : loadQueryCache(ctx, { domain: 'archive', key: queryKey }, () =>
+      makeListStatement((requestedPage - 1) * pageSize),
+    );
   const [common, initialPosts] = await Promise.all([
     commonPromise,
-    makeListStatement((requestedPage - 1) * pageSize),
+    initialPostsPromise,
   ]);
   const posts = initialPosts.slice(0, pageSize);
 
@@ -294,9 +323,9 @@ async function prepareArchiveData(
   }
   const pg = paginateLookahead(requestedPage, pageSize, params.baseUrl, initialPosts.length > pageSize);
 
-  const rawPosts: ContentRow[] = hasJoin
-    ? (posts as { content: ContentRow }[]).map(p => p.content)
-    : (posts as ContentRow[]);
+  const rawPosts: PublicArchivePostRow[] = hasJoin
+    ? (posts as { content: PublicArchivePostRow }[]).map(p => p.content)
+    : (posts as PublicArchivePostRow[]);
   const authorIds = [...new Set(rawPosts.map(p => p.authorId).filter((id): id is number => Boolean(id)))];
   const postIds = rawPosts.map(p => p.cid).filter((id): id is number => id !== null);
 
@@ -430,6 +459,40 @@ export async function preparePostData(
   const passwordVerified = dataOptions.previewMode || (hasPassword && suppliedPassword === contentRow.password);
   // Keep all content-specific reads in one D1 round trip while the common
   // chrome data loads independently.
+  const loadContentMetadata = () => db.batch([
+    db
+      .select({
+        uid: schema.users.uid,
+        name: schema.users.name,
+        screenName: schema.users.screenName,
+      })
+      .from(schema.users)
+      .where(eq(schema.users.uid, contentRow.authorId || 0))
+      .limit(1),
+    db
+      .select({ name: schema.metas.name, slug: schema.metas.slug, type: schema.metas.type })
+      .from(schema.relationships)
+      .innerJoin(schema.metas, eq(schema.relationships.mid, schema.metas.mid))
+      .where(eq(schema.relationships.cid, cidNum)),
+    db
+      .select({ cid: schema.contents.cid, title: schema.contents.title, slug: schema.contents.slug, type: schema.contents.type, created: schema.contents.created })
+      .from(schema.contents)
+      .where(and(publishedPostCondition(), lt(schema.contents.created, contentRow.created || 0)))
+      .orderBy(desc(schema.contents.created))
+      .limit(1),
+    db
+      .select({ cid: schema.contents.cid, title: schema.contents.title, slug: schema.contents.slug, type: schema.contents.type, created: schema.contents.created })
+      .from(schema.contents)
+      .where(and(publishedPostCondition(), gt(schema.contents.created, contentRow.created || 0)))
+      .orderBy(asc(schema.contents.created))
+      .limit(1),
+  ]);
+  const metadataPromise = !dataOptions.previewMode
+    && !hasPassword
+    && !unapprovedCommentToken
+    && canViewPublicThemeContent(contentRow)
+    ? loadQueryCache(ctx, { domain: 'content', key: { cid: cidNum } }, loadContentMetadata)
+    : loadContentMetadata();
   const [
     common,
     [
@@ -441,34 +504,7 @@ export async function preparePostData(
     commentPage,
   ] = await Promise.all([
     loadCommon(ctx, requestUrl),
-    db.batch([
-      db
-        .select({
-          uid: schema.users.uid,
-          name: schema.users.name,
-          screenName: schema.users.screenName,
-        })
-        .from(schema.users)
-        .where(eq(schema.users.uid, contentRow.authorId || 0))
-        .limit(1),
-      db
-        .select({ name: schema.metas.name, slug: schema.metas.slug, type: schema.metas.type })
-        .from(schema.relationships)
-        .innerJoin(schema.metas, eq(schema.relationships.mid, schema.metas.mid))
-        .where(eq(schema.relationships.cid, cidNum)),
-      db
-        .select({ cid: schema.contents.cid, title: schema.contents.title, slug: schema.contents.slug, type: schema.contents.type, created: schema.contents.created })
-        .from(schema.contents)
-        .where(and(publishedPostCondition(), lt(schema.contents.created, contentRow.created || 0)))
-        .orderBy(desc(schema.contents.created))
-        .limit(1),
-      db
-        .select({ cid: schema.contents.cid, title: schema.contents.title, slug: schema.contents.slug, type: schema.contents.type, created: schema.contents.created })
-        .from(schema.contents)
-        .where(and(publishedPostCondition(), gt(schema.contents.created, contentRow.created || 0)))
-        .orderBy(asc(schema.contents.created))
-        .limit(1),
-    ]),
+    metadataPromise,
     loadThemeCommentPage(db, options, cidNum, contentRow.commentsNum || 0, requestUrl, unapprovedCommentToken),
   ]);
   const author = authorRows[0] ?? null;

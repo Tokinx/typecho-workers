@@ -2,6 +2,7 @@
 import { env } from 'cloudflare:workers';
 import { getDb } from 'typecho/db';
 import { getNoteForTheme } from 'typecho-plugin-notes';
+import { createContext } from '@/lib/context';
 import type { ThemePostProps } from '@/lib/theme-props';
 import WarmShell from './WarmShell.astro';
 import WarmComments from './WarmComments.astro';
@@ -15,8 +16,11 @@ const {
   prevPost, nextPost,
 } = Astro.props;
 
-const note = pluginCtx.activatedPlugins.has('typecho-plugin-notes')
-  ? await getNoteForTheme(getDb(env.DB), post.cid, urls.siteUrl)
+const noteContext = pluginCtx.activatedPlugins.has('typecho-plugin-notes')
+  ? await createContext(Astro.locals, Astro.request)
+  : null;
+const note = noteContext
+  ? await getNoteForTheme(noteContext.db ?? getDb(env.DB), post.cid, urls.siteUrl, noteContext.user?.uid, noteContext)
   : null;
 const isNote = note?.type === 'note';
 const settings = warmSettings(options);

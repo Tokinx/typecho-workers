@@ -5,6 +5,7 @@ import { hasPermission } from '@/lib/auth';
 import { and, eq, sql } from 'drizzle-orm';
 import { schema } from '@/db';
 import { buildCategoryLink } from '@/lib/content';
+import { loadQueryCache } from '@/lib/query-cache';
 
 const ctx = await createContext(Astro.locals, Astro.request);
 const authCheck = requireAuth(ctx);
@@ -20,27 +21,40 @@ if (rawParent && (!/^\d+$/.test(rawParent) || !Number.isSafeInteger(parentId))) 
   return new Response('分类不存在', { status: 404 });
 }
 
-const parentCategory = parentId > 0
-  ? await db.query.metas.findFirst({
-    where: and(eq(schema.metas.mid, parentId), eq(schema.metas.type, 'category')),
-  })
-  : null;
+const loadCategoryList = async () => {
+  const [parentRows, categories, childCountRows] = await db.batch([
+    parentId > 0
+      ? db.select({ mid: schema.metas.mid, name: schema.metas.name, parent: schema.metas.parent })
+        .from(schema.metas)
+        .where(and(eq(schema.metas.mid, parentId), eq(schema.metas.type, 'category')))
+        .limit(1)
+      : db.select({ mid: schema.metas.mid, name: schema.metas.name, parent: schema.metas.parent })
+        .from(schema.metas)
+        .where(sql`1 = 0`),
+    db.select({ mid: schema.metas.mid, name: schema.metas.name, slug: schema.metas.slug, count: schema.metas.count, order: schema.metas.order })
+      .from(schema.metas)
+      .where(and(
+        eq(schema.metas.type, 'category'),
+        sql`coalesce(${schema.metas.parent}, 0) = ${parentId}`,
+      ))
+      .orderBy(schema.metas.order, schema.metas.name),
+    db.select({ parent: schema.metas.parent, count: sql<number>`count(*)` })
+      .from(schema.metas)
+      .where(eq(schema.metas.type, 'category'))
+      .groupBy(schema.metas.parent),
+  ]);
+  return { parentCategory: parentRows[0] ?? null, categories, childCountRows };
+};
+const categoryListData = await loadQueryCache(ctx, {
+  domain: 'admin-metas',
+  scope: 'viewer',
+  key: { view: 'categories', parent: parentId },
+}, loadCategoryList);
+const { parentCategory, categories, childCountRows } = categoryListData;
 if (parentId > 0 && !parentCategory) {
   return new Response('分类不存在', { status: 404 });
 }
 
-const [categories, childCountRows] = await db.batch([
-  db.select().from(schema.metas)
-    .where(and(
-      eq(schema.metas.type, 'category'),
-      sql`coalesce(${schema.metas.parent}, 0) = ${parentId}`,
-    ))
-    .orderBy(schema.metas.order, schema.metas.name),
-  db.select({ parent: schema.metas.parent, count: sql<number>`count(*)` })
-    .from(schema.metas)
-    .where(eq(schema.metas.type, 'category'))
-    .groupBy(schema.metas.parent),
-]);
 const childCounts = new Map(childCountRows.map(row => [Number(row.parent) || 0, Number(row.count)]));
 const categoryListTitle = parentCategory
   ? `管理 ${parentCategory.name || '未命名分类'} 的子分类`

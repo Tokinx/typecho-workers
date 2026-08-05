@@ -5,6 +5,7 @@ import { hasPermission } from '@/lib/auth';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { schema } from '@/db';
 import { formatDate } from '@/lib/content';
+import { loadQueryCache } from '@/lib/query-cache';
 
 const ctx = await createContext(Astro.locals, Astro.request);
 const authCheck = requireAuth(ctx);
@@ -32,10 +33,18 @@ if (keywords) {
 
 const where = and(...conditions);
 
-const [countResult, attachmentRows] = await db.batch([
+const attachmentColumns = {
+  cid: schema.contents.cid,
+  title: schema.contents.title,
+  text: schema.contents.text,
+  parent: schema.contents.parent,
+  authorId: schema.contents.authorId,
+  created: schema.contents.created,
+};
+const loadMediaList = () => db.batch([
   db.select({ count: sql<number>`count(*)` }).from(schema.contents).where(where),
   db.select({
-    attachment: schema.contents,
+    attachment: attachmentColumns,
     authorName: sql<string | null>`(
       SELECT ${schema.users.name} FROM ${schema.users}
       WHERE ${schema.users.uid} = ${schema.contents.authorId}
@@ -57,6 +66,14 @@ const [countResult, attachmentRows] = await db.batch([
     .limit(pageSize)
     .offset((page - 1) * pageSize),
 ]);
+const mediaListData = keywords
+  ? await loadMediaList()
+  : await loadQueryCache(ctx, {
+    domain: 'admin-media',
+    scope: 'viewer',
+    key: { view: 'media', page },
+  }, loadMediaList);
+const [countResult, attachmentRows] = mediaListData;
 const attachments = attachmentRows.map(row => row.attachment);
 const totalItems = countResult[0]?.count || 0;
 const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));

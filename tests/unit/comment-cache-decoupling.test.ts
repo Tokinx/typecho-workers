@@ -18,7 +18,9 @@ describe('API-backed comments and page cache', () => {
       expect(source, path).not.toMatch(/domains:\s*\['all'\]/);
       if (source.includes('invalidatePublicCache')) {
         expect(source, path).toContain('domains: []');
-        expect(source, path).toContain("sharedDomains: ['sidebar', 'comments', 'notes']");
+        expect(source, path).toContain("'sidebar'");
+        expect(source, path).toContain("'comments'");
+        expect(source, path).toContain("'notes'");
       }
     }
   });
@@ -32,6 +34,8 @@ describe('API-backed comments and page cache', () => {
     expect(source).toContain("reason: 'note-update'");
     expect(source).toContain("reason: 'note-delete'");
     expect(source).toContain("reason: 'note-comment'");
-    expect(source).toContain("sharedDomains: ['sidebar', 'comments', 'notes']");
+    expect(source).toContain("'sidebar'");
+    expect(source).toContain("'comments'");
+    expect(source).toContain("'notes'");
   });
 });

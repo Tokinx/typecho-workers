@@ -5,6 +5,7 @@ import { hasPermission } from '@/lib/auth';
 import { eq, and, sql, desc } from 'drizzle-orm';
 import { schema } from '@/db';
 import { buildPermalink, formatDate } from '@/lib/content';
+import { loadQueryCache } from '@/lib/query-cache';
 
 const ctx = await createContext(Astro.locals, Astro.request);
 const authCheck = requireAuth(ctx);
@@ -15,15 +16,7 @@ const uid = user!.uid;
 
 // All dashboard cards are independent; one D1 batch avoids seven
 // inter-region round-trips on every admin landing-page request.
-const [
-  postCount,
-  commentCount,
-  catCount,
-  waitingComments,
-  spamComments,
-  recentPosts,
-  recentComments,
-] = await db.batch([
+const loadDashboard = () => db.batch([
   db.select({ count: sql<number>`count(*)` }).from(schema.contents)
     .where(and(eq(schema.contents.type, 'post'), eq(schema.contents.status, 'publish'), eq(schema.contents.authorId, uid))),
   db.select({ count: sql<number>`count(*)` }).from(schema.comments)
@@ -34,15 +27,40 @@ const [
     .where(eq(schema.comments.status, 'waiting')),
   db.select({ count: sql<number>`count(*)` }).from(schema.comments)
     .where(eq(schema.comments.status, 'spam')),
-  db.select().from(schema.contents)
+  db.select({
+    cid: schema.contents.cid,
+    title: schema.contents.title,
+    slug: schema.contents.slug,
+    type: schema.contents.type,
+    created: schema.contents.created,
+  }).from(schema.contents)
     .where(and(eq(schema.contents.type, 'post'), eq(schema.contents.status, 'publish')))
     .orderBy(desc(schema.contents.created))
     .limit(10),
-  db.select().from(schema.comments)
+  db.select({
+    coid: schema.comments.coid,
+    cid: schema.comments.cid,
+    author: schema.comments.author,
+    text: schema.comments.text,
+    created: schema.comments.created,
+  }).from(schema.comments)
     .where(eq(schema.comments.status, 'approved'))
     .orderBy(desc(schema.comments.created))
     .limit(10),
 ]);
+const [
+  postCount,
+  commentCount,
+  catCount,
+  waitingComments,
+  spamComments,
+  recentPosts,
+  recentComments,
+] = await loadQueryCache(ctx, {
+  domain: 'admin-dashboard',
+  scope: 'viewer',
+  key: { view: 'dashboard' },
+}, loadDashboard);
 
 const isAdmin = hasPermission(user!.group || 'visitor', 'administrator');
 const isContributor = hasPermission(user!.group || 'visitor', 'contributor');

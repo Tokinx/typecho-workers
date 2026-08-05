@@ -2,6 +2,7 @@
 import { env } from 'cloudflare:workers';
 import { getDb, schema } from 'typecho/db';
 import { getNotesStreamForTheme, type NoteListItem } from 'typecho-plugin-notes';
+import { createContext } from '@/lib/context';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { ThemeIndexProps, PostListItem } from '@/lib/theme-props';
 import { buildCategoryLink } from '@/lib/content';
@@ -55,7 +56,8 @@ let hasPrev = pagination.hasPrev;
 let hasNext = pagination.hasNext;
 
 if (notesEnabled && stream !== 'posts') {
-  const notesDb = getDb(env.DB);
+  const noteContext = await createContext(Astro.locals, Astro.request);
+  const notesDb = noteContext.db ?? getDb(env.DB);
   const result = await getNotesStreamForTheme(
     notesDb,
     stream,
@@ -63,8 +65,10 @@ if (notesEnabled && stream !== 'posts') {
       page: pagination.currentPage,
       pageSize: pagination.pageSize,
       topic,
+      viewerUid: noteContext.user?.uid,
     },
     { siteUrl: urls.siteUrl, permalinkPattern: options.permalinkPattern },
+    noteContext,
   );
   const mixedPostIds = result
     .items.filter((item): item is NoteListItem & { type: 'post' } => item.type === 'post')

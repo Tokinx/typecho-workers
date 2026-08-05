@@ -5,6 +5,7 @@ import { hasPermission } from '@/lib/auth';
 import { eq, sql, desc } from 'drizzle-orm';
 import { schema } from '@/db';
 import { formatDate, buildPermalink } from '@/lib/content';
+import { loadQueryCache } from '@/lib/query-cache';
 
 const ctx = await createContext(Astro.locals, Astro.request);
 const authCheck = requireAuth(ctx);
@@ -30,28 +31,56 @@ if (keywords) {
   conditions.push(sql`coalesce(${schema.contents.parent}, 0) = ${parentId}`);
 }
 
-const pageRows = await db.select({
-  content: schema.contents,
-  authorUid: schema.users.uid,
-  authorName: schema.users.name,
-  authorScreenName: schema.users.screenName,
-}).from(schema.contents)
-  .leftJoin(schema.users, eq(schema.contents.authorId, schema.users.uid))
-  .where(sql.join(conditions, sql` AND `))
-  .orderBy(schema.contents.order, desc(schema.contents.created));
-const pages = pageRows.map(row => row.content);
-const childCountRows = await db.select({
+const pageColumns = {
+  cid: schema.contents.cid,
+  title: schema.contents.title,
+  slug: schema.contents.slug,
+  type: schema.contents.type,
+  status: schema.contents.status,
+  created: schema.contents.created,
+  commentsNum: schema.contents.commentsNum,
+  authorId: schema.contents.authorId,
   parent: schema.contents.parent,
-  count: sql<number>`count(*)`,
-}).from(schema.contents)
-  .where(sql`${schema.contents.type} IN ('page', 'page_draft')`)
-  .groupBy(schema.contents.parent);
+  order: schema.contents.order,
+};
+const loadPageList = async () => {
+  const [pageRows, childCountRows, parentRows] = await db.batch([
+    db.select({
+      content: pageColumns,
+      authorUid: schema.users.uid,
+      authorName: schema.users.name,
+      authorScreenName: schema.users.screenName,
+    }).from(schema.contents)
+      .leftJoin(schema.users, eq(schema.contents.authorId, schema.users.uid))
+      .where(sql.join(conditions, sql` AND `))
+      .orderBy(schema.contents.order, desc(schema.contents.created)),
+    db.select({
+      parent: schema.contents.parent,
+      count: sql<number>`count(*)`,
+    }).from(schema.contents)
+      .where(sql`${schema.contents.type} IN ('page', 'page_draft')`)
+      .groupBy(schema.contents.parent),
+    parentId > 0
+      ? db.select({ cid: schema.contents.cid, title: schema.contents.title, parent: schema.contents.parent })
+        .from(schema.contents)
+        .where(sql`${schema.contents.cid} = ${parentId} AND ${schema.contents.type} IN ('page', 'page_draft')`)
+        .limit(1)
+      : db.select({ cid: schema.contents.cid, title: schema.contents.title, parent: schema.contents.parent })
+        .from(schema.contents)
+        .where(sql`1 = 0`),
+  ]);
+  return { pageRows, childCountRows, parentPage: parentRows[0] ?? null };
+};
+const pageListData = keywords
+  ? await loadPageList()
+  : await loadQueryCache(ctx, {
+    domain: 'admin-content',
+    scope: 'viewer',
+    key: { view: 'pages', parent: parentId },
+  }, loadPageList);
+const { pageRows, childCountRows, parentPage } = pageListData;
+const pages = pageRows.map(row => row.content);
 const childCounts = new Map(childCountRows.map(row => [Number(row.parent) || 0, Number(row.count)]));
-const parentPage = parentId > 0
-  ? await db.query.contents.findFirst({
-    where: sql`${schema.contents.cid} = ${parentId} AND ${schema.contents.type} IN ('page', 'page_draft')`,
-  })
-  : null;
 if (parentId > 0 && !parentPage) {
   return new Response('页面不存在', { status: 404 });
 }
