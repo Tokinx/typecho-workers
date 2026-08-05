@@ -1,7 +1,7 @@
 {
   "name": "typecho-plugin-cache",
   "version": "1.0.0",
-  "description": "Cloudflare Cache API + KV edge page cache and CDN URL rewriting for Typecho-Workers.",
+  "description": "Cloudflare Cache API + KV + D1 edge page cache and CDN URL rewriting for Typecho-Workers.",
   "keywords": ["typecho", "plugin", "cache", "kv", "cdn"],
   "author": "Tokinx",
   "license": "MIT",
@@ -37,14 +37,20 @@
         "l1Ttl": {
           "type": "select",
           "label": "L1 边缘节点缓存",
-          "default": "86400",
+          "default": "604800",
           "options": { "0": "不缓存", "3600": "1 小时", "43200": "12 小时", "86400": "1 天", "259200": "3 天", "604800": "7 天", "2592000": "30 天" }
         },
         "l2Ttl": {
           "type": "select",
           "label": "L2 KV 缓存",
-          "default": "604800",
+          "default": "259200",
           "options": { "0": "不缓存", "86400": "1 天", "259200": "3 天", "604800": "7 天" }
+        },
+        "l3Ttl": {
+          "type": "select",
+          "label": "L3 D1 KV 缓存",
+          "default": "21600",
+          "options": { "0": "不缓存", "300": "5 分钟", "3600": "1 小时", "21600": "6 小时", "43200": "12 小时", "86400": "1 天" }
         },
         "bypassCookieNames": {
           "type": "textarea",

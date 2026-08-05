@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { generateCreateSQL } from '@/lib/schema-sql';
 
 describe('generateCreateSQL', () => {
-  it('generates CREATE TABLE statements for all 9 tables', () => {
+  it('generates CREATE TABLE statements for all 10 tables', () => {
     const stmts = generateCreateSQL();
 
     const createTableStmts = stmts.filter(s => s.startsWith('CREATE TABLE IF NOT EXISTS'));
-    expect(createTableStmts.length).toBe(9);
+    expect(createTableStmts.length).toBe(10);
 
     const tableNames = createTableStmts.map(s => {
       const match = s.match(/`(typecho_\w+)`/);
@@ -21,6 +21,7 @@ describe('generateCreateSQL', () => {
     expect(tableNames).toContain('typecho_fields');
     expect(tableNames).toContain('typecho_login_failures');
     expect(tableNames).toContain('typecho_password_reset_requests');
+    expect(tableNames).toContain('typecho_db_cache');
   });
 
   it('generates CREATE INDEX statements for unique indexes', () => {
@@ -57,6 +58,7 @@ describe('generateCreateSQL', () => {
     expect(plainIndexes.some(s => s.includes('typecho_comments_cid_parent_status'))).toBe(true);
     expect(plainIndexes.some(s => s.includes('typecho_comments_status_created'))).toBe(true);
     expect(plainIndexes.some(s => s.includes('typecho_relationships_mid_cid'))).toBe(true);
+    expect(plainIndexes.some(s => s.includes('typecho_db_cache_expiresAt'))).toBe(true);
   });
 
   it('does not generate duplicate statements', () => {

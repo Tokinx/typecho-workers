@@ -15,10 +15,10 @@ let testDb: TestDatabase;
 // anything except middleware's table-existence check.
 function createD1Stub(db: TestDatabase) {
   return {
-    prepare: (sql: string) => ({
+    prepare: vi.fn((sql: string) => ({
       first: () => Promise.resolve(
         sql.includes('runtimeSchemaVersion')
-          ? { runtimeSchemaVersion: '20260804' }
+          ? { runtimeSchemaVersion: '20260806' }
           : { name: 'typecho_options' } as any,
       ),
       all: () => Promise.resolve({
@@ -31,9 +31,12 @@ function createD1Stub(db: TestDatabase) {
         ],
       }),
       run: () => Promise.resolve({}),
-      bind: (): any => ({}),
-    }),
-    batch: (_stmts: any[]) => Promise.resolve([]),
+      bind: (): any => ({
+        first: () => Promise.resolve(null),
+        run: () => Promise.resolve({}),
+      }),
+    })),
+    batch: vi.fn((_stmts: any[]) => Promise.resolve([])),
     dump: () => Promise.resolve([]),
     exec: () => Promise.resolve({}),
   };

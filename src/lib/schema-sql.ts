@@ -98,7 +98,12 @@ const allTables: SQLiteTable[] = [
   schema.fields,
   schema.loginFailures,
   schema.passwordResetRequests,
+  schema.edgeCache,
 ];
+
+export function generateTableSQL(table: SQLiteTable): string[] {
+  return [buildCreateTable(table), ...buildCreateIndexes(table)];
+}
 
 /**
  * Generate all SQL statements needed to create the database from scratch.
@@ -106,10 +111,7 @@ const allTables: SQLiteTable[] = [
  */
 export function generateCreateSQL(): string[] {
   const statements: string[] = [];
-  for (const table of allTables) {
-    statements.push(buildCreateTable(table));
-    statements.push(...buildCreateIndexes(table));
-  }
+  for (const table of allTables) statements.push(...generateTableSQL(table));
   return statements;
 }
 

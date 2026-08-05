@@ -172,3 +172,14 @@ export const passwordResetRequests = sqliteTable('typecho_password_reset_request
 }, (table) => [
   uniqueIndex('typecho_password_reset_requests_tokenHash').on(table.tokenHash),
 ]);
+
+// ==================== Edge Cache L3 ====================
+// D1-backed key-value page cache. The generation is part of the cache key so
+// invalidation can advance a namespace without scanning or deleting rows.
+export const edgeCache = sqliteTable('typecho_db_cache', {
+  cacheKey: text('cacheKey').primaryKey(),
+  value: text('value').notNull(),
+  expiresAt: integer('expiresAt').notNull(),
+}, (table) => [
+  index('typecho_db_cache_expiresAt').on(table.expiresAt),
+]);

@@ -49,10 +49,53 @@ class MemoryKv implements KVNamespace {
   }
 }
 
+class MemoryD1 implements D1Database {
+  rows = new Map<string, { value: string; expiresAt: number }>();
+
+  prepare = vi.fn((sql: string) => {
+    const statement = {
+      sql,
+      values: [] as unknown[],
+      bind: vi.fn((...values: unknown[]) => {
+        statement.values = values;
+        return statement;
+      }),
+      first: vi.fn(async <T>() => {
+        if (!sql.includes('FROM typecho_db_cache')) return null as T | null;
+        const row = this.rows.get(String(statement.values[0]));
+        const now = Number(statement.values[1]);
+        return row && row.expiresAt > now ? { ...row } as T : null;
+      }),
+      all: vi.fn(async <T>() => ({ results: [] as T[] })),
+      run: vi.fn(async () => ({ success: true })),
+    };
+    return statement;
+  }) as unknown as D1Database['prepare'];
+
+  batch = vi.fn(async (statements: D1PreparedStatement[]) => {
+    for (const statement of statements as Array<D1PreparedStatement & { sql?: string; values?: unknown[] }>) {
+      const values = statement.values || [];
+      if (statement.sql?.startsWith('DELETE FROM typecho_db_cache')) {
+        const now = Number(values[0]);
+        for (const [key, row] of this.rows) {
+          if (row.expiresAt <= now) this.rows.delete(key);
+        }
+      } else if (statement.sql?.startsWith('INSERT INTO typecho_db_cache')) {
+        this.rows.set(String(values[0]), {
+          value: String(values[1]),
+          expiresAt: Number(values[2]),
+        });
+      }
+    }
+    return [];
+  }) as unknown as D1Database['batch'];
+}
+
 const defaultSettings = {
   cacheScopes: ['home', 'post', 'page', 'note', 'archive', 'other'],
-  l1Ttl: '86400',
-  l2Ttl: '604800',
+  l1Ttl: '604800',
+  l2Ttl: '259200',
+  l3Ttl: '21600',
   bypassCookieNames: '',
   staticCdnUrl: '',
   staticExtensions: 'jpg,png,css,js,zip',
@@ -73,12 +116,12 @@ async function activate(kv: MemoryKv, settings: Record<string, unknown> = defaul
   });
 }
 
-function requestContext(url = 'https://example.com/') {
+function requestContext(url = 'https://example.com/', d1: D1Database | null = null) {
   const request = new Request(url);
   return {
     request,
     url: new URL(url),
-    env: { TYPECHO_CACHE: env.TYPECHO_CACHE },
+    env: { TYPECHO_CACHE: env.TYPECHO_CACHE, DB: d1 },
   };
 }
 
@@ -162,21 +205,98 @@ describe('typecho-plugin-cache provider', () => {
     expect([...kv.store.keys()].some(key => key.includes(':p:'))).toBe(false);
   });
 
-  it('passes through D1 on every request when both cache layers are disabled', async () => {
+  it('serves an L3 hit without L1 or L2 and without rendering D1 again', async () => {
     const kv = new MemoryKv();
-    await activate(kv, { ...defaultSettings, l1Ttl: 0, l2Ttl: 0 });
+    const d1 = new MemoryD1();
+    await activate(kv, { ...defaultSettings, l1Ttl: '0', l2Ttl: '0', l3Ttl: '21600' });
     const next = vi.fn(async () => new Response('<html>from d1</html>', {
       headers: { 'Content-Type': 'text/html' },
     }));
 
-    const first = await earlyRequestProvider.handle(requestContext('https://example.com/archives/4/'), next);
-    const second = await earlyRequestProvider.handle(requestContext('https://example.com/archives/4/'), next);
+    const first = await earlyRequestProvider.handle(requestContext('https://example.com/archives/5/', d1), next);
+    const second = await earlyRequestProvider.handle(requestContext('https://example.com/archives/5/', d1), next);
+
+    expect(first.headers.get('X-Typecho-Cache')).toBe('MISS');
+    expect(second.headers.get('X-Typecho-Cache')).toBe('L3');
+    expect(second.headers.get('Cache-Control')).toBe('no-store, no-cache, must-revalidate');
+    expect(await second.text()).toContain('from d1');
+    expect(next).toHaveBeenCalledOnce();
+    expect(kv.getKeys.some(key => key.includes(':p:'))).toBe(false);
+    expect([...kv.store.keys()].some(key => key.includes(':p:'))).toBe(false);
+    expect(d1.rows.size).toBe(1);
+  });
+
+  it('promotes an L3 hit into enabled L1 and L2 caches', async () => {
+    const kv = new MemoryKv();
+    const d1 = new MemoryD1();
+    await activate(kv, { ...defaultSettings, l3Ttl: '21600' });
+    const next = vi.fn(async () => new Response('<html>from d1</html>', {
+      headers: { 'Content-Type': 'text/html' },
+    }));
+    const url = 'https://example.com/archives/6/';
+
+    await earlyRequestProvider.handle(requestContext(url, d1), next);
+    const pageKey = [...kv.store.keys()].find(key => key.includes(':p:'))!;
+    kv.store.delete(pageKey);
+    _resetCaches();
+
+    const l3 = await earlyRequestProvider.handle(requestContext(url, d1), next);
+    expect(l3.headers.get('X-Typecho-Cache')).toBe('L3');
+    expect(next).toHaveBeenCalledOnce();
+    expect(kv.store.has(pageKey)).toBe(true);
+
+    const l1 = await earlyRequestProvider.handle(requestContext(url, d1), next);
+    expect(l1.headers.get('X-Typecho-Cache')).toBe('L1');
+  });
+
+  it('does not read or write L3 when its TTL is disabled', async () => {
+    const kv = new MemoryKv();
+    const d1 = new MemoryD1();
+    await activate(kv, { ...defaultSettings, l1Ttl: '0', l2Ttl: '86400', l3Ttl: '0' });
+    const next = vi.fn(async () => new Response('<html>from d1</html>', {
+      headers: { 'Content-Type': 'text/html' },
+    }));
+
+    await earlyRequestProvider.handle(requestContext('https://example.com/archives/7/', d1), next);
+    expect(d1.prepare).not.toHaveBeenCalled();
+    expect(d1.rows.size).toBe(0);
+  });
+
+  it('falls through to D1 when the L3 row is expired', async () => {
+    const kv = new MemoryKv();
+    const d1 = new MemoryD1();
+    await activate(kv, { ...defaultSettings, l1Ttl: '0', l2Ttl: '0', l3Ttl: '21600' });
+    const next = vi.fn(async () => new Response(`<html>${next.mock.calls.length}</html>`, {
+      headers: { 'Content-Type': 'text/html' },
+    }));
+    const url = 'https://example.com/archives/8/';
+
+    await earlyRequestProvider.handle(requestContext(url, d1), next);
+    const row = [...d1.rows.values()][0]!;
+    row.expiresAt = 0;
+    const response = await earlyRequestProvider.handle(requestContext(url, d1), next);
+
+    expect(response.headers.get('X-Typecho-Cache')).toBe('MISS');
+    expect(next).toHaveBeenCalledTimes(2);
+  });
+
+  it('passes through D1 on every request when all cache layers are disabled', async () => {
+    const kv = new MemoryKv();
+    const d1 = new MemoryD1();
+    await activate(kv, { ...defaultSettings, l1Ttl: 0, l2Ttl: 0, l3Ttl: 0 });
+    const next = vi.fn(async () => new Response('<html>from d1</html>', {
+      headers: { 'Content-Type': 'text/html' },
+    }));
+
+    const first = await earlyRequestProvider.handle(requestContext('https://example.com/archives/4/', d1), next);
+    const second = await earlyRequestProvider.handle(requestContext('https://example.com/archives/4/', d1), next);
 
     expect(first.headers.get('X-Typecho-Cache')).toBe('BYPASS');
     expect(second.headers.get('X-Typecho-Cache')).toBe('BYPASS');
     expect(first.headers.get('Cache-Control')).toBe('no-store, no-cache, must-revalidate');
     expect(second.headers.get('Cache-Control')).toBe('no-store, no-cache, must-revalidate');
     expect(next).toHaveBeenCalledTimes(2);
+    expect(d1.prepare).not.toHaveBeenCalled();
     expect(kv.getKeys.some(key => key.includes(':p:') || key.includes(':g:'))).toBe(false);
     expect([...kv.store.keys()].some(key => key.includes(':p:'))).toBe(false);
   });
@@ -588,13 +708,17 @@ describe('CDN rewriting', () => {
     for (const value of [0, 86_400, 259_200, 604_800]) {
       expect(normalizeCacheConfig({ l2Ttl: String(value) }).l2Ttl).toBe(value);
     }
-    expect(normalizeCacheConfig({ l1Ttl: 0, l2Ttl: '0' })).toMatchObject({
+    for (const value of [0, 300, 3_600, 21_600, 43_200, 86_400]) {
+      expect(normalizeCacheConfig({ l3Ttl: String(value) }).l3Ttl).toBe(value);
+    }
+    expect(normalizeCacheConfig({ l1Ttl: 0, l2Ttl: '0', l3Ttl: '0' })).toMatchObject({
       l1Ttl: 0,
       l2Ttl: 0,
+      l3Ttl: 0,
       bypassCookieNames: [],
     });
     const defaults = normalizeCacheConfig({ listTtl: 86_400, detailTtl: 86_400 });
-    expect(defaults).toMatchObject({ l1Ttl: 86_400, l2Ttl: 604_800 });
+    expect(defaults).toMatchObject({ l1Ttl: 604_800, l2Ttl: 259_200, l3Ttl: 21_600 });
     expect(defaults).not.toHaveProperty('listTtl');
     expect(defaults).not.toHaveProperty('detailTtl');
   });
@@ -722,16 +846,18 @@ describe('plugin registration and controls', () => {
     expect(accepted).toMatchObject({ success: true });
     expect(accepted.settings.staticExtensions).toBe('jpg,png');
     expect(accepted.settings.bypassCookieNames).toBe('analytics_id,ThemePreference');
-    expect(accepted.settings.l2Ttl).toBe('604800');
+    expect(accepted.settings.l2Ttl).toBe('259200');
+    expect(accepted.settings.l3Ttl).toBe('21600');
     expect(accepted.settings.listTtl).toBeUndefined();
     expect(accepted.settings.detailTtl).toBeUndefined();
 
     const disabled = hook({ success: true }, {
       pluginId: 'typecho-plugin-cache',
-      settings: { ...defaultSettings, l1Ttl: 0, l2Ttl: '0' },
+      settings: { ...defaultSettings, l1Ttl: 0, l2Ttl: '0', l3Ttl: 0 },
     });
     expect(disabled.settings.l1Ttl).toBe('0');
     expect(disabled.settings.l2Ttl).toBe('0');
+    expect(disabled.settings.l3Ttl).toBe('0');
   });
 
   it('renders binding status and performs a scoped manual invalidation', async () => {

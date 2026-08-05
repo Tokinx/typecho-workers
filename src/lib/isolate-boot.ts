@@ -10,7 +10,8 @@
  * coalesce requests that interleave while the first async check is running.
  */
 
-import { generateIndexSQL } from '@/lib/schema-sql';
+import { generateIndexSQL, generateTableSQL } from '@/lib/schema-sql';
+import { schema } from '@/db';
 
 /** Thrown when D1 has no typecho_options table — legitimate install-redirect case. */
 export class TablesMissingError extends Error {
@@ -57,7 +58,7 @@ export function resetIsolateBoot(): void {
 // runtime password-reset upgrade or generated index set changes. A stable
 // database needs one query per cold isolate instead of probing every table,
 // column and index.
-const RUNTIME_SCHEMA_VERSION = '20260804';
+const RUNTIME_SCHEMA_VERSION = '20260806';
 const RUNTIME_SCHEMA_VERSION_KEY = 'runtimeSchemaVersion';
 
 export async function ensureDatabaseReady(d1: D1Database): Promise<void> {
@@ -104,6 +105,7 @@ export async function ensureDatabaseReady(d1: D1Database): Promise<void> {
     }
 
     await ensurePasswordResetSchema(d1);
+    await ensureEdgeCacheSchema(d1);
     await ensureIndexesReady(d1);
     await d1.prepare(
       'INSERT INTO typecho_options (name, user, value) VALUES (?, ?, ?) ' +
@@ -117,6 +119,11 @@ export async function ensureDatabaseReady(d1: D1Database): Promise<void> {
   } finally {
     if (state.databaseReadyPending === pending) state.databaseReadyPending = undefined;
   }
+}
+
+async function ensureEdgeCacheSchema(d1: D1Database): Promise<void> {
+  const statements = generateTableSQL(schema.edgeCache).map(sql => d1.prepare(sql));
+  if (statements.length > 0) await d1.batch(statements);
 }
 
 /**

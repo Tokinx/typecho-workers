@@ -36,11 +36,13 @@ const TRACKING_PARAMS = new Set(['fbclid', 'gclid', 'dclid', 'msclkid']);
 const NO_CACHE_CONTROL = 'no-store, no-cache, must-revalidate';
 const L1_TTL_OPTIONS = [0, 3_600, 43_200, 86_400, 259_200, 604_800, 2_592_000];
 const L2_TTL_OPTIONS = [0, 86_400, 259_200, 604_800];
+const L3_TTL_OPTIONS = [0, 300, 3_600, 21_600, 43_200, 86_400];
 
 export interface CachePluginConfig {
   cacheScopes: PublicCacheDomain[];
   l1Ttl: number;
   l2Ttl: number;
+  l3Ttl: number;
   bypassCookieNames: string[];
   staticCdnUrl: string;
   staticExtensions: string[];
@@ -83,6 +85,11 @@ function runtimeKv(): KVNamespace | null {
   return asKv(env.TYPECHO_CACHE);
 }
 
+function d1Binding(context: EarlyRequestContext): D1Database | null {
+  const candidate = context.env.DB as Partial<D1Database> | undefined;
+  return candidate && typeof candidate.prepare === 'function' ? candidate as D1Database : null;
+}
+
 function normalizeUrl(value: unknown): string {
   const raw = String(value || '').trim();
   if (!raw) return '';
@@ -117,8 +124,9 @@ export function normalizeCacheConfig(settings: Record<string, unknown> | CachePl
   const cacheScopes = ALL_DOMAINS.filter(domain => requestedScopes.includes(domain));
   return {
     cacheScopes,
-    l1Ttl: ttl(settings.l1Ttl, L1_TTL_OPTIONS, 86_400),
-    l2Ttl: ttl(settings.l2Ttl, L2_TTL_OPTIONS, 604_800),
+    l1Ttl: ttl(settings.l1Ttl, L1_TTL_OPTIONS, 604_800),
+    l2Ttl: ttl(settings.l2Ttl, L2_TTL_OPTIONS, 259_200),
+    l3Ttl: ttl(settings.l3Ttl, L3_TTL_OPTIONS, 21_600),
     bypassCookieNames: normalizeCookieNames(settings.bypassCookieNames),
     staticCdnUrl: normalizeUrl(settings.staticCdnUrl),
     staticExtensions: normalizeExtensions(settings.staticExtensions),
@@ -307,7 +315,7 @@ function l1Request(key: string): Request {
 
 function withCacheHeader(
   response: Response,
-  value: 'L1' | 'L2' | 'MISS' | 'BYPASS',
+  value: 'L1' | 'L2' | 'L3' | 'MISS' | 'BYPASS',
   l1Ttl?: number,
 ): Response {
   const headers = new Headers(response.headers);
@@ -332,15 +340,61 @@ function responseHeadersForStorage(headers: Headers): Array<[string, string]> {
   return [...headers.entries()].filter(([name]) => !skipped.has(name.toLowerCase()));
 }
 
+function responseFromStoredForL1(stored: StoredResponse, l1Ttl: number): Response {
+  const headers = new Headers(stored.headers);
+  headers.set('Cache-Control', `public, max-age=0, s-maxage=${l1Ttl}`);
+  headers.delete('X-Typecho-Cache');
+  return new Response(stored.body, {
+    status: stored.status,
+    statusText: stored.statusText,
+    headers,
+  });
+}
+
+async function promoteStoredResponse(
+  context: EarlyRequestContext,
+  kv: KVNamespace,
+  l1Key: Request,
+  l2Key: string,
+  stored: StoredResponse,
+  l1Ttl: number,
+  l2Ttl: number,
+): Promise<void> {
+  const writes: Promise<unknown>[] = [];
+  if (l1Ttl > 0) writes.push(caches.default.put(l1Key, responseFromStoredForL1(stored, l1Ttl)));
+  if (l2Ttl > 0) writes.push(kv.put(l2Key, JSON.stringify(stored), { expirationTtl: l2Ttl }));
+  if (writes.length === 0) return;
+  const pending = Promise.all(writes).catch(error => {
+    console.error('[edge-cache] Cache promotion failed:', error);
+  });
+  if (context.waitUntil) context.waitUntil(pending);
+  else await pending;
+}
+
 async function storeResponse(
+  d1: D1Database | null,
   kv: KVNamespace,
   l1Key: Request,
   l2Key: string,
   response: Response,
   l1Ttl: number,
   l2Ttl: number,
+  l3Ttl: number,
 ): Promise<void> {
   const writes: Promise<unknown>[] = [];
+  let stored: StoredResponse | null = null;
+  if (l2Ttl > 0 || (d1 && l3Ttl > 0)) {
+    const body = await response.clone().text();
+    const bodyBytes = new TextEncoder().encode(body).byteLength;
+    if (bodyBytes <= MAX_HTML_BYTES) {
+      stored = {
+        status: response.status,
+        statusText: response.statusText,
+        headers: responseHeadersForStorage(response.headers),
+        body,
+      };
+    }
+  }
   if (l1Ttl > 0) {
     const l1Headers = new Headers(response.headers);
     l1Headers.delete('Set-Cookie');
@@ -353,18 +407,11 @@ async function storeResponse(
     });
     writes.push(caches.default.put(l1Key, l1Response));
   }
-  if (l2Ttl > 0) {
-    const body = await response.clone().text();
-    const bodyBytes = new TextEncoder().encode(body).byteLength;
-    if (bodyBytes <= MAX_HTML_BYTES) {
-      const stored: StoredResponse = {
-        status: response.status,
-        statusText: response.statusText,
-        headers: responseHeadersForStorage(response.headers),
-        body,
-      };
-      writes.push(kv.put(l2Key, JSON.stringify(stored), { expirationTtl: l2Ttl }));
-    }
+  if (stored && l2Ttl > 0) {
+    writes.push(kv.put(l2Key, JSON.stringify(stored), { expirationTtl: l2Ttl }));
+  }
+  if (stored && d1 && l3Ttl > 0) {
+    writes.push(writeL3(d1, l2Key, stored, l3Ttl));
   }
   await Promise.all(writes);
 }
@@ -380,6 +427,40 @@ function responseFromStored(stored: StoredResponse): Response | null {
   } catch {
     return null;
   }
+}
+
+interface L3CacheRow {
+  value: string;
+  expiresAt: number;
+}
+
+async function readL3(d1: D1Database, cacheKey: string): Promise<StoredResponse | null> {
+  const now = Math.floor(Date.now() / 1000);
+  const row = await d1.prepare(
+    'SELECT value, expiresAt FROM typecho_db_cache WHERE cacheKey = ? AND expiresAt > ? LIMIT 1',
+  ).bind(cacheKey, now).first<L3CacheRow>();
+  if (!row?.value) return null;
+  try {
+    return JSON.parse(row.value) as StoredResponse;
+  } catch {
+    return null;
+  }
+}
+
+async function writeL3(
+  d1: D1Database,
+  cacheKey: string,
+  stored: StoredResponse,
+  ttlSeconds: number,
+): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
+  await d1.batch([
+    d1.prepare('DELETE FROM typecho_db_cache WHERE expiresAt <= ?').bind(now),
+    d1.prepare(
+      'INSERT INTO typecho_db_cache (cacheKey, value, expiresAt) VALUES (?, ?, ?) ' +
+      'ON CONFLICT(cacheKey) DO UPDATE SET value=excluded.value, expiresAt=excluded.expiresAt',
+    ).bind(cacheKey, JSON.stringify(stored), now + ttlSeconds),
+  ]);
 }
 
 function joinCdnPath(base: URL, source: URL): string {
@@ -559,10 +640,12 @@ async function renderAndCache(
   context: EarlyRequestContext,
   next: EarlyRequestNext,
   control: CacheControlDocument,
+  d1: D1Database | null,
   kv: KVNamespace,
   l1Key: Request,
   l2Key: string,
   l2Ttl: number,
+  l3Ttl: number,
 ): Promise<Response> {
   let response = await next();
   try {
@@ -573,7 +656,7 @@ async function renderAndCache(
   if (!canCacheResponse(response)) return withCacheHeader(response, 'BYPASS', control.config.l1Ttl);
 
   const cacheable = response.clone();
-  const write = storeResponse(kv, l1Key, l2Key, cacheable, control.config.l1Ttl, l2Ttl)
+  const write = storeResponse(d1, kv, l1Key, l2Key, cacheable, control.config.l1Ttl, l2Ttl, l3Ttl)
     .catch(error => console.error('[edge-cache] Cache persistence failed:', error));
   if (context.waitUntil) context.waitUntil(write);
   else await write;
@@ -583,6 +666,7 @@ async function renderAndCache(
 async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNext): Promise<Response> {
   const kv = asKv(context.env.TYPECHO_CACHE);
   if (!kv) return renderWithRuntimeRewrite(context, next);
+  const d1 = d1Binding(context);
 
   let control: CacheControlDocument | null;
   try {
@@ -599,6 +683,7 @@ async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNex
   const policy = requestCachePolicy(context.request, control.config);
   const bypass = policy === 'bypass' || !normalizedUrl;
   const l2Ttl = control.config.l2Ttl;
+  const l3Ttl = control.config.l3Ttl;
   if (!domainEnabled || bypass) {
     const response = await next();
     const rewritten = await rewriteHtmlResponse(response, control.config, context.url.origin, control.options.siteUrl)
@@ -606,7 +691,7 @@ async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNex
     return withCacheHeader(rewritten, 'BYPASS', control.config.l1Ttl);
   }
 
-  if (control.config.l1Ttl === 0 && l2Ttl === 0) {
+  if (control.config.l1Ttl === 0 && l2Ttl === 0 && l3Ttl === 0) {
     const response = await next();
     const rewritten = await rewriteHtmlResponse(response, control.config, context.url.origin, control.options.siteUrl)
       .catch(() => response);
@@ -651,6 +736,21 @@ async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNex
     return renderWithRuntimeRewrite(context, next);
   }
 
+  if (d1 && l3Ttl > 0) {
+    try {
+      const l3 = await readL3(d1, l2Key);
+      if (l3) {
+        const l3Response = responseFromStored(l3);
+        if (l3Response) {
+          await promoteStoredResponse(context, kv, l1Key, l2Key, l3, control.config.l1Ttl, l2Ttl);
+          return withCacheHeader(l3Response, 'L3', control.config.l1Ttl);
+        }
+      }
+    } catch (error) {
+      console.error('[edge-cache] L3 lookup failed; falling back to D1:', error);
+    }
+  }
+
   if (policy === 'read-only') {
     const response = await next();
     const rewritten = await rewriteHtmlResponse(response, control.config, context.url.origin, control.options.siteUrl)
@@ -660,7 +760,7 @@ async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNex
 
   const existing = inFlight.get(cacheId);
   if (existing) return (await existing).clone();
-  const pending = renderAndCache(context, next, control, kv, l1Key, l2Key, l2Ttl);
+  const pending = renderAndCache(context, next, control, d1, kv, l1Key, l2Key, l2Ttl, l3Ttl);
   inFlight.set(cacheId, pending);
   try {
     return (await pending).clone();

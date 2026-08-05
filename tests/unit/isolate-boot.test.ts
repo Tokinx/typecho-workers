@@ -13,6 +13,9 @@ vi.mock('@/lib/schema-sql', () => ({
   generateIndexSQL: vi.fn(() => [
     'CREATE INDEX IF NOT EXISTS idx_test ON typecho_contents(slug)',
   ]),
+  generateTableSQL: vi.fn(() => [
+    'CREATE TABLE IF NOT EXISTS typecho_db_cache (`cacheKey` TEXT PRIMARY KEY, `value` TEXT NOT NULL, `expiresAt` INTEGER NOT NULL)',
+  ]),
 }));
 
 function mockD1(hasTable: boolean) {
@@ -74,7 +77,7 @@ describe('ensureTablesReady', () => {
 
 describe('ensureDatabaseReady', () => {
   it('uses the persistent schema version fast path on a cold isolate', async () => {
-    const first = vi.fn().mockResolvedValue({ runtimeSchemaVersion: '20260804' });
+    const first = vi.fn().mockResolvedValue({ runtimeSchemaVersion: '20260806' });
     const d1 = {
       prepare: vi.fn().mockReturnValue({ first }),
       batch: vi.fn(),
@@ -92,13 +95,24 @@ describe('ensureDatabaseReady', () => {
       if (sql.startsWith('SELECT (SELECT value')) {
         return { first: vi.fn().mockResolvedValue({ runtimeSchemaVersion: '20260804', loginFailuresExists: 0 }) };
       }
+      if (sql.includes("name IN ('typecho_password_reset_requests'")) {
+        return { all: vi.fn().mockResolvedValue({ results: [{ name: 'typecho_password_reset_requests' }] }) };
+      }
+      if (sql.startsWith('PRAGMA table_info')) {
+        return { all: vi.fn().mockResolvedValue({
+          results: ['email', 'lastSentAt', 'uid', 'tokenHash', 'expiresAt'].map(name => ({ name })),
+        }) };
+      }
+      if (sql.startsWith('INSERT INTO typecho_options')) {
+        return { bind: vi.fn(() => ({ run: createRun })) };
+      }
       return { run: createRun };
     });
-    const d1 = { prepare, batch: vi.fn() } as unknown as D1Database;
+    const d1 = { prepare, batch: vi.fn().mockResolvedValue([]) } as unknown as D1Database;
 
     await ensureDatabaseReady(d1);
 
-    expect(createRun).toHaveBeenCalledOnce();
+    expect(createRun).toHaveBeenCalledTimes(2);
     expect(prepare.mock.calls[1][0]).toContain('CREATE TABLE IF NOT EXISTS typecho_login_failures');
   });
 
@@ -112,7 +126,7 @@ describe('ensureDatabaseReady', () => {
 
     const a = ensureDatabaseReady(d1);
     const b = ensureDatabaseReady(d1);
-    release({ runtimeSchemaVersion: '20260804' } as any);
+    release({ runtimeSchemaVersion: '20260806' } as any);
     await Promise.all([a, b]);
 
     expect(d1.prepare).toHaveBeenCalledOnce();
@@ -142,7 +156,8 @@ describe('ensureDatabaseReady', () => {
 
     await ensureDatabaseReady(d1);
 
-    expect(batch).toHaveBeenCalledOnce();
+    expect(batch).toHaveBeenCalledTimes(2);
+    expect((batch.mock.calls[0][0] as Array<{ sql: string }>)[0].sql).toContain('typecho_db_cache');
     expect(markerRun).toHaveBeenCalledOnce();
   });
 });

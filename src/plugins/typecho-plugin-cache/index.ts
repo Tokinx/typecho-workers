@@ -66,6 +66,7 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
           bypassCookieNames: normalized.bypassCookieNames.join(','),
           l1Ttl: String(normalized.l1Ttl),
           l2Ttl: String(normalized.l2Ttl),
+          l3Ttl: String(normalized.l3Ttl),
         },
       };
     } catch (error) {
