@@ -6,11 +6,12 @@ import type {
   EarlyRequestSyncContext,
   SharedDataRead,
 } from '@/lib/early-request';
+import { invalidateEarlyRequestSharedSnapshots } from '@/lib/early-request';
 import type { PublicCacheDomain, PublicCacheInvalidation, SharedCacheDomain } from '@/lib/cache';
 import { PUBLIC_HTML_HEADER } from '@/lib/cache';
 import { env } from 'cloudflare:workers';
 import { compilePermalinkPattern, type PermalinkPatternKind } from '@/lib/permalink-pattern';
-import { loadPluginConfig } from '@/lib/plugin';
+import { parsePluginOption } from '@/lib/plugin';
 
 export { PUBLIC_HTML_HEADER } from '@/lib/cache';
 
@@ -20,10 +21,15 @@ const GENERATION_PREFIX = 'typecho:edge-cache:v1:g:';
 const PAGE_PREFIX = 'typecho:edge-cache:v1:p:';
 const SHARED_GENERATION_PREFIX = 'typecho:edge-cache:v1:sg:';
 const SHARED_DATA_PREFIX = 'typecho:edge-cache:v1:s:';
+const D1_DATA_GENERATION_PREFIX = 'typecho:edge-cache:v2:dg:';
+const D1_DATA_PREFIX = 'typecho:edge-cache:v2:d:';
 const L1_ORIGIN = 'https://typecho-cache.internal';
 const CONTROL_MEMO_TTL_MS = 5_000;
 const GENERATION_MEMO_TTL_MS = 5_000;
 const MAX_HTML_BYTES = 5 * 1024 * 1024;
+const D1_GENERATION_TTL_SECONDS = 10 * 365 * 24 * 60 * 60;
+const D1_CLEANUP_INTERVAL_MS = 5 * 60_000;
+const VIEWER_QUERY_PREFIX = 'query:viewer:';
 const SHARED_DATA_TTL_SECONDS: Record<SharedCacheDomain, number> = {
   options: 604_800,
   navigation: 604_800,
@@ -31,10 +37,30 @@ const SHARED_DATA_TTL_SECONDS: Record<SharedCacheDomain, number> = {
   metas: 604_800,
   comments: 60,
   notes: 604_800,
+  archive: 86_400,
+  content: 86_400,
+  'admin-dashboard': 60,
+  'admin-content': 60,
+  'admin-comments': 60,
+  'admin-metas': 60,
+  'admin-media': 60,
+  'admin-users': 60,
+  'admin-options': 60,
 };
 const ALL_DOMAINS: PublicCacheDomain[] = ['home', 'post', 'page', 'note', 'archive', 'other'];
 const DETAIL_DOMAINS = new Set<PublicCacheDomain>(['post', 'page', 'note']);
-const ALL_SHARED_DOMAINS: SharedCacheDomain[] = ['options', 'navigation', 'sidebar', 'metas', 'comments', 'notes'];
+export const DATA_CACHE_DOMAINS: SharedCacheDomain[] = [
+  'options', 'navigation', 'sidebar', 'metas', 'comments', 'notes', 'archive', 'content',
+  'admin-dashboard', 'admin-content', 'admin-comments', 'admin-metas', 'admin-media',
+  'admin-users', 'admin-options',
+];
+const FRONTEND_DATA_CACHE_DOMAINS = new Set<SharedCacheDomain>([
+  'options', 'navigation', 'sidebar', 'metas', 'comments', 'notes', 'archive', 'content',
+]);
+const ADMIN_DATA_CACHE_DOMAINS = new Set<SharedCacheDomain>([
+  'admin-dashboard', 'admin-content', 'admin-comments', 'admin-metas', 'admin-media',
+  'admin-users', 'admin-options',
+]);
 const TRACKING_PARAMS = new Set(['fbclid', 'gclid', 'dclid', 'msclkid']);
 const NO_CACHE_CONTROL = 'no-store, no-cache, must-revalidate';
 const L1_TTL_OPTIONS = [0, 3_600, 43_200, 86_400, 259_200, 604_800, 2_592_000];
@@ -46,10 +72,20 @@ export interface CachePluginConfig {
   l1Ttl: number;
   l2Ttl: number;
   l3Ttl: number;
+  frontendDataCacheBackend: DataCacheBackend;
+  adminDataCacheBackend: DataCacheBackend;
+  /** Preserves the retired per-domain configuration until it is saved again. */
+  legacyDataCacheBackends?: DataCacheBackendSetting[];
   bypassCookieNames: string[];
   staticCdnUrl: string;
   staticExtensions: string[];
   avatarCdnUrl: string;
+}
+
+export type DataCacheBackend = 'kv' | 'd1';
+export interface DataCacheBackendSetting {
+  domain: SharedCacheDomain;
+  backend: DataCacheBackend;
 }
 
 export interface CacheControlDocument {
@@ -76,6 +112,7 @@ const generationMemo = new Map<string, Memo<string>>();
 const inFlight = new Map<string, Promise<Response>>();
 let runtimeConfig: CachePluginConfig | null = null;
 let requestRuntime = new WeakMap<Request, CacheControlDocument | null>();
+let lastD1CleanupAt = 0;
 
 function asKv(value: unknown): KVNamespace | null {
   const candidate = value as Partial<KVNamespace> | null | undefined;
@@ -88,9 +125,17 @@ function runtimeKv(): KVNamespace | null {
   return asKv(env.TYPECHO_CACHE);
 }
 
-function d1Binding(context: EarlyRequestContext): D1Database | null {
-  const candidate = context.env.DB as Partial<D1Database> | undefined;
+function asD1(value: unknown): D1Database | null {
+  const candidate = value as Partial<D1Database> | null | undefined;
   return candidate && typeof candidate.prepare === 'function' ? candidate as D1Database : null;
+}
+
+function runtimeD1(): D1Database | null {
+  return asD1(env.DB);
+}
+
+function d1Binding(context: EarlyRequestContext): D1Database | null {
+  return asD1(context.env.DB);
 }
 
 function normalizeUrl(value: unknown): string {
@@ -117,6 +162,31 @@ function normalizeCookieNames(value: unknown): string[] {
     .filter(item => /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(item)))];
 }
 
+function normalizeDataCacheBackend(value: unknown, label: string): DataCacheBackend {
+  if (value === undefined || value === null || value === '') return 'kv';
+  if (value === 'kv' || value === 'd1') return value;
+  throw new Error(`${label}无效`);
+}
+
+function normalizeLegacyDataCacheBackends(value: unknown): DataCacheBackendSetting[] | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (!Array.isArray(value)) throw new Error('数据缓存后端配置无效');
+
+  const seen = new Set<SharedCacheDomain>();
+  const settings: DataCacheBackendSetting[] = [];
+  for (const raw of value) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('数据缓存后端配置无效');
+    const domain = String((raw as Record<string, unknown>).domain || '') as SharedCacheDomain;
+    const backend = String((raw as Record<string, unknown>).backend || '') as DataCacheBackend;
+    if (!DATA_CACHE_DOMAINS.includes(domain)) throw new Error('数据缓存域无效');
+    if (backend !== 'kv' && backend !== 'd1') throw new Error('数据缓存后端无效');
+    if (seen.has(domain)) throw new Error('数据缓存域不能重复');
+    seen.add(domain);
+    settings.push({ domain, backend });
+  }
+  return settings;
+}
+
 function ttl(value: unknown, allowed: number[], fallback: number): number {
   const parsed = Number.parseInt(String(value ?? ''), 10);
   return allowed.includes(parsed) ? parsed : fallback;
@@ -125,16 +195,34 @@ function ttl(value: unknown, allowed: number[], fallback: number): number {
 export function normalizeCacheConfig(settings: Record<string, unknown> | CachePluginConfig): CachePluginConfig {
   const requestedScopes = Array.isArray(settings.cacheScopes) ? settings.cacheScopes : ALL_DOMAINS;
   const cacheScopes = ALL_DOMAINS.filter(domain => requestedScopes.includes(domain));
+  const legacyDataCacheBackends = normalizeLegacyDataCacheBackends(
+    settings.legacyDataCacheBackends ?? (settings as Record<string, unknown>).dataCacheBackends,
+  );
   return {
     cacheScopes,
     l1Ttl: ttl(settings.l1Ttl, L1_TTL_OPTIONS, 604_800),
     l2Ttl: ttl(settings.l2Ttl, L2_TTL_OPTIONS, 259_200),
     l3Ttl: ttl(settings.l3Ttl, L3_TTL_OPTIONS, 21_600),
+    frontendDataCacheBackend: normalizeDataCacheBackend(settings.frontendDataCacheBackend, '前台数据缓存后端'),
+    adminDataCacheBackend: normalizeDataCacheBackend(settings.adminDataCacheBackend, '后台数据缓存后端'),
+    ...(legacyDataCacheBackends?.length ? { legacyDataCacheBackends } : {}),
     bypassCookieNames: normalizeCookieNames(settings.bypassCookieNames),
     staticCdnUrl: normalizeUrl(settings.staticCdnUrl),
     staticExtensions: normalizeExtensions(settings.staticExtensions),
     avatarCdnUrl: normalizeUrl(settings.avatarCdnUrl),
   };
+}
+
+function dataCacheBackend(config: CachePluginConfig, domain: SharedCacheDomain): DataCacheBackend {
+  const legacyBackend = config.legacyDataCacheBackends?.find(item => item.domain === domain)?.backend;
+  if (legacyBackend) return legacyBackend;
+  if (FRONTEND_DATA_CACHE_DOMAINS.has(domain)) return config.frontendDataCacheBackend;
+  if (ADMIN_DATA_CACHE_DOMAINS.has(domain)) return config.adminDataCacheBackend;
+  return 'kv';
+}
+
+function dataCacheTtl(domain: SharedCacheDomain, key: string): number {
+  return key.startsWith(VIEWER_QUERY_PREFIX) ? 60 : SHARED_DATA_TTL_SECONDS[domain];
 }
 
 export function setCacheRuntimeConfig(settings: Record<string, unknown> | CachePluginConfig): CachePluginConfig {
@@ -209,6 +297,16 @@ async function sharedGeneration(kv: KVNamespace, domain: SharedCacheDomain): Pro
   return value;
 }
 
+async function sharedGenerationD1(d1: D1Database, domain: SharedCacheDomain): Promise<string> {
+  const key = `d1:${domain}`;
+  const now = Date.now();
+  const memo = generationMemo.get(key);
+  if (memo && memo.expiresAt > now) return memo.value;
+  const value = await readD1Value(d1, `${D1_DATA_GENERATION_PREFIX}${domain}`) || '0';
+  generationMemo.set(key, { value, expiresAt: now + GENERATION_MEMO_TTL_MS });
+  return value;
+}
+
 function nextGeneration(): string {
   return `${Date.now().toString(36)}-${crypto.randomUUID()}`;
 }
@@ -230,7 +328,7 @@ export async function invalidateSharedDomains(
   kv: KVNamespace,
   domains: SharedCacheDomain[] | ['all'],
 ): Promise<void> {
-  const targets = domains[0] === 'all' ? ALL_SHARED_DOMAINS : [...new Set(domains)];
+  const targets = domains[0] === 'all' ? DATA_CACHE_DOMAINS : [...new Set(domains)];
   await Promise.all(targets.map(async domain => {
     const key = `${SHARED_GENERATION_PREFIX}${domain}`;
     const value = nextGeneration();
@@ -239,10 +337,89 @@ export async function invalidateSharedDomains(
   }));
 }
 
-async function readSharedData<T>(domain: SharedCacheDomain, key: string): Promise<SharedDataRead<T>> {
+async function invalidateSharedDomainsD1(
+  d1: D1Database,
+  domains: SharedCacheDomain[] | ['all'],
+): Promise<void> {
+  const targets = domains[0] === 'all' ? DATA_CACHE_DOMAINS : [...new Set(domains)];
+  await Promise.all(targets.map(async domain => {
+    const value = nextGeneration();
+    await writeD1Value(d1, `${D1_DATA_GENERATION_PREFIX}${domain}`, value, D1_GENERATION_TTL_SECONDS);
+    generationMemo.set(`d1:${domain}`, { value, expiresAt: Date.now() + GENERATION_MEMO_TTL_MS });
+  }));
+}
+
+async function dataCacheConfig(): Promise<CachePluginConfig | null> {
+  if (runtimeConfig) return runtimeConfig;
   const kv = runtimeKv();
-  if (!kv || !await loadControl(kv)) return { handled: false, value: null };
-  const [generationValue, keyHash] = await Promise.all([sharedGeneration(kv, domain), sha256(key)]);
+  if (kv) {
+    const control = await loadControl(kv);
+    if (control) return control.config;
+  }
+  // Query-cache callers are reached only after the plugin's active runtime
+  // sync in normal requests. This fallback keeps explicit invalidation safe
+  // during first-isolate setup and treats omitted backend entries as KV.
+  return normalizeCacheConfig({});
+}
+
+async function invalidateConfiguredDataDomains(
+  domains: SharedCacheDomain[] | ['all'],
+  config?: CachePluginConfig | null,
+): Promise<boolean> {
+  const resolvedConfig = config === undefined ? await dataCacheConfig() : config;
+  if (!resolvedConfig) return false;
+  const targets: SharedCacheDomain[] = domains[0] === 'all'
+    ? DATA_CACHE_DOMAINS
+    : [...new Set(domains as SharedCacheDomain[])];
+  const kvTargets = targets.filter(domain => dataCacheBackend(resolvedConfig, domain) === 'kv');
+  const d1Targets = targets.filter(domain => dataCacheBackend(resolvedConfig, domain) === 'd1');
+  const kv = runtimeKv();
+  const d1 = runtimeD1();
+  await Promise.all([
+    kv && kvTargets.length ? invalidateSharedDomains(kv, kvTargets) : Promise.resolve(),
+    d1 && d1Targets.length ? invalidateSharedDomainsD1(d1, d1Targets) : Promise.resolve(),
+  ]);
+  return Boolean((kv && kvTargets.length) || (d1 && d1Targets.length));
+}
+
+async function invalidateAllDataStores(): Promise<void> {
+  const kv = runtimeKv();
+  const d1 = runtimeD1();
+  const writes = [
+    kv ? invalidateSharedDomains(kv, ['all']) : null,
+    d1 ? invalidateSharedDomainsD1(d1, ['all']) : null,
+  ].filter((write): write is Promise<void> => write !== null);
+  const results = await Promise.allSettled(writes);
+  for (const result of results) {
+    if (result.status === 'rejected') {
+      // A cache backend is an optimization. Lifecycle/config changes remain
+      // usable while an optional KV/D1 store is temporarily unavailable.
+      console.error('[edge-cache] Data cache invalidation failed:', result.reason);
+    }
+  }
+}
+
+async function readSharedData<T>(domain: SharedCacheDomain, key: string): Promise<SharedDataRead<T>> {
+  const config = await dataCacheConfig();
+  if (!config) return { handled: false, value: null };
+  const backend = dataCacheBackend(config, domain);
+  const keyHash = await sha256(key);
+  if (backend === 'd1') {
+    const d1 = runtimeD1();
+    if (!d1) return { handled: false, value: null };
+    const generationValue = await sharedGenerationD1(d1, domain);
+    const raw = await readD1Value(d1, `${D1_DATA_PREFIX}${domain}:${generationValue}:${keyHash}`);
+    if (!raw) return { handled: true, value: null };
+    try {
+      return { handled: true, value: JSON.parse(raw) as T };
+    } catch {
+      return { handled: true, value: null };
+    }
+  }
+
+  const kv = runtimeKv();
+  if (!kv) return { handled: false, value: null };
+  const generationValue = await sharedGeneration(kv, domain);
   const value = await kv.get<T>(`${SHARED_DATA_PREFIX}${domain}:${generationValue}:${keyHash}`, {
       type: 'json',
       cacheTtl: 60,
@@ -251,13 +428,33 @@ async function readSharedData<T>(domain: SharedCacheDomain, key: string): Promis
 }
 
 async function writeSharedData<T>(domain: SharedCacheDomain, key: string, value: T): Promise<boolean> {
+  const config = await dataCacheConfig();
+  if (!config) return false;
+  const backend = dataCacheBackend(config, domain);
+  const keyHash = await sha256(key);
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(value);
+  } catch {
+    return false;
+  }
+  if (serialized === undefined) return false;
+  const ttlSeconds = dataCacheTtl(domain, key);
+  if (backend === 'd1') {
+    const d1 = runtimeD1();
+    if (!d1) return false;
+    const generationValue = await sharedGenerationD1(d1, domain);
+    await writeD1Value(d1, `${D1_DATA_PREFIX}${domain}:${generationValue}:${keyHash}`, serialized, ttlSeconds);
+    return true;
+  }
+
   const kv = runtimeKv();
-  if (!kv || !await loadControl(kv)) return false;
-  const [generationValue, keyHash] = await Promise.all([sharedGeneration(kv, domain), sha256(key)]);
+  if (!kv) return false;
+  const generationValue = await sharedGeneration(kv, domain);
   await kv.put(
     `${SHARED_DATA_PREFIX}${domain}:${generationValue}:${keyHash}`,
-    JSON.stringify(value),
-    { expirationTtl: SHARED_DATA_TTL_SECONDS[domain] },
+    serialized,
+    { expirationTtl: ttlSeconds },
   );
   return true;
 }
@@ -435,19 +632,45 @@ function responseFromStored(stored: StoredResponse): Response | null {
   }
 }
 
-interface L3CacheRow {
+interface D1CacheRow {
   value: string;
   expiresAt: number;
 }
 
-async function readL3(d1: D1Database, cacheKey: string): Promise<StoredResponse | null> {
+async function readD1Value(d1: D1Database, cacheKey: string): Promise<string | null> {
   const now = Math.floor(Date.now() / 1000);
   const row = await d1.prepare(
     'SELECT value, expiresAt FROM typecho_db_cache WHERE cacheKey = ? AND expiresAt > ? LIMIT 1',
-  ).bind(cacheKey, now).first<L3CacheRow>();
-  if (!row?.value) return null;
+  ).bind(cacheKey, now).first<D1CacheRow>();
+  return row?.value || null;
+}
+
+async function writeD1Value(
+  d1: D1Database,
+  cacheKey: string,
+  value: string,
+  ttlSeconds: number,
+): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
+  const statements = [] as D1PreparedStatement[];
+  if (Date.now() - lastD1CleanupAt >= D1_CLEANUP_INTERVAL_MS) {
+    statements.push(d1.prepare('DELETE FROM typecho_db_cache WHERE expiresAt <= ?').bind(now));
+    lastD1CleanupAt = Date.now();
+  }
+  statements.push(
+    d1.prepare(
+      'INSERT INTO typecho_db_cache (cacheKey, value, expiresAt) VALUES (?, ?, ?) ' +
+      'ON CONFLICT(cacheKey) DO UPDATE SET value=excluded.value, expiresAt=excluded.expiresAt',
+    ).bind(cacheKey, value, now + ttlSeconds),
+  );
+  await d1.batch(statements);
+}
+
+async function readL3(d1: D1Database, cacheKey: string): Promise<StoredResponse | null> {
+  const value = await readD1Value(d1, cacheKey);
+  if (!value) return null;
   try {
-    return JSON.parse(row.value) as StoredResponse;
+    return JSON.parse(value) as StoredResponse;
   } catch {
     return null;
   }
@@ -459,14 +682,7 @@ async function writeL3(
   stored: StoredResponse,
   ttlSeconds: number,
 ): Promise<void> {
-  const now = Math.floor(Date.now() / 1000);
-  await d1.batch([
-    d1.prepare('DELETE FROM typecho_db_cache WHERE expiresAt <= ?').bind(now),
-    d1.prepare(
-      'INSERT INTO typecho_db_cache (cacheKey, value, expiresAt) VALUES (?, ?, ?) ' +
-      'ON CONFLICT(cacheKey) DO UPDATE SET value=excluded.value, expiresAt=excluded.expiresAt',
-    ).bind(cacheKey, JSON.stringify(stored), now + ttlSeconds),
-  ]);
+  await writeD1Value(d1, cacheKey, JSON.stringify(stored), ttlSeconds);
 }
 
 function joinCdnPath(base: URL, source: URL): string {
@@ -799,10 +1015,11 @@ async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNex
 function syncRuntime(context: EarlyRequestSyncContext): void {
   if (!context.active) {
     requestRuntime.set(context.request, null);
+    runtimeConfig = null;
     return;
   }
   const control = buildControlDocument(
-    loadPluginConfig(context.options, CACHE_PLUGIN_ID),
+    parsePluginOption(context.options[`plugin:${CACHE_PLUGIN_ID}`]),
     context.options,
   );
   requestRuntime.set(context.request, control);
@@ -816,36 +1033,41 @@ async function lifecycle(event: EarlyRequestLifecycleEvent): Promise<void> {
     controlMemo = { value: null, expiresAt: Date.now() + CONTROL_MEMO_TTL_MS };
     generationMemo.clear();
     runtimeConfig = null;
+    lastD1CleanupAt = 0;
+    invalidateEarlyRequestSharedSnapshots(['all']);
     return;
   }
   if (!event.settings) return;
   const control = buildControlDocument(event.settings, event.options);
   runtimeConfig = control.config;
-  if (!kv) return;
-  await writeControl(kv, control);
-  await Promise.all([
-    invalidateDomains(kv, ['all']),
-    invalidateSharedDomains(kv, ['all']),
-  ]);
+  invalidateEarlyRequestSharedSnapshots(['all']);
+  if (kv) {
+    await writeControl(kv, control);
+    await invalidateDomains(kv, ['all']);
+  }
+  await invalidateAllDataStores();
 }
 
 async function invalidate(event: PublicCacheInvalidation): Promise<boolean> {
   const kv = runtimeKv();
-  if (!kv) return false;
-  const control = await loadControl(kv);
-  if (!control) return false;
-  if (event.options) {
+  let pageHandled = false;
+  let control = kv ? await loadControl(kv) : null;
+  if (event.options && kv && control) {
     const nextControl: CacheControlDocument = {
       ...control,
       options: { ...control.options, ...optionsForControl({ ...control.options, ...event.options }) },
     };
     await writeControl(kv, nextControl);
+    control = nextControl;
   }
-  await Promise.all([
-    event.domains.length ? invalidateDomains(kv, event.domains) : Promise.resolve(),
-    event.sharedDomains?.length ? invalidateSharedDomains(kv, event.sharedDomains) : Promise.resolve(),
-  ]);
-  return true;
+  if (kv && event.domains.length) {
+    await invalidateDomains(kv, event.domains);
+    pageHandled = true;
+  }
+  const dataHandled = event.sharedDomains?.length
+    ? await invalidateConfiguredDataDomains(event.sharedDomains)
+    : false;
+  return pageHandled || dataHandled;
 }
 
 export const earlyRequestProvider: EarlyRequestProvider = {
@@ -862,5 +1084,6 @@ export function resetCacheProviderForTests(): void {
   generationMemo.clear();
   inFlight.clear();
   runtimeConfig = null;
+  lastD1CleanupAt = 0;
   requestRuntime = new WeakMap<Request, CacheControlDocument | null>();
 }

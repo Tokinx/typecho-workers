@@ -45,8 +45,11 @@ export type EarlyRequestProviderLoader = () => Promise<EarlyRequestProvider | nu
 const providerLoaders = new Map<string, EarlyRequestProviderLoader>();
 const pendingProviders = new Map<string, Promise<EarlyRequestProvider | null>>();
 const SHARED_SNAPSHOT_TTL_MS = 60_000;
+const MAX_SHARED_SNAPSHOTS = 500;
 type SharedSnapshot = { value: unknown; expiresAt: number };
 const sharedSnapshots = new Map<string, SharedSnapshot>();
+const pendingSharedLoads = new Map<string, Promise<unknown>>();
+const sharedSnapshotGenerations = new Map<SharedCacheDomain, number>();
 let sharedScopeIds = new WeakMap<object, number>();
 let nextSharedScopeId = 1;
 
@@ -63,16 +66,60 @@ function cloneSharedValue<T>(value: T): T {
   return structuredClone(value);
 }
 
+function setSharedSnapshot<T>(key: string, value: T): void {
+  try {
+    const cloned = cloneSharedValue(value);
+    // Refresh insertion order so the Map doubles as a compact LRU.
+    sharedSnapshots.delete(key);
+    sharedSnapshots.set(key, { value: cloned, expiresAt: Date.now() + SHARED_SNAPSHOT_TTL_MS });
+    while (sharedSnapshots.size > MAX_SHARED_SNAPSHOTS) {
+      const oldest = sharedSnapshots.keys().next().value;
+      if (oldest === undefined) break;
+      sharedSnapshots.delete(oldest);
+    }
+  } catch (error) {
+    // Cacheability is an optimization only. A provider may still persist a
+    // serializable result even when a local clone is unavailable.
+    console.warn('[early-request] Shared snapshot was not cloneable:', error);
+  }
+}
+
+function sharedSnapshotGeneration(domain: SharedCacheDomain): number {
+  return sharedSnapshotGenerations.get(domain) || 0;
+}
+
+function advanceSharedSnapshotGeneration(domain: SharedCacheDomain): void {
+  sharedSnapshotGenerations.set(domain, sharedSnapshotGeneration(domain) + 1);
+}
+
 function invalidateSharedSnapshots(domains?: SharedCacheDomain[] | ['all']): void {
   if (!domains?.length) return;
   if (domains[0] === 'all') {
     sharedSnapshots.clear();
+    pendingSharedLoads.clear();
+    for (const domain of [
+      'options', 'navigation', 'sidebar', 'metas', 'comments', 'notes', 'archive', 'content',
+      'admin-dashboard', 'admin-content', 'admin-comments', 'admin-metas', 'admin-media',
+      'admin-users', 'admin-options',
+    ] as SharedCacheDomain[]) {
+      advanceSharedSnapshotGeneration(domain);
+    }
     return;
   }
-  const prefixes = new Set(domains.map(domain => `${domain}\0`));
+  const targetDomains = domains as SharedCacheDomain[];
+  const prefixes = new Set(targetDomains.map(domain => `${domain}\0`));
   for (const key of sharedSnapshots.keys()) {
     if ([...prefixes].some(prefix => key.startsWith(prefix))) sharedSnapshots.delete(key);
   }
+  for (const key of pendingSharedLoads.keys()) {
+    if ([...prefixes].some(prefix => key.startsWith(prefix))) pendingSharedLoads.delete(key);
+  }
+  for (const domain of targetDomains) advanceSharedSnapshotGeneration(domain);
+}
+
+/** Clear local query/shared snapshots when a provider lifecycle event changes storage policy. */
+export function invalidateEarlyRequestSharedSnapshots(domains: SharedCacheDomain[] | ['all']): void {
+  invalidateSharedSnapshots(domains);
 }
 
 export function registerEarlyRequestLoaders(loaders: Record<string, EarlyRequestProviderLoader>): void {
@@ -178,36 +225,56 @@ export async function loadEarlyRequestSharedData<T>(
   localVersion?: string | number,
 ): Promise<T> {
   const snapshotKey = sharedSnapshotKey(domain, key, scope, localVersion);
+  const localGeneration = sharedSnapshotGeneration(domain);
   const snapshot = sharedSnapshots.get(snapshotKey);
-  if (snapshot && snapshot.expiresAt > Date.now()) return cloneSharedValue(snapshot.value as T);
+  if (snapshot && snapshot.expiresAt > Date.now()) {
+    sharedSnapshots.delete(snapshotKey);
+    sharedSnapshots.set(snapshotKey, snapshot);
+    return cloneSharedValue(snapshot.value as T);
+  }
+  if (snapshot) sharedSnapshots.delete(snapshotKey);
 
-  const providers = await loadProviders();
-  let providerHandled = false;
-  for (const [pluginId, provider] of providers) {
-    if (!provider.readSharedData) continue;
-    try {
-      const result = await provider.readSharedData<T>(domain, key);
-      providerHandled = providerHandled || result.handled;
-      if (result.value !== null) {
-        sharedSnapshots.set(snapshotKey, { value: cloneSharedValue(result.value), expiresAt: Date.now() + SHARED_SNAPSHOT_TTL_MS });
-        return cloneSharedValue(result.value);
+  const existing = pendingSharedLoads.get(snapshotKey);
+  if (existing) return cloneSharedValue(await existing as T);
+
+  const pending = (async (): Promise<T> => {
+    const providers = await loadProviders();
+    let providerHandled = false;
+    for (const [pluginId, provider] of providers) {
+      if (!provider.readSharedData) continue;
+      try {
+        const result = await provider.readSharedData<T>(domain, key);
+        providerHandled = providerHandled || result.handled;
+        if (result.value !== null) {
+          if (sharedSnapshotGeneration(domain) === localGeneration) {
+            setSharedSnapshot(snapshotKey, result.value);
+          }
+          return cloneSharedValue(result.value);
+        }
+      } catch (error) {
+        console.error(`[early-request] Shared cache read failed for ${pluginId}:`, error);
       }
-    } catch (error) {
-      console.error(`[early-request] Shared cache read failed for ${pluginId}:`, error);
     }
-  }
 
-  const value = await fallback({ providerHandled });
-  sharedSnapshots.set(snapshotKey, { value: cloneSharedValue(value), expiresAt: Date.now() + SHARED_SNAPSHOT_TTL_MS });
-  for (const [pluginId, provider] of providers) {
-    if (!provider.writeSharedData) continue;
-    try {
-      if (await provider.writeSharedData(domain, key, value)) break;
-    } catch (error) {
-      console.error(`[early-request] Shared cache write failed for ${pluginId}:`, error);
+    const value = await fallback({ providerHandled });
+    if (sharedSnapshotGeneration(domain) !== localGeneration) return value;
+    setSharedSnapshot(snapshotKey, value);
+    for (const [pluginId, provider] of providers) {
+      if (!provider.writeSharedData) continue;
+      try {
+        if (await provider.writeSharedData(domain, key, value)) break;
+      } catch (error) {
+        console.error(`[early-request] Shared cache write failed for ${pluginId}:`, error);
+      }
     }
+    return value;
+  })();
+  pendingSharedLoads.set(snapshotKey, pending);
+  try {
+    return cloneSharedValue(await pending);
+  } finally {
+    if (pendingSharedLoads.get(snapshotKey) === pending) pendingSharedLoads.delete(snapshotKey);
   }
-  return cloneSharedValue(value);
 }
 
 export async function syncEarlyRequestProviders(
@@ -241,6 +308,8 @@ export function resetEarlyRequestProvidersForTests(): void {
   providerLoaders.clear();
   pendingProviders.clear();
   sharedSnapshots.clear();
+  pendingSharedLoads.clear();
+  sharedSnapshotGenerations.clear();
   sharedScopeIds = new WeakMap<object, number>();
   nextSharedScopeId = 1;
 }

@@ -142,8 +142,9 @@ const defaultOptions: Partial<SiteOptions> = {
 // immediately; writes from another PoP become visible after at most one
 // minute, avoiding an inter-region D1 version read every five seconds.
 const OPTIONS_SNAPSHOT_TTL_MS = 60_000;
-type OptionsSnapshot = { value: SiteOptions; expiresAt: number; generation: number };
-type PendingOptionsLoad = { promise: Promise<SiteOptions>; generation: number };
+type CachedSiteOptions = Omit<SiteOptions, 'secret'>;
+type OptionsSnapshot = { value: CachedSiteOptions; expiresAt: number; generation: number };
+type PendingOptionsLoad = { promise: Promise<CachedSiteOptions>; generation: number };
 const optionSnapshots = new WeakMap<Database, OptionsSnapshot>();
 const pendingOptionLoads = new WeakMap<Database, PendingOptionsLoad>();
 
@@ -188,69 +189,65 @@ export async function loadOptions(db: Database): Promise<SiteOptions> {
   const now = Date.now();
   const generation = getOptionsSnapshotGeneration(db);
   const snapshot = optionSnapshots.get(db);
+  let cachedOptions: CachedSiteOptions;
   if (
     snapshot &&
     snapshot.generation === generation &&
     snapshot.expiresAt > now
   ) {
-    return { ...snapshot.value };
+    cachedOptions = snapshot.value;
+  } else {
+    const existingLoad = pendingOptionLoads.get(db);
+    if (existingLoad?.generation === generation) {
+      cachedOptions = await existingLoad.promise;
+    } else {
+      const pending = loadCachedOptionsFresh(db);
+      const pendingRecord = { promise: pending, generation };
+      pendingOptionLoads.set(db, pendingRecord);
+      try {
+        cachedOptions = await pending;
+        if (getOptionsSnapshotGeneration(db) === generation) {
+          optionSnapshots.set(db, {
+            value: cachedOptions,
+            expiresAt: Date.now() + OPTIONS_SNAPSHOT_TTL_MS,
+            generation,
+          });
+        }
+      } finally {
+        if (pendingOptionLoads.get(db) === pendingRecord) {
+          pendingOptionLoads.delete(db);
+        }
+      }
+    }
   }
 
-  const existingLoad = pendingOptionLoads.get(db);
-  if (existingLoad?.generation === generation) {
-    return { ...await existingLoad.promise };
-  }
-
-  const pending = loadOptionsFresh(db);
-  const pendingRecord = { promise: pending, generation };
-  pendingOptionLoads.set(db, pendingRecord);
-  try {
-    const value = await pending;
-    if (getOptionsSnapshotGeneration(db) === generation) {
-      optionSnapshots.set(db, {
-        value,
-        expiresAt: Date.now() + OPTIONS_SNAPSHOT_TTL_MS,
-        generation,
-      });
-    }
-    return { ...value };
-  } finally {
-    if (pendingOptionLoads.get(db) === pendingRecord) {
-      pendingOptionLoads.delete(db);
-    }
-  }
+  // Secrets and whole plugin configs must never enter L0, Cache API, KV, or
+  // D1 KV. They stay direct D1 reads and are only merged into this request's
+  // context after the cacheable public option projection has been resolved.
+  const privateOptions = await loadPrivateOptions(db);
+  return { ...cachedOptions, ...privateOptions } as SiteOptions;
 }
 
-async function loadOptionsFresh(db: Database): Promise<SiteOptions> {
+async function loadCachedOptionsFresh(db: Database): Promise<CachedSiteOptions> {
   return loadEarlyRequestSharedData(
     'options',
-    'global',
-    ({ providerHandled }) => loadOptionsFromFallback(db, !providerHandled),
+    'public-v2',
+    ({ providerHandled }) => loadCachedOptionsFromFallback(db, !providerHandled),
     db,
     getOptionsSnapshotGeneration(db),
   );
 }
 
-async function loadOptionsFromFallback(db: Database, allowLegacyCache: boolean): Promise<SiteOptions> {
-  // Try cache first — key is versioned by cacheVersion so cross-PoP
-  // writes automatically bust the entry (one D1 read is much cheaper
-  // than reloading all rows).
-  const cached = allowLegacyCache ? await getCachedOptions(db) : null;
-  if (cached) {
-    return cached as unknown as SiteOptions;
-  }
+function isPrivateOptionName(name: string): boolean {
+  return name === 'secret' || name.startsWith('plugin:');
+}
 
-  const rows = await db
-    .select()
-    .from(schema.options)
-    .where(eq(schema.options.user, 0));
-
+function parseOptions(rows: Array<{ name: string; value: string | null }>): Record<string, string | number | null | undefined> {
   const opts: Record<string, string | number | null | undefined> = { ...defaultOptions };
   for (const row of rows) {
     opts[row.name] = row.value;
   }
 
-  // Parse numeric values
   const numericKeys = [
     'timezone', 'frontArchive', 'pageSize', 'postsListSize',
     'commentsListSize', 'defaultCategory', 'allowRegister', 'allowXmlRpc', 'defaultAllowComment',
@@ -273,12 +270,49 @@ async function loadOptionsFromFallback(db: Database, allowLegacyCache: boolean):
       opts[key] = parseInt(opts[key] as string, 10) || 0;
     }
   }
+  return opts;
+}
+
+function stripPrivateOptions(options: Record<string, unknown>): CachedSiteOptions {
+  const entries = Object.entries(options).filter(([name]) => !isPrivateOptionName(name));
+  return Object.fromEntries(entries) as CachedSiteOptions;
+}
+
+async function loadCachedOptionsFromFallback(db: Database, allowLegacyCache: boolean): Promise<CachedSiteOptions> {
+  // Try cache first — key is versioned by cacheVersion so cross-PoP
+  // writes automatically bust the entry (one D1 read is much cheaper
+  // than reloading all rows).
+  const cached = allowLegacyCache ? await getCachedOptions(db) : null;
+  if (cached) {
+    return stripPrivateOptions(cached);
+  }
+
+  const rows = await db
+    .select({ name: schema.options.name, value: schema.options.value })
+    .from(schema.options)
+    .where(and(
+      eq(schema.options.user, 0),
+      sql`${schema.options.name} <> 'secret' AND ${schema.options.name} NOT LIKE 'plugin:%'`,
+    ));
+
+  const opts = parseOptions(rows) as CachedSiteOptions;
 
   // Write to cache for subsequent requests, keyed by the version stamp
   // present at read time.
   await setCachedOptions(opts, opts.cacheVersion ?? 0);
 
-  return opts as unknown as SiteOptions;
+  return opts;
+}
+
+async function loadPrivateOptions(db: Database): Promise<Record<string, string | null>> {
+  const rows = await db
+    .select({ name: schema.options.name, value: schema.options.value })
+    .from(schema.options)
+    .where(and(
+      eq(schema.options.user, 0),
+      sql`${schema.options.name} = 'secret' OR ${schema.options.name} LIKE 'plugin:%'`,
+    ));
+  return Object.fromEntries(rows.map(row => [row.name, row.value]));
 }
 
 /**

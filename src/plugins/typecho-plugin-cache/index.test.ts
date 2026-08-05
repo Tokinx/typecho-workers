@@ -9,6 +9,7 @@ import {
   registerEarlyRequestLoaders,
   resetEarlyRequestProvidersForTests,
 } from '@/lib/early-request';
+import { loadQueryCache } from '@/lib/query-cache';
 import {
   CACHE_CONTROL_KEY,
   CACHE_PLUGIN_ID,
@@ -131,6 +132,7 @@ beforeEach(() => {
   resetCacheProviderForTests();
   resetEarlyRequestProvidersForTests();
   env.TYPECHO_CACHE = null as any;
+  env.DB = null as any;
   vi.restoreAllMocks();
 });
 
@@ -524,6 +526,204 @@ describe('typecho-plugin-cache provider', () => {
     expect(entry?.[1]?.expirationTtl).toBe(60);
   });
 
+  it('isolates viewer query values and expires every authenticated remote entry in one minute', async () => {
+    const kv = new MemoryKv();
+    await activate(kv);
+    registerEarlyRequestLoaders({ [CACHE_PLUGIN_ID]: async () => earlyRequestProvider });
+    const db = {};
+    const viewer = (uid: number, group: string, authCode: string) => ({
+      db,
+      isLoggedIn: true,
+      user: { uid, group, authCode },
+    } as any);
+
+    expect(await loadQueryCache(viewer(1, 'administrator', 'session-a'), {
+      domain: 'notes', scope: 'viewer', key: { page: 1 },
+    }, async () => ({ value: 'first' }))).toEqual({ value: 'first' });
+    expect(await loadQueryCache(viewer(2, 'administrator', 'session-b'), {
+      domain: 'notes', scope: 'viewer', key: { page: 1 },
+    }, async () => ({ value: 'second' }))).toEqual({ value: 'second' });
+    expect(await loadQueryCache(viewer(1, 'editor', 'session-a'), {
+      domain: 'notes', scope: 'viewer', key: { page: 1 },
+    }, async () => ({ value: 'role-changed' }))).toEqual({ value: 'role-changed' });
+    expect(await loadQueryCache(viewer(1, 'administrator', 'session-c'), {
+      domain: 'notes', scope: 'viewer', key: { page: 1 },
+    }, async () => ({ value: 'rotated' }))).toEqual({ value: 'rotated' });
+
+    const entries = [...kv.putOptions.entries()].filter(([key]) => key.includes(':s:notes:'));
+    expect(entries).toHaveLength(4);
+    expect(entries.every(([, options]) => options?.expirationTtl === 60)).toBe(true);
+    expect(entries.some(([key]) => key.includes('session-a') || key.includes(':1:'))).toBe(false);
+  });
+
+  it('uses D1 query storage without a KV binding and advances its own generation', async () => {
+    const d1 = new MemoryD1();
+    env.DB = d1 as any;
+    env.TYPECHO_CACHE = null as any;
+    const settings = {
+      ...defaultSettings,
+      adminDataCacheBackend: 'd1',
+    };
+    const request = new Request('https://example.com/admin');
+    await earlyRequestProvider.sync!({
+      request,
+      active: true,
+      options: { [`plugin:${CACHE_PLUGIN_ID}`]: JSON.stringify(settings) },
+    });
+    registerEarlyRequestLoaders({ [CACHE_PLUGIN_ID]: async () => earlyRequestProvider });
+    const context = {
+      db: {},
+      isLoggedIn: true,
+      user: { uid: 7, group: 'administrator', authCode: 'auth-code' },
+    } as any;
+    const firstLoader = vi.fn(async () => ({ count: 1 }));
+    expect(await loadQueryCache(context, {
+      domain: 'admin-dashboard', scope: 'viewer', key: { view: 'dashboard' },
+    }, firstLoader)).toEqual({ count: 1 });
+    expect(firstLoader).toHaveBeenCalledOnce();
+    expect([...d1.rows.keys()].some(key => key.startsWith('typecho:edge-cache:v2:d:admin-dashboard:'))).toBe(true);
+    expect([...d1.rows.keys()].some(key => key.startsWith('typecho:edge-cache:v1:p:'))).toBe(false);
+
+    resetEarlyRequestProvidersForTests();
+    registerEarlyRequestLoaders({ [CACHE_PLUGIN_ID]: async () => earlyRequestProvider });
+    const cachedLoader = vi.fn(async () => ({ count: 2 }));
+    expect(await loadQueryCache(context, {
+      domain: 'admin-dashboard', scope: 'viewer', key: { view: 'dashboard' },
+    }, cachedLoader)).toEqual({ count: 1 });
+    expect(cachedLoader).not.toHaveBeenCalled();
+
+    await notifyEarlyRequestInvalidation({
+      reason: 'dashboard-write', domains: [], sharedDomains: ['admin-dashboard'],
+    });
+    const refreshedLoader = vi.fn(async () => ({ count: 3 }));
+    expect(await loadQueryCache(context, {
+      domain: 'admin-dashboard', scope: 'viewer', key: { view: 'dashboard' },
+    }, refreshedLoader)).toEqual({ count: 3 });
+    expect(refreshedLoader).toHaveBeenCalledOnce();
+  });
+
+  it('routes frontend query data to its selected D1 backend', async () => {
+    const d1 = new MemoryD1();
+    env.DB = d1 as any;
+    await earlyRequestProvider.sync!({
+      request: new Request('https://example.com/'),
+      active: true,
+      options: {
+        [`plugin:${CACHE_PLUGIN_ID}`]: JSON.stringify({
+          ...defaultSettings,
+          frontendDataCacheBackend: 'd1',
+        }),
+      },
+    });
+    registerEarlyRequestLoaders({ [CACHE_PLUGIN_ID]: async () => earlyRequestProvider });
+    const loader = vi.fn(async () => ({ entries: [] }));
+    expect(await loadQueryCache({ db: {}, isLoggedIn: false } as any, {
+      domain: 'archive', key: { page: 1 },
+    }, loader)).toEqual({ entries: [] });
+    expect(loader).toHaveBeenCalledOnce();
+    expect([...d1.rows.keys()].some(key => key.startsWith('typecho:edge-cache:v2:d:archive:'))).toBe(true);
+  });
+
+  it('invalidates both data stores and L0 when a data backend is switched', async () => {
+    const kv = new MemoryKv();
+    const d1 = new MemoryD1();
+    env.DB = d1 as any;
+    await activate(kv);
+    registerEarlyRequestLoaders({ [CACHE_PLUGIN_ID]: async () => earlyRequestProvider });
+    const context = {
+      db: {},
+      isLoggedIn: true,
+      user: { uid: 8, group: 'administrator', authCode: 'switch-auth' },
+    } as any;
+    expect(await loadQueryCache(context, {
+      domain: 'admin-dashboard', scope: 'viewer', key: { view: 'dashboard' },
+    }, async () => ({ backend: 'kv' }))).toEqual({ backend: 'kv' });
+    expect([...kv.store.keys()].some(key => key.includes(':s:admin-dashboard:'))).toBe(true);
+
+    await earlyRequestProvider.lifecycle!({
+      type: 'config',
+      settings: {
+        ...defaultSettings,
+        adminDataCacheBackend: 'd1',
+      },
+      options: { siteUrl: 'https://example.com' },
+    });
+
+    const loader = vi.fn(async () => ({ backend: 'd1' }));
+    expect(await loadQueryCache(context, {
+      domain: 'admin-dashboard', scope: 'viewer', key: { view: 'dashboard' },
+    }, loader)).toEqual({ backend: 'd1' });
+    expect(loader).toHaveBeenCalledOnce();
+    expect([...d1.rows.keys()].some(key => key.startsWith('typecho:edge-cache:v2:d:admin-dashboard:'))).toBe(true);
+    expect([...d1.rows.keys()].some(key => key.startsWith('typecho:edge-cache:v2:dg:admin-dashboard'))).toBe(true);
+  });
+
+  it('keeps D1 page L3 rows separate from D1 query rows', async () => {
+    const kv = new MemoryKv();
+    const d1 = new MemoryD1();
+    env.DB = d1 as any;
+    await activate(kv, {
+      ...defaultSettings,
+      l1Ttl: '0',
+      l2Ttl: '0',
+      l3Ttl: '300',
+      adminDataCacheBackend: 'd1',
+    });
+    await earlyRequestProvider.handle(requestContext('https://example.com/archives/44/', d1), async () =>
+      new Response('<html>page L3</html>', { headers: { 'Content-Type': 'text/html' } }),
+    );
+    registerEarlyRequestLoaders({ [CACHE_PLUGIN_ID]: async () => earlyRequestProvider });
+    await loadQueryCache({
+      db: {},
+      isLoggedIn: true,
+      user: { uid: 9, group: 'administrator', authCode: 'l3-query' },
+    } as any, {
+      domain: 'admin-dashboard', scope: 'viewer', key: { view: 'dashboard' },
+    }, async () => ({ value: 'query' }));
+
+    expect([...d1.rows.keys()].some(key => key.startsWith('typecho:edge-cache:v1:p:'))).toBe(true);
+    expect([...d1.rows.keys()].some(key => key.startsWith('typecho:edge-cache:v2:d:admin-dashboard:'))).toBe(true);
+  });
+
+  it('rejects viewer caching before an unverified context can reach KV', async () => {
+    const kv = new MemoryKv();
+    await activate(kv);
+    registerEarlyRequestLoaders({ [CACHE_PLUGIN_ID]: async () => earlyRequestProvider });
+    await expect(loadQueryCache({
+      db: {},
+      isLoggedIn: false,
+      user: { uid: 1, group: 'administrator', authCode: 'forged' },
+    } as any, {
+      domain: 'admin-dashboard', scope: 'viewer', key: { view: 'dashboard' },
+    }, async () => ({ value: 'forged' }))).rejects.toThrow('validated user');
+    expect([...kv.store.keys()].some(key => key.includes(':s:admin-dashboard:'))).toBe(false);
+  });
+
+  it('configures frontend and admin data backends separately while accepting legacy settings', () => {
+    const settings = normalizeCacheConfig({
+      frontendDataCacheBackend: 'd1',
+      adminDataCacheBackend: 'kv',
+    });
+    expect(settings.frontendDataCacheBackend).toBe('d1');
+    expect(settings.adminDataCacheBackend).toBe('kv');
+    expect(normalizeCacheConfig({}).frontendDataCacheBackend).toBe('kv');
+    expect(normalizeCacheConfig({}).adminDataCacheBackend).toBe('kv');
+
+    const legacy = normalizeCacheConfig({
+      dataCacheBackends: [{ domain: 'admin-dashboard', backend: 'd1' }],
+    });
+    expect(legacy.legacyDataCacheBackends).toEqual([{ domain: 'admin-dashboard', backend: 'd1' }]);
+    expect(() => normalizeCacheConfig({ dataCacheBackends: [
+      { domain: 'notes', backend: 'kv' },
+      { domain: 'notes', backend: 'd1' },
+    ] })).toThrow('不能重复');
+    expect(() => normalizeCacheConfig({ dataCacheBackends: [
+      { domain: 'unknown', backend: 'kv' },
+    ] })).toThrow('缓存域无效');
+    expect(() => normalizeCacheConfig({ frontendDataCacheBackend: 'unknown' }))
+      .toThrow('前台数据缓存后端无效');
+  });
+
   it('advances only the requested shared-data generation', async () => {
     const kv = new MemoryKv();
     await activate(kv);
@@ -544,6 +744,42 @@ describe('typecho-plugin-cache provider', () => {
     expect(await loadEarlyRequestSharedData('options', 'shared', unexpectedOptionsRead, {})).toEqual({ value: 1 });
     expect(refreshedSidebar).toHaveBeenCalledOnce();
     expect(unexpectedOptionsRead).not.toHaveBeenCalled();
+  });
+
+  it('does not repopulate a query cache when an in-flight read finishes after invalidation', async () => {
+    const kv = new MemoryKv();
+    await activate(kv);
+    registerEarlyRequestLoaders({ [CACHE_PLUGIN_ID]: async () => earlyRequestProvider });
+    const context = {
+      db: {},
+      isLoggedIn: true,
+      user: { uid: 10, group: 'administrator', authCode: 'concurrent-auth' },
+    } as any;
+    let startLoader!: () => void;
+    let releaseLoader!: () => void;
+    const started = new Promise<void>(resolve => { startLoader = resolve; });
+    const release = new Promise<void>(resolve => { releaseLoader = resolve; });
+    const staleLoader = vi.fn(async () => {
+      startLoader();
+      await release;
+      return { value: 'stale' };
+    });
+
+    const staleRequest = loadQueryCache(context, {
+      domain: 'admin-dashboard', scope: 'viewer', key: { view: 'dashboard' },
+    }, staleLoader);
+    await started;
+    await notifyEarlyRequestInvalidation({
+      reason: 'dashboard-write', domains: [], sharedDomains: ['admin-dashboard'],
+    });
+    releaseLoader();
+    expect(await staleRequest).toEqual({ value: 'stale' });
+
+    const freshLoader = vi.fn(async () => ({ value: 'fresh' }));
+    expect(await loadQueryCache(context, {
+      domain: 'admin-dashboard', scope: 'viewer', key: { view: 'dashboard' },
+    }, freshLoader)).toEqual({ value: 'fresh' });
+    expect(freshLoader).toHaveBeenCalledOnce();
   });
 
   it('fails open to the shared-data fallback when KV reads fail or the binding is missing', async () => {
@@ -868,8 +1104,21 @@ describe('plugin registration and controls', () => {
     expect(accepted.settings.bypassCookieNames).toBe('analytics_id,ThemePreference');
     expect(accepted.settings.l2Ttl).toBe('259200');
     expect(accepted.settings.l3Ttl).toBe('21600');
+    expect(accepted.settings.frontendDataCacheBackend).toBe('kv');
+    expect(accepted.settings.adminDataCacheBackend).toBe('kv');
     expect(accepted.settings.listTtl).toBeUndefined();
     expect(accepted.settings.detailTtl).toBeUndefined();
+
+    const migrated = hook({ success: true }, {
+      pluginId: 'typecho-plugin-cache',
+      settings: {
+        ...defaultSettings,
+        dataCacheBackends: [{ domain: 'admin-dashboard', backend: 'd1' }],
+      },
+    });
+    expect(migrated.settings.dataCacheBackends).toBeUndefined();
+    expect(migrated.settings.frontendDataCacheBackend).toBe('kv');
+    expect(migrated.settings.adminDataCacheBackend).toBe('kv');
 
     const disabled = hook({ success: true }, {
       pluginId: 'typecho-plugin-cache',

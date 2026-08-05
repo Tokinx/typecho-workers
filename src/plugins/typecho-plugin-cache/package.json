@@ -52,6 +52,20 @@
           "default": "21600",
           "options": { "0": "不缓存", "300": "5 分钟", "3600": "1 小时", "21600": "6 小时", "43200": "12 小时", "86400": "1 天" }
         },
+        "frontendDataCacheBackend": {
+          "type": "select",
+          "label": "前台数据缓存后端",
+          "description": "用于站点选项、导航、侧栏、元数据、评论、笔记、公开归档和内容。登录用户的前台权限裁剪结果也会写入所选后端。",
+          "default": "kv",
+          "options": { "kv": "Cloudflare KV", "d1": "D1 KV" }
+        },
+        "adminDataCacheBackend": {
+          "type": "select",
+          "label": "后台数据缓存后端",
+          "description": "用于仪表盘及后台的内容、评论、分类标签、媒体、用户和只读选项列表。登录用户结果会按已验证身份隔离后写入所选后端。",
+          "default": "kv",
+          "options": { "kv": "Cloudflare KV", "d1": "D1 KV" }
+        },
         "bypassCookieNames": {
           "type": "textarea",
           "label": "额外绕过 Cookie 名称",

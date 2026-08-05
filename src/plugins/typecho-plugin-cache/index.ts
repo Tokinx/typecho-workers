@@ -1,8 +1,9 @@
 import { env } from 'cloudflare:workers';
 import { addCspSource } from '@/lib/security-headers';
-import { loadPluginConfig } from '@/lib/plugin';
+import { loadPluginConfig, parsePluginOption } from '@/lib/plugin';
+import { notifyEarlyRequestInvalidation } from '@/lib/early-request';
 import type { PluginInitContext } from 'typecho/plugin-sdk';
-import type { PublicCacheDomain } from '@/lib/cache';
+import type { PublicCacheDomain, PublicCacheInvalidation } from '@/lib/cache';
 import { cacheAdminPageHtml } from './admin';
 import {
   CACHE_CONTROL_KEY,
@@ -11,7 +12,6 @@ import {
   earlyRequestProvider,
   getCacheRuntimeConfig,
   invalidateDomains,
-  invalidateSharedDomains,
   normalizeCacheConfig,
   rewriteResourceUrl,
   setCacheRuntimeConfig,
@@ -26,7 +26,7 @@ function kvBinding(): KVNamespace | null {
 }
 
 async function syncControl(options: Record<string, unknown>): Promise<void> {
-  const settings = loadPluginConfig(options, CACHE_PLUGIN_ID);
+  const settings = parsePluginOption(options[`plugin:${CACHE_PLUGIN_ID}`]);
   setCacheRuntimeConfig(settings);
   const kv = kvBinding();
   if (!kv) return;
@@ -57,11 +57,18 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
     if (extra?.pluginId !== pluginId) return result;
     try {
       const normalized = normalizeCacheConfig(extra.settings || {});
+      const {
+        dataCacheBackends: _legacyDataCacheBackends,
+        legacyDataCacheBackends: _normalizedLegacyDataCacheBackends,
+        ...savedSettings
+      } = extra.settings || {};
       return {
         success: true,
         settings: {
-          ...(extra.settings || {}),
-          ...normalized,
+          ...savedSettings,
+          cacheScopes: normalized.cacheScopes,
+          frontendDataCacheBackend: normalized.frontendDataCacheBackend,
+          adminDataCacheBackend: normalized.adminDataCacheBackend,
           staticExtensions: normalized.staticExtensions.join(','),
           bypassCookieNames: normalized.bypassCookieNames.join(','),
           l1Ttl: String(normalized.l1Ttl),
@@ -122,15 +129,22 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
   addHook(`plugin:${pluginId}:action:auth`, pluginId, () => 'administrator');
   addHook(`plugin:${pluginId}:action`, pluginId, async (result: any, extra?: { action?: string; payload?: any }) => {
     if (extra?.action !== 'invalidate') return result;
-    const kv = kvBinding();
-    if (!kv) return { handled: true, success: false, error: '未配置 TYPECHO_CACHE binding' };
     const requested = String(extra.payload?.domain || 'all');
     const allowed = new Set<PublicCacheDomain | 'all'>(['home', 'post', 'page', 'note', 'archive', 'other', 'all']);
     if (!allowed.has(requested as PublicCacheDomain | 'all')) {
       return { handled: true, success: false, error: '缓存域无效' };
     }
-    await invalidateDomains(kv, [requested as PublicCacheDomain] as PublicCacheDomain[] | ['all']);
-    if (requested === 'all') await invalidateSharedDomains(kv, ['all']);
+    const event: PublicCacheInvalidation = {
+      reason: 'manual',
+      domains: [requested as PublicCacheDomain] as PublicCacheDomain[] | ['all'],
+      sharedDomains: requested === 'all' ? ['all'] : [],
+    };
+    // Production reaches the registered early provider, which also clears L0.
+    // The direct fallback keeps plugin actions usable in an already initialized
+    // isolate before the generated loader registry has been imported.
+    const handled = await notifyEarlyRequestInvalidation(event)
+      || await earlyRequestProvider.invalidate!(event);
+    if (!handled) return { handled: true, success: false, error: '缓存后端不可用或插件未启用' };
     return { handled: true, success: true, message: '缓存代际已更新' };
   });
 }

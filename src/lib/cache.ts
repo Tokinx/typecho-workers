@@ -17,7 +17,29 @@ import { advanceOptionsSnapshotGeneration } from '@/lib/options-snapshot-generat
 import { notifyEarlyRequestInvalidation } from '@/lib/early-request';
 
 export type PublicCacheDomain = 'home' | 'post' | 'page' | 'note' | 'archive' | 'other';
-export type SharedCacheDomain = 'options' | 'navigation' | 'sidebar' | 'metas' | 'comments' | 'notes';
+/**
+ * Server-side data projections cached independently from rendered HTML.
+ *
+ * The cache provider may persist these domains in KV or the D1-backed KV
+ * table. Keep the set closed so every mutation has an auditable invalidation
+ * target instead of accepting arbitrary cache namespaces from callers.
+ */
+export type SharedCacheDomain =
+  | 'options'
+  | 'navigation'
+  | 'sidebar'
+  | 'metas'
+  | 'comments'
+  | 'notes'
+  | 'archive'
+  | 'content'
+  | 'admin-dashboard'
+  | 'admin-content'
+  | 'admin-comments'
+  | 'admin-metas'
+  | 'admin-media'
+  | 'admin-users'
+  | 'admin-options';
 
 /** Internal response marker consumed by the page cache provider. */
 export const PUBLIC_HTML_HEADER = 'X-Typecho-Public-HTML';
