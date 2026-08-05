@@ -6,23 +6,24 @@ import {
   loadThemeConfig,
   parseThemeConfigFormData,
   registerTheme,
+  getAvailableThemes,
   themeHasConfig,
   themeExists,
 } from './theme';
 
 describe('theme appearance configuration', () => {
-  it('exposes the built-in theme configuration when no loader registry exists', () => {
-    expect(themeExists('typecho-theme-minimal')).toBe(true);
-    expect(themeHasConfig('typecho-theme-minimal')).toBe(true);
-    expect(getThemeConfigDefaults('typecho-theme-minimal').sidebarBlock).toContain('ShowArchive');
+  it('exposes the Warm theme configuration when no loader registry exists', () => {
+    expect(themeExists('typecho-theme-warm')).toBe(true);
+    expect(themeHasConfig('typecho-theme-warm')).toBe(true);
+    expect(getThemeConfigDefaults('typecho-theme-warm').commentComponentLoadMode).toBe('manual');
   });
 
   it('merges saved settings over manifest defaults', () => {
     const values = loadThemeConfig({
-      'theme:typecho-theme-minimal': JSON.stringify({ logoUrl: 'https://example.com/logo.png' }),
-    }, 'typecho-theme-minimal');
-    expect(values.logoUrl).toBe('https://example.com/logo.png');
-    expect(values.sidebarBlock).toContain('ShowRecentPosts');
+      'theme:typecho-theme-warm': JSON.stringify({ githubUrl: 'https://github.com/example' }),
+    }, 'typecho-theme-warm');
+    expect(values.githubUrl).toBe('https://github.com/example');
+    expect(values.commentInitialLoadMode).toBe('manual');
   });
 
   it('uses the shared Typecho form parser for multi-value fields', () => {
@@ -44,13 +45,15 @@ describe('theme appearance configuration', () => {
   });
 
   it('keeps the default theme settings when a running registry predates its manifest config', () => {
-    registerTheme('typecho-theme-minimal', {
-      id: 'typecho-theme-minimal',
-      name: 'Typecho Minimal',
-    }, '/themes/typecho-theme-minimal/style.css');
-    expect(themeHasConfig('typecho-theme-minimal')).toBe(true);
-    expect(getThemeConfigDefaults('typecho-theme-minimal').logoUrl).toBe('');
-    expect(getThemeConfigDefinition('typecho-theme-minimal')?.sidebarBlock.multiline).toBe(true);
-    expect(getActiveTheme('typecho-theme-minimal').manifest.screenshot).toBe('screenshot.png');
+    registerTheme('typecho-theme-warm', {
+      id: 'typecho-theme-warm',
+      name: 'Typecho Warm',
+    }, '/themes/typecho-theme-warm/style.css');
+    expect(themeHasConfig('typecho-theme-warm')).toBe(true);
+    expect(getThemeConfigDefaults('typecho-theme-warm').githubUrl).toBe('');
+    expect(getThemeConfigDefinition('typecho-theme-warm')?.commentInitialLoadMode.default).toBe('manual');
+    expect(getActiveTheme('typecho-theme-warm').manifest.commentsMode).toBe('api');
+    expect(getActiveTheme('typecho-theme-warm').manifest.publicHtml).toBe(true);
+    expect(getAvailableThemes('typecho-theme-warm').find(theme => theme.id === 'typecho-theme-warm')?.isDefault).toBe(true);
   });
 });

@@ -10,9 +10,9 @@ if (!searchKeywords) return Astro.redirect('/');
 const ctx = await createContext(Astro.locals, Astro.request);
 const { options } = ctx;
 
-const activeTheme = options.theme || 'typecho-theme-minimal';
+const activeTheme = options.theme || 'typecho-theme-warm';
 const templates = themeTemplates[activeTheme] ?? {};
-const defaultTemplates = themeTemplates['typecho-theme-minimal']!;
+const defaultTemplates = themeTemplates['typecho-theme-warm']!;
 let Component = templates.Archive ?? defaultTemplates.Archive!;
 let result = await prepareSearchData(ctx, searchKeywords, Astro.request.url, Astro.locals, Astro.url);
 if (result instanceof Response) {

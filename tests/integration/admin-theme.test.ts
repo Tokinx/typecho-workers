@@ -38,7 +38,7 @@ describe('POST /api/admin/theme', () => {
     const req = new Request('https://example.com/api/admin/theme', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ theme: 'typecho-theme-minimal' }),
+      body: JSON.stringify({ theme: 'typecho-theme-warm' }),
     });
     const res = await POST({ request: req, locals: {} } as any);
     expect(res.status).toBe(401);
@@ -85,9 +85,9 @@ describe('POST /api/admin/theme', () => {
     const res = await GET_CONFIG({ request: req, url: new URL(req.url) } as any);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.theme).toBe('typecho-theme-minimal');
-    expect(body.fields.logoUrl.type).toBe('text');
-    expect(body.values.sidebarBlock).toContain('ShowRecentPosts');
+    expect(body.theme).toBe('typecho-theme-warm');
+    expect(body.fields.commentComponentLoadMode.type).toBe('select');
+    expect(body.values.commentInitialLoadMode).toBe('manual');
   });
 
   it('saves only declared active theme appearance settings', async () => {
@@ -97,8 +97,8 @@ describe('POST /api/admin/theme', () => {
       headers: { 'content-type': 'application/json', cookie, origin: 'https://example.com' },
       body: JSON.stringify({
         settings: {
-          logoUrl: 'https://example.com/logo.png',
-          sidebarBlock: ['ShowCategory'],
+          githubUrl: 'https://github.com/example',
+          commentComponentLoadMode: 'dwell',
           unexpected: 'discard me',
         },
       }),
@@ -106,11 +106,14 @@ describe('POST /api/admin/theme', () => {
     const res = await POST_CONFIG({ request: req, locals: {} } as any);
     expect(res.status).toBe(200);
     const saved = await testDb.query.options.findFirst({
-      where: (options, { eq }) => eq(options.name, 'theme:typecho-theme-minimal'),
+      where: (options, { eq }) => eq(options.name, 'theme:typecho-theme-warm'),
     });
-    expect(JSON.parse(saved?.value || '{}')).toEqual({
-      logoUrl: 'https://example.com/logo.png',
-      sidebarBlock: ['ShowCategory'],
+    expect(JSON.parse(saved?.value || '{}')).toMatchObject({
+      githubUrl: 'https://github.com/example',
+      commentComponentLoadMode: 'dwell',
+      commentInitialLoadMode: 'manual',
+      continuousLoadMode: 'manual',
     });
+    expect(JSON.parse(saved?.value || '{}')).not.toHaveProperty('unexpected');
   });
 });

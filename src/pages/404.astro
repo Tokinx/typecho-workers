@@ -4,11 +4,11 @@ import { createContext } from '@/lib/context';
 import { prepareNotFoundData } from '@/lib/page-data';
 
 let data;
-let activeTheme = 'minimal';
+let activeTheme = 'typecho-theme-warm';
 
 try {
   const ctx = await createContext(Astro.locals, Astro.request);
-  activeTheme = ctx.options.theme || 'minimal';
+  activeTheme = ctx.options.theme || 'typecho-theme-warm';
   data = await prepareNotFoundData(ctx, Astro.request.url);
 } catch {
   // If DB not initialized, provide minimal fallback data
@@ -27,7 +27,7 @@ try {
 
 // Select theme component
 const templates = themeTemplates[activeTheme] ?? {};
-const defaultTemplates = themeTemplates['typecho-theme-minimal']!;
+const defaultTemplates = themeTemplates['typecho-theme-warm']!;
 const NotFoundComponent = templates.NotFound ?? defaultTemplates.NotFound!;
 ---
 <NotFoundComponent {...data} />

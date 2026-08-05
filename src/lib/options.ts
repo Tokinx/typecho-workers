@@ -80,7 +80,7 @@ export interface SiteOptions {
 }
 
 const defaultOptions: Partial<SiteOptions> = {
-  theme: 'typecho-theme-minimal',
+  theme: 'typecho-theme-warm',
   timezone: 28800,
   lang: 'zh_CN',
   charset: 'UTF-8',

@@ -25,7 +25,7 @@ export const GET: APIRoute = async ({ request }) => {
   const auth = await requireAdminAction(request, 'administrator', { csrf: false });
   if (isAdminActionResponse(auth)) return errorResponse('权限不足', auth.status === 401 ? 401 : 403);
 
-  const theme = getActiveTheme(String(auth.options.theme || 'typecho-theme-minimal'));
+  const theme = getActiveTheme(String(auth.options.theme || 'typecho-theme-warm'));
   const config = getThemeConfigDefinition(theme.id);
   if (!themeHasConfig(theme.id) || !config) return errorResponse('当前外观没有设置项', 404);
 
@@ -41,7 +41,7 @@ export const POST: APIRoute = async ({ request }) => {
   const auth = await requireAdminAction(request, 'administrator');
   if (isAdminActionResponse(auth)) return errorResponse('权限不足', auth.status === 401 ? 401 : 403);
 
-  const theme = getActiveTheme(String(auth.options.theme || 'typecho-theme-minimal'));
+  const theme = getActiveTheme(String(auth.options.theme || 'typecho-theme-warm'));
   const config = getThemeConfigDefinition(theme.id);
   if (!themeHasConfig(theme.id) || !config) return errorResponse('当前外观没有设置项', 404);
 

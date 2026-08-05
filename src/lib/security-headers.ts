@@ -9,7 +9,7 @@
 import { applyFilterSafely, type HookContext } from '@/lib/plugin';
 
 /**
- * The default Content-Security-Policy. Tuned for the bundled minimal
+ * The default Content-Security-Policy. Tuned for the bundled Warm
  * theme + common embedded content (the markdown sanitizer permits embedded
  * youtube/bilibili/vimeo iframes, and gravatar URLs are images).
  *

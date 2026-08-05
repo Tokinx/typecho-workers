@@ -28,7 +28,7 @@ import { registerTheme } from '@/lib/theme';
 
 const secret = 'comment-status-secret';
 
-function buildContext(theme = 'typecho-theme-minimal') {
+function buildContext(theme = 'typecho-theme-warm') {
   return {
     db: testDb,
     options: {
@@ -68,7 +68,7 @@ describe('page data comment moderation state', () => {
     await disposeTestDb(testDb);
   });
 
-  it('exposes a submitted waiting comment and its moderation state only with its signed capability', async () => {
+  it('leaves submitted waiting comments to the dynamic Warm API', async () => {
     const created = Math.floor(Date.now() / 1000) - 60;
     const [post] = await testDb.insert(schema.contents).values({
       title: 'Published post',
@@ -98,10 +98,8 @@ describe('page data comment moderation state', () => {
 
     expect(result).not.toBeInstanceOf(Response);
     if (result instanceof Response) throw new Error('expected post props');
-    expect(result.comments).toEqual([
-      expect.objectContaining({ coid: comment.coid, status: 'waiting' }),
-    ]);
-    expect(loadCommentPageSpy).toHaveBeenCalledOnce();
+    expect(result.comments).toEqual([]);
+    expect(loadCommentPageSpy).not.toHaveBeenCalled();
   });
 
   it('skips comment-row queries for Warm post data', async () => {

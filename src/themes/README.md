@@ -1,6 +1,6 @@
 # 主题开发规范
 
-> 本文档是 Typecho-Workers 主题开发的完整参考。以 `typecho-theme-minimal/` 目录为示例。
+> 本文档是 Typecho-Workers 主题开发的完整参考。以 `typecho-theme-warm/` 目录为默认主题示例。
 
 [English](README.en.md)
 
@@ -334,9 +334,8 @@ pnpm run build
 
 ## 参考示例
 
-`typecho-theme-minimal/` 目录演示了：
-- `theme.json` 多样式表声明（`normalize.css` + `grid.css` + `style.css`）
-- 完整 5 个模板组件（含嵌套评论列表 `CommentList.astro`）
-- `ThemePostProps` 所有字段的使用（密码保护、评论嵌套回复、前后篇导航）
-- `sidebarData` 渲染（最近文章、最近评论、分类、归档）
-- 插件客户端代码集成（`getClientSnippet`）
+`typecho-theme-warm/` 目录演示了：
+- 完整 5 个模板组件与 Notes 混合时间线
+- 公共 HTML 与 API 异步评论组件
+- `ThemePostProps` 的文章详情、评论和相邻文章导航
+- 内容列表与评论列表的渐进式加载

@@ -182,7 +182,7 @@ const pageEditorTitle = isEdit
   : requestedParent
     ? `新增 ${requestedParent.title || '无标题'} 的子页面`
     : '创建新页面';
-const activeTheme = options.theme || 'typecho-theme-minimal';
+const activeTheme = options.theme || 'typecho-theme-warm';
 const pageTemplateOptions = Object.entries(themeTemplates[activeTheme]?.PageTemplates ?? {});
 const hasCurrentPageTemplate = !page?.template || pageTemplateOptions.some(([template]) => template === page?.template);
 const writePageOptionHtml = await applyFilterSafely(ctx, 'admin:writePage:option', '', { options, page, user, isEdit });

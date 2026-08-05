@@ -25,34 +25,31 @@ importers:
         version: 2.17.6
       typecho-plugin-antispam:
         specifier: file:src/plugins/typecho-plugin-antispam
-        version: file:src/plugins/typecho-plugin-antispam
+        version: link:src/plugins/typecho-plugin-antispam
       typecho-plugin-cache:
         specifier: file:src/plugins/typecho-plugin-cache
-        version: file:src/plugins/typecho-plugin-cache
+        version: link:src/plugins/typecho-plugin-cache
       typecho-plugin-mailer:
         specifier: file:src/plugins/typecho-plugin-mailer
-        version: file:src/plugins/typecho-plugin-mailer
+        version: link:src/plugins/typecho-plugin-mailer
       typecho-plugin-notes:
         specifier: file:src/plugins/typecho-plugin-notes
-        version: file:src/plugins/typecho-plugin-notes
+        version: link:src/plugins/typecho-plugin-notes
       typecho-plugin-scribe:
         specifier: file:src/plugins/typecho-plugin-scribe
-        version: file:src/plugins/typecho-plugin-scribe
+        version: link:src/plugins/typecho-plugin-scribe
       typecho-plugin-turnstile:
         specifier: file:src/plugins/typecho-plugin-turnstile
-        version: file:src/plugins/typecho-plugin-turnstile
+        version: link:src/plugins/typecho-plugin-turnstile
       typecho-plugin-webdav:
         specifier: file:src/plugins/typecho-plugin-webdav
-        version: file:src/plugins/typecho-plugin-webdav
+        version: link:src/plugins/typecho-plugin-webdav
       typecho-plugin-wechat-publisher:
         specifier: file:src/plugins/typecho-plugin-wechat-publisher
-        version: file:src/plugins/typecho-plugin-wechat-publisher
-      typecho-theme-minimal:
-        specifier: file:src/themes/typecho-theme-minimal
-        version: file:src/themes/typecho-theme-minimal
+        version: link:src/plugins/typecho-plugin-wechat-publisher
       typecho-theme-warm:
         specifier: file:src/themes/typecho-theme-warm
-        version: file:src/themes/typecho-theme-warm
+        version: link:src/themes/typecho-theme-warm
     devDependencies:
       '@libsql/client':
         specifier: ^0.17.4
@@ -100,8 +97,6 @@ importers:
   src/plugins/typecho-plugin-webdav: {}
 
   src/plugins/typecho-plugin-wechat-publisher: {}
-
-  src/themes/typecho-theme-minimal: {}
 
   src/themes/typecho-theme-warm: {}
 
@@ -2433,36 +2428,6 @@ packages:
     engines: {node: '>=18.0.0'}
     hasBin: true
 
-  typecho-plugin-antispam@file:src/plugins/typecho-plugin-antispam:
-    resolution: {directory: src/plugins/typecho-plugin-antispam, type: directory}
-
-  typecho-plugin-cache@file:src/plugins/typecho-plugin-cache:
-    resolution: {directory: src/plugins/typecho-plugin-cache, type: directory}
-
-  typecho-plugin-mailer@file:src/plugins/typecho-plugin-mailer:
-    resolution: {directory: src/plugins/typecho-plugin-mailer, type: directory}
-
-  typecho-plugin-notes@file:src/plugins/typecho-plugin-notes:
-    resolution: {directory: src/plugins/typecho-plugin-notes, type: directory}
-
-  typecho-plugin-scribe@file:src/plugins/typecho-plugin-scribe:
-    resolution: {directory: src/plugins/typecho-plugin-scribe, type: directory}
-
-  typecho-plugin-turnstile@file:src/plugins/typecho-plugin-turnstile:
-    resolution: {directory: src/plugins/typecho-plugin-turnstile, type: directory}
-
-  typecho-plugin-webdav@file:src/plugins/typecho-plugin-webdav:
-    resolution: {directory: src/plugins/typecho-plugin-webdav, type: directory}
-
-  typecho-plugin-wechat-publisher@file:src/plugins/typecho-plugin-wechat-publisher:
-    resolution: {directory: src/plugins/typecho-plugin-wechat-publisher, type: directory}
-
-  typecho-theme-minimal@file:src/themes/typecho-theme-minimal:
-    resolution: {directory: src/themes/typecho-theme-minimal, type: directory}
-
-  typecho-theme-warm@file:src/themes/typecho-theme-warm:
-    resolution: {directory: src/themes/typecho-theme-warm, type: directory}
-
   typescript@7.0.2:
     resolution: {integrity: sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA==}
     engines: {node: '>=16.20.0'}
@@ -4774,26 +4739,6 @@ snapshots:
       esbuild: 0.28.1
     optionalDependencies:
       fsevents: 2.3.3
-
-  typecho-plugin-antispam@file:src/plugins/typecho-plugin-antispam: {}
-
-  typecho-plugin-cache@file:src/plugins/typecho-plugin-cache: {}
-
-  typecho-plugin-mailer@file:src/plugins/typecho-plugin-mailer: {}
-
-  typecho-plugin-notes@file:src/plugins/typecho-plugin-notes: {}
-
-  typecho-plugin-scribe@file:src/plugins/typecho-plugin-scribe: {}
-
-  typecho-plugin-turnstile@file:src/plugins/typecho-plugin-turnstile: {}
-
-  typecho-plugin-webdav@file:src/plugins/typecho-plugin-webdav: {}
-
-  typecho-plugin-wechat-publisher@file:src/plugins/typecho-plugin-wechat-publisher: {}
-
-  typecho-theme-minimal@file:src/themes/typecho-theme-minimal: {}
-
-  typecho-theme-warm@file:src/themes/typecho-theme-warm: {}
 
   typescript@7.0.2:
     optionalDependencies:

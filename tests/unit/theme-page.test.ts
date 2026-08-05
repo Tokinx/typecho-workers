@@ -29,7 +29,12 @@ describe('admin theme pages', () => {
     expect(source).toContain('name={`${key}[]`}');
   });
 
-  it('ships the Typecho default theme preview asset', () => {
-    expect(existsSync(join(process.cwd(), 'src/themes/typecho-theme-minimal/screenshot.png'))).toBe(true);
+  it('ships the Warm theme package as the default theme', () => {
+    const themeRoot = join(process.cwd(), 'src/themes/typecho-theme-warm');
+    expect(existsSync(join(themeRoot, 'theme.json'))).toBe(true);
+    expect(JSON.parse(readFileSync(join(themeRoot, 'theme.json'), 'utf8'))).toMatchObject({
+      id: 'typecho-theme-warm',
+      publicHtml: true,
+    });
   });
 });

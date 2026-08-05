@@ -53,7 +53,7 @@ export function normalizeContinuousLoadMode(value: unknown): WarmContinuousLoadM
 }
 
 export function normalizeCommentComponentLoadMode(value: unknown): WarmCommentComponentLoadMode {
-  return value === 'dwell' || value === 'manual' ? value : 'auto';
+  return value === 'dwell' || value === 'auto' ? value : 'manual';
 }
 
 export function normalizeCommentInitialLoadMode(value: unknown): WarmCommentInitialLoadMode {
@@ -61,7 +61,7 @@ export function normalizeCommentInitialLoadMode(value: unknown): WarmCommentInit
   if (value === 'infinite') return 'infinite';
   if (value === 'manual') return 'manual';
   if (value === 'auto-first' || value === 'dwell' || value === 'auto') return 'auto-first';
-  return 'auto-first';
+  return 'manual';
 }
 
 export function safeExternalUrl(value: unknown): string {

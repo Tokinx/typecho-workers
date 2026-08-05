@@ -169,7 +169,7 @@ describe('typecho-theme-warm', () => {
     expect(safeEmail('not-an-email')).toBe('');
     expect(normalizeCommentComponentLoadMode('dwell')).toBe('dwell');
     expect(normalizeCommentComponentLoadMode('manual')).toBe('manual');
-    expect(normalizeCommentComponentLoadMode('invalid')).toBe('auto');
+    expect(normalizeCommentComponentLoadMode('invalid')).toBe('manual');
     expect(normalizeContinuousLoadMode('auto-2')).toBe('auto-2');
     expect(normalizeContinuousLoadMode('invalid')).toBe('manual');
     expect(normalizeCommentInitialLoadMode('dwell')).toBe('auto-first');
@@ -178,6 +178,6 @@ describe('typecho-theme-warm', () => {
     expect(normalizeCommentInitialLoadMode('dwell-auto-2')).toBe('auto-2');
     expect(normalizeCommentInitialLoadMode('infinite')).toBe('infinite');
     expect(normalizeCommentInitialLoadMode('auto')).toBe('auto-first');
-    expect(normalizeCommentInitialLoadMode('invalid')).toBe('auto-first');
+    expect(normalizeCommentInitialLoadMode('invalid')).toBe('manual');
   });
 });

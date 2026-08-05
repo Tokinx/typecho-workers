@@ -113,7 +113,7 @@ describe('Middleware: no redirect loops when DB is ready', () => {
     await testDb.insert(schema.options).values({ name: 'installed', user: 0, value: '1' });
     await testDb.insert(schema.options).values({ name: 'secret', user: 0, value: 'test-secret-32-chars-long!!!!!' });
     await testDb.insert(schema.options).values({ name: 'title', user: 0, value: 'Test Blog' });
-    await testDb.insert(schema.options).values({ name: 'theme', user: 0, value: 'typecho-theme-minimal' });
+    await testDb.insert(schema.options).values({ name: 'theme', user: 0, value: 'typecho-theme-warm' });
   });
 
   for (const { method, path, expectStatus } of routes) {

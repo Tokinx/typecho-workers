@@ -215,7 +215,7 @@ describe('deleteOption()', () => {
 describe('computeUrls()', () => {
   const baseOpts = {
     siteUrl: 'https://example.com',
-    theme: 'typecho-theme-minimal',
+    theme: 'typecho-theme-warm',
   } as any;
 
   it('computes admin URL', () => {
@@ -237,6 +237,6 @@ describe('computeUrls()', () => {
 
   it('themeUrl builds correct path', () => {
     const urls = computeUrls(baseOpts);
-    expect(urls.themeUrl('style.css')).toBe('https://example.com/themes/typecho-theme-minimal/style.css');
+    expect(urls.themeUrl('style.css')).toBe('https://example.com/themes/typecho-theme-warm/style.css');
   });
 });

@@ -20,7 +20,7 @@ if (!hasPermission(ctx.user!.group || 'visitor', 'administrator')) {
 }
 
 const { options, urls, user, csrfToken } = ctx;
-const themeId = String(options.theme || 'typecho-theme-minimal');
+const themeId = String(options.theme || 'typecho-theme-warm');
 const theme = getActiveTheme(themeId);
 const configDef = getThemeConfigDefinition(theme.id);
 

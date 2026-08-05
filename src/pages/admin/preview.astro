@@ -25,9 +25,9 @@ if (!hasPermission(ctx.user!.group || 'visitor', 'editor') && row.authorId !== c
   return new Response('Forbidden', { status: 403 });
 }
 
-const activeTheme = (ctx.options.theme as string) || 'typecho-theme-minimal';
+const activeTheme = (ctx.options.theme as string) || 'typecho-theme-warm';
 const templates = themeTemplates[activeTheme] ?? {};
-const defaults = themeTemplates['typecho-theme-minimal']!;
+const defaults = themeTemplates['typecho-theme-warm']!;
 
 const isPage = row.type === 'page' || row.type === 'page_draft';
 const customPageTemplate = isPage && row.template

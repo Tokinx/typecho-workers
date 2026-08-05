@@ -33,9 +33,9 @@ if (Astro.request.method === 'POST') {
       if (!themeExists(themeId)) {
         message = `主题 "${themeId}" 不存在`;
         messageType = 'error';
-      } else if (themeId !== String(options.theme || 'typecho-theme-minimal')) {
+      } else if (themeId !== String(options.theme || 'typecho-theme-warm')) {
         const { mutateOptionsBatch } = await import('@/lib/options');
-        const previousThemeId = String(options.theme || 'typecho-theme-minimal');
+        const previousThemeId = String(options.theme || 'typecho-theme-warm');
         const optionSets: Record<string, string> = { theme: themeId };
 
         // Typecho removes the previous theme's settings when a new theme is
@@ -61,7 +61,7 @@ if (Astro.request.method === 'POST') {
   }
 }
 
-const activeThemeId = String(options.theme || 'typecho-theme-minimal');
+const activeThemeId = String(options.theme || 'typecho-theme-warm');
 const themes = getAvailableThemes(activeThemeId);
 const activeTheme = themes.find((theme) => theme.isActive) || themes[0];
 const canConfigureTheme = !!activeTheme && themeHasConfig(activeTheme.id);

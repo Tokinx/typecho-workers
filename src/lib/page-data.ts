@@ -64,7 +64,7 @@ async function loadThemeCommentPage(
   requestUrl: string,
   unapprovedCommentToken?: string | null,
 ): Promise<CommentPage> {
-  const theme = getActiveTheme(String(options.theme || 'typecho-theme-minimal'));
+  const theme = getActiveTheme(String(options.theme || 'typecho-theme-warm'));
   if (theme.manifest.commentsMode === 'api') {
     return {
       rows: [],
@@ -391,7 +391,7 @@ export interface ContentDataOptions {
 }
 
 function isPublicThemeHtml(ctx: RequestContext): boolean {
-  return getActiveTheme(String(ctx.options.theme || 'typecho-theme-minimal')).manifest.publicHtml === true;
+  return getActiveTheme(String(ctx.options.theme || 'typecho-theme-warm')).manifest.publicHtml === true;
 }
 
 function canViewPublicThemeContent(content: ContentRow, now = Math.floor(Date.now() / 1000)): boolean {

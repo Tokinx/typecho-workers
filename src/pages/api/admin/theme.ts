@@ -35,7 +35,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       });
     }
 
-    const previousThemeId = String(auth.options.theme || 'typecho-theme-minimal');
+    const previousThemeId = String(auth.options.theme || 'typecho-theme-warm');
     const optionSets: Record<string, string> = { theme: themeId };
     const optionDeletes: string[] = [];
     if (previousThemeId !== themeId) optionDeletes.push(`theme:${previousThemeId}`);

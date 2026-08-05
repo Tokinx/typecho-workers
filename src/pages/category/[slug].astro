@@ -14,9 +14,9 @@ const [ctx, category] = await createContextAlongside(
 );
 const { options } = ctx;
 
-const activeTheme = options.theme || 'typecho-theme-minimal';
+const activeTheme = options.theme || 'typecho-theme-warm';
 const templates = themeTemplates[activeTheme] ?? {};
-const defaultTemplates = themeTemplates['typecho-theme-minimal']!;
+const defaultTemplates = themeTemplates['typecho-theme-warm']!;
 let Component = templates.Archive ?? defaultTemplates.Archive!;
 
 let result = await prepareCategoryData(ctx, slug, Astro.request.url, Astro.locals, Astro.url, category);

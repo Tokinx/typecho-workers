@@ -48,9 +48,9 @@ if (options.frontPage && options.frontPage !== 'recent') {
 }
 
 // Select theme component
-const activeTheme = options.theme || 'typecho-theme-minimal';
+const activeTheme = options.theme || 'typecho-theme-warm';
 const templates = themeTemplates[activeTheme] ?? {};
-const defaultTemplates = themeTemplates['typecho-theme-minimal']!;
+const defaultTemplates = themeTemplates['typecho-theme-warm']!;
 let Component = templates.Index ?? defaultTemplates.Index!;
 const requestedStream = Astro.url.searchParams.get('stream');
 const isWarmNotesStream = activeTheme === 'typecho-theme-warm' &&

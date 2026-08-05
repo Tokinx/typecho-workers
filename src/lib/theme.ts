@@ -69,41 +69,44 @@ export interface ThemeInfo {
 }
 
 /** Built-in fallback theme definition (when no themes are discovered) */
-const MINIMAL_THEME_CONFIG: Record<string, PluginConfigField> = {
-  logoUrl: {
-    type: 'text',
-    label: '站点 LOGO 地址',
-    description: '在这里填入一个图片 URL 地址, 以在网站标题前加上一个 LOGO',
-    default: '',
+const WARM_THEME_CONFIG: Record<string, PluginConfigField> = {
+  githubUrl: { type: 'text', label: 'GitHub 地址', default: '' },
+  socialUrl: { type: 'text', label: '社交主页地址', default: '' },
+  email: { type: 'text', label: '联系邮箱', default: '' },
+  continuousLoadMode: {
+    type: 'select',
+    label: '内容列表',
+    description: '控制首页、分类和笔记内容列表后续页的加载方式。',
+    default: 'manual',
+    options: { manual: '手动加载', 'auto-2': '滚动加载 2 次', infinite: '无限滚动加载' },
   },
-  sidebarBlock: {
-    type: 'checkbox',
-    label: '侧边栏显示',
-    options: {
-      ShowRecentPosts: '显示最新文章',
-      ShowRecentComments: '显示最近回复',
-      ShowCategory: '显示分类',
-      ShowArchive: '显示归档',
-      ShowOther: '显示其它杂项',
-    },
-    multiline: true,
-    default: ['ShowRecentPosts', 'ShowRecentComments', 'ShowCategory', 'ShowArchive', 'ShowOther'],
+  commentComponentLoadMode: {
+    type: 'select',
+    label: '评论组件',
+    description: '控制评论框及其表单配置的加载方式。',
+    default: 'manual',
+    options: { manual: '手动加载', dwell: '停留 3 秒加载', auto: '自动加载' },
+  },
+  commentInitialLoadMode: {
+    type: 'select',
+    label: '评论列表',
+    default: 'manual',
+    options: { manual: '手动加载', 'auto-first': '加载第一页', 'auto-2': '滚动加载 2 次', infinite: '无限滚动加载' },
   },
 };
 
 const FALLBACK_THEME: ThemeManifest = {
-  id: 'typecho-theme-minimal',
-  name: 'Typecho Minimal',
-  description: '经典的 Typecho 默认主题，简洁优雅。',
-  author: 'Typecho Team',
-  authorUrl: 'https://typecho.org/',
+  id: 'typecho-theme-warm',
+  name: 'Typecho Warm',
+  description: '静谧温润的单栏写作主题，支持文章与笔记混合时间线。',
+  author: 'Tokinx',
   version: '1.0.0',
-  screenshot: 'screenshot.png',
-  stylesheet: '/themes/typecho-theme-minimal/style.css',
-  license: 'GPL-2.0',
-  commentsMode: 'ssr',
-  publicHtml: false,
-  config: MINIMAL_THEME_CONFIG,
+  stylesheet: '/themes/typecho-theme-warm/style.css',
+  homepage: 'https://github.com/Tokinx/typecho-workers/tree/master/src/themes/typecho-theme-warm',
+  license: 'MIT',
+  commentsMode: 'api',
+  publicHtml: true,
+  config: WARM_THEME_CONFIG,
 };
 
 /**
@@ -119,7 +122,7 @@ const FALLBACK_THEME: ThemeManifest = {
  *
  * This is populated at build time by the theme-loader integration.
  * Themes are npm packages whose keywords contain both "typecho" and "theme".
- * The default theme is also discovered this way (typecho-theme-minimal package).
+ * The default theme is also discovered this way (typecho-theme-warm package).
  */
 const themeRegistry = new Map<string, ThemeInfo>();
 
@@ -153,12 +156,12 @@ export function getAvailableThemes(activeThemeId: string): ThemeInfo[] {
   // installation does not expose the npm package in the runtime registry.
   if (!themeRegistry.has(FALLBACK_THEME.id)) {
     themes.push({
-      id: 'typecho-theme-minimal',
+      id: FALLBACK_THEME.id,
       packageName: 'built-in',
       manifest: FALLBACK_THEME,
       isDefault: true,
       isActive: activeThemeId === FALLBACK_THEME.id || themes.length === 0,
-      cssPath: '/themes/typecho-theme-minimal/style.css',
+      cssPath: FALLBACK_THEME.stylesheet || '/themes/typecho-theme-warm/style.css',
     });
   }
 
@@ -175,19 +178,19 @@ export function getActiveTheme(activeThemeId: string): ThemeInfo {
   }
 
   // Fallback to default theme from registry
-  const defaultTheme = themeRegistry.get('typecho-theme-minimal');
+  const defaultTheme = themeRegistry.get(FALLBACK_THEME.id);
   if (defaultTheme) {
     return { ...defaultTheme, manifest: normalizeThemeManifest(defaultTheme.id, defaultTheme.manifest), isActive: true };
   }
 
   // Ultimate fallback if no themes discovered at all
   return {
-    id: 'typecho-theme-minimal',
+    id: FALLBACK_THEME.id,
     packageName: 'built-in',
     manifest: FALLBACK_THEME,
     isDefault: true,
     isActive: true,
-    cssPath: '/themes/typecho-theme-minimal/style.css',
+    cssPath: FALLBACK_THEME.stylesheet || '/themes/typecho-theme-warm/style.css',
   };
 }
 
@@ -206,7 +209,7 @@ export function registerTheme(
     id,
     packageName,
     manifest: normalizedManifest,
-    isDefault: false,
+    isDefault: id === FALLBACK_THEME.id,
     isActive: false,
     cssPath,
   });
@@ -291,34 +294,34 @@ function getThemeInfo(themeId: string): ThemeInfo | undefined {
       manifest: FALLBACK_THEME,
       isDefault: true,
       isActive: true,
-      cssPath: '/themes/typecho-theme-minimal/style.css',
+      cssPath: FALLBACK_THEME.stylesheet || '/themes/typecho-theme-warm/style.css',
     };
   }
   return undefined;
 }
 
 function normalizeThemeManifest(themeId: string, manifest: ThemeManifest): ThemeManifest {
-  const commentsMode = manifest.commentsMode === 'api' ? 'api' : 'ssr';
+  const commentsMode = manifest.commentsMode === 'api'
+    ? 'api'
+    : manifest.commentsMode === 'ssr'
+      ? 'ssr'
+      : themeId === FALLBACK_THEME.id
+        ? 'api'
+        : 'ssr';
   if (themeId !== FALLBACK_THEME.id) return { ...manifest, id: themeId, commentsMode, publicHtml: manifest.publicHtml === true };
 
-  // Preserve metadata from an installed default theme, while ensuring a
-  // long-running registry still receives the built-in 1.3-compatible asset
-  // and appearance fields after an application upgrade.
+  // Preserve metadata from an installed default theme while keeping the
+  // built-in Warm fallback complete when its package is not registered.
   return {
     ...FALLBACK_THEME,
     ...manifest,
     id: themeId,
     commentsMode,
-    publicHtml: manifest.publicHtml === true,
+    publicHtml: manifest.publicHtml !== false,
     config: {
-      ...MINIMAL_THEME_CONFIG,
+      ...WARM_THEME_CONFIG,
       ...manifest.config,
-      sidebarBlock: {
-        ...MINIMAL_THEME_CONFIG.sidebarBlock,
-        ...manifest.config?.sidebarBlock,
-      },
     },
-    screenshot: manifest.screenshot ?? FALLBACK_THEME.screenshot,
   };
 }
 

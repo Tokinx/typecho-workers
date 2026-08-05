@@ -32,7 +32,7 @@ const {
 } = Astro.props;
 
 const pageTitle = title ? `${title} - ${options.title}` : options.title;
-const themeStylesheets = getThemeStylesheets(options.theme || 'typecho-theme-minimal');
+const themeStylesheets = getThemeStylesheets(options.theme || 'typecho-theme-warm');
 
 // Collect client-side snippets from all activated plugins
 const pluginSnippets = await getClientSnippets(pluginCtx ?? { activatedPlugins: new Set<string>() }, options as Record<string, any>, pageContext);

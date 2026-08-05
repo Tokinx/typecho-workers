@@ -107,8 +107,8 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
 
     document.querySelectorAll('[data-comments-root]').forEach(root => {
       const cid = root.dataset.cid;
-      const componentMode = root.dataset.commentComponentLoad || 'auto';
-      const initialMode = root.dataset.commentInitialLoad || 'auto-first';
+      const componentMode = root.dataset.commentComponentLoad || 'manual';
+      const initialMode = root.dataset.commentInitialLoad || 'manual';
       const parsedPage = Number(root.dataset.currentPage);
       let page = Number.isSafeInteger(parsedPage) && parsedPage > 0 ? parsedPage : 1;
       let metadataLoaded = false;

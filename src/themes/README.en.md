@@ -1,6 +1,6 @@
 # Theme Development Guide
 
-> This document is the complete reference for Typecho-Workers theme development. `typecho-theme-minimal/` serves as the working example.
+> This document is the complete reference for Typecho-Workers theme development. `typecho-theme-warm/` is the default theme example.
 
 [中文](README.md)
 
@@ -322,9 +322,8 @@ pnpm run build
 
 ## Reference Example
 
-`typecho-theme-minimal/` demonstrates:
-- `theme.json` with multiple stylesheets (`normalize.css` + `grid.css` + `style.css`)
-- All 5 template components including a nested comment list (`CommentList.astro`)
-- Full use of `ThemePostProps` (password protection, nested comment replies, prev/next navigation)
-- `sidebarData` rendering (recent posts, recent comments, categories, archives)
-- Plugin client-side code integration (`getClientSnippet`)
+`typecho-theme-warm/` demonstrates:
+- All 5 template components and the Notes mixed timeline
+- Public HTML with an API-loaded comment component
+- Article details, comments, and adjacent post navigation via `ThemePostProps`
+- Progressive content-list and comment-list loading
