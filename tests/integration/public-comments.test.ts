@@ -123,6 +123,8 @@ describe('GET /api/comments', () => {
     expect(response.headers.get('cache-control')).toBe('private, no-store');
     expect(response.headers.get('vary')).toBe('Cookie');
     expect(body.comments).toEqual([]);
+    expect(body).not.toHaveProperty('pagination');
+    expect(JSON.stringify(body)).not.toContain('totalComments');
     expect(body.commenter).toEqual({
       loggedIn: false,
       author: 'Reader Name',
@@ -130,6 +132,7 @@ describe('GET /api/comments', () => {
       url: 'https://reader.example.com/',
     });
     expect(mockLoadCommentPage).not.toHaveBeenCalled();
+    expect(mockLoadPublicCommentPage).not.toHaveBeenCalled();
   });
 
   it('cleans invalid remembered commenter cookies without exposing them', async () => {
@@ -261,7 +264,7 @@ describe('GET /api/comments', () => {
 
     expect(first.headers.get('X-Typecho-Comment-Cache')).toBe('MISS');
     expect(second.headers.get('X-Typecho-Comment-Cache')).toBe('HIT');
-    expect(mockLoadCommentPage).toHaveBeenCalledOnce();
+    expect(mockLoadPublicCommentPage).toHaveBeenCalledOnce();
     expect(await second.text()).not.toContain('reader@example.com');
   });
 
@@ -314,7 +317,36 @@ describe('GET /api/comments', () => {
       const response = await GET(request(String(post.cid), headers));
       expect(response.headers.get('X-Typecho-Comment-Cache')).toBe('BYPASS');
     }
-    expect(mockLoadCommentPage).toHaveBeenCalledTimes(4);
+    expect(mockLoadPublicCommentPage).toHaveBeenCalledTimes(4);
+    expect(mockLoadCommentPage).not.toHaveBeenCalled();
+  });
+
+  it('uses lookahead pagination when page breaks are disabled', async () => {
+    await seedOptions({ commentsThreaded: '0' });
+    const post = await seedPost();
+    await testDb.insert(schema.comments).values(Array.from({ length: 21 }, (_, index) => ({
+      cid: post.cid,
+      author: `Reader ${index}`,
+      text: `public ${index}`,
+      status: 'approved' as const,
+      created: index,
+      parent: 0,
+    })));
+
+    const response = await GET(request(String(post.cid)));
+    const body = await response.json() as any;
+
+    expect(response.status).toBe(200);
+    expect(body.comments).toHaveLength(20);
+    expect(body.pagination).toMatchObject({
+      enabled: true,
+      totalsExact: false,
+      totalComments: null,
+      totalPages: null,
+      hasNext: true,
+    });
+    expect(mockLoadPublicCommentPage).toHaveBeenCalledOnce();
+    expect(mockLoadCommentPage).not.toHaveBeenCalled();
   });
 
   it('never shares a waiting comment exposed by the submitter capability', async () => {

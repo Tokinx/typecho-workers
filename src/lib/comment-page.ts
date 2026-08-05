@@ -26,7 +26,7 @@ export interface CommentPage {
 }
 
 const COMMENT_PAGE_SIZE_MAX = 100;
-const COMMENT_UNPAGED_MAX = 200;
+const COMMENT_LEGACY_UNPAGED_MAX = 200;
 
 function pageUrl(requestUrl: string, page: number): string {
   const url = new URL(requestUrl);
@@ -187,10 +187,10 @@ export async function loadCommentPage(
         .from(schema.comments)
         .where(visibleForContent)
         .orderBy(...orderExpression)
-        .limit(COMMENT_UNPAGED_MAX),
+        .limit(COMMENT_LEGACY_UNPAGED_MAX),
     ]);
     const totalComments = Number(countResult[0]?.count || 0);
-    if (totalComments <= COMMENT_UNPAGED_MAX) {
+    if (totalComments <= COMMENT_LEGACY_UNPAGED_MAX) {
       return {
         rows,
         pagination: buildPagination(
@@ -336,6 +336,15 @@ export async function loadCommentPage(
  * root/comment and expose `hasNext` instead of total pages.
  */
 export async function loadPublicCommentPage(
+  db: Database,
+  cid: number,
+  options: SiteOptions,
+  requestUrl: string,
+): Promise<CommentPage> {
+  return loadPublicPagedCommentPage(db, cid, options, requestUrl);
+}
+
+async function loadPublicPagedCommentPage(
   db: Database,
   cid: number,
   options: SiteOptions,

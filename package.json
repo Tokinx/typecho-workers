@@ -8,7 +8,7 @@
     "./db": "./src/db/index.ts"
   },
   "scripts": {
-    "dev": "astro dev",
+    "dev": "astro dev --force",
     "build": "astro build",
     "generate:cloudflare-config": "tsx scripts/generate-wrangler-config.ts",
     "build:cloudflare": "pnpm run generate:cloudflare-config && astro build",
