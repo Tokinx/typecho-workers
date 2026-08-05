@@ -122,6 +122,9 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
       let dwellTimer = null;
       let componentObserver = null;
       let componentVisible = false;
+      let componentScrollStarted = false;
+      let componentScrollHandler = null;
+      const componentInitialScrollTop = window.scrollY;
       const autoLimit = initialMode === 'auto-2' ? 2 : initialMode === 'infinite' ? Infinity : 0;
 
       const setDeferredPrompt = (text, showButton, loadingState) => {
@@ -138,6 +141,8 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
       const stopInitialLoader = () => {
         componentObserver?.disconnect();
         componentObserver = null;
+        if (componentScrollHandler) window.removeEventListener('scroll', componentScrollHandler);
+        componentScrollHandler = null;
         if (dwellTimer) window.clearTimeout(dwellTimer);
         dwellTimer = null;
         paginationObserver?.disconnect();
@@ -201,6 +206,25 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
         setupPaginationObserver();
       };
 
+      const renderComments = (data, list, append, automatic) => {
+        page = data.pagination.currentPage;
+        const renderedComments = data.comments.length
+          ? data.comments.map(comment => renderComment(comment, data.options, data.gravatarMap)).join('')
+          : '<p class="warm-comments__empty">还没有评论，来留下第一句话吧。</p>';
+        if (append) {
+          if (data.comments.length) list.insertAdjacentHTML('beforeend', renderedComments);
+        } else {
+          list.innerHTML = renderedComments;
+        }
+        const tokenInput = root.querySelector('[data-comment-token]');
+        if (tokenInput) tokenInput.value = data.options.securityToken || '';
+        commentsLoaded = true;
+        activePagination = data.pagination;
+        automaticPaused = false;
+        if (automatic) automaticLoads += 1;
+        renderPagination(activePagination);
+      };
+
       const loadComments = async (requestedPage, append = false, automatic = false) => {
         const list = root.querySelector('[data-comment-list]');
         if (!list || loading) return false;
@@ -220,22 +244,7 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
           });
           const data = await response.json();
           if (!response.ok) throw new Error(data.error || '评论加载失败');
-          page = data.pagination.currentPage;
-          const renderedComments = data.comments.length
-            ? data.comments.map(comment => renderComment(comment, data.options, data.gravatarMap)).join('')
-            : '<p class="warm-comments__empty">还没有评论，来留下第一句话吧。</p>';
-          if (append) {
-            if (data.comments.length) list.insertAdjacentHTML('beforeend', renderedComments);
-          } else {
-            list.innerHTML = renderedComments;
-          }
-          const tokenInput = root.querySelector('[data-comment-token]');
-          if (tokenInput) tokenInput.value = data.options.securityToken || '';
-          commentsLoaded = true;
-          activePagination = data.pagination;
-          automaticPaused = false;
-          if (automatic) automaticLoads += 1;
-          renderPagination(activePagination);
+          renderComments(data, list, append, automatic);
           return true;
         } catch (error) {
           const message = root.querySelector('[data-comment-message]');
@@ -254,12 +263,14 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
         }
       };
 
-      const loadMetadata = () => {
+      const loadMetadata = (requestedPage = null, includeComments = false) => {
         if (metadataLoaded) return Promise.resolve();
         if (metadataRequest) return metadataRequest;
         metadataRequest = (async () => {
-          const params = new URLSearchParams({ cid, includeComments: '0' });
-          if (root.dataset.currentPage) params.set('commentPage', root.dataset.currentPage);
+          const params = new URLSearchParams({ cid });
+          if (!includeComments) params.set('includeComments', '0');
+          const requestedCommentPage = requestedPage === null ? root.dataset.currentPage : String(requestedPage);
+          if (requestedCommentPage) params.set('commentPage', requestedCommentPage);
           const response = await fetch(`/api/comments?${params}`, {
             credentials: 'same-origin', headers: { Accept: 'application/json' },
           });
@@ -267,10 +278,33 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
           if (!response.ok) throw new Error(data.error || '评论配置加载失败');
           renderFrame(root, data);
           metadataLoaded = true;
+          return data;
         })().finally(() => {
           metadataRequest = null;
         });
         return metadataRequest;
+      };
+
+      const loadInitialComments = async requestedPage => {
+        if (loading) return false;
+        stopInitialLoader();
+        loading = true;
+        let list = null;
+        try {
+          const data = await loadMetadata(requestedPage, true);
+          list = root.querySelector('[data-comment-list]');
+          if (!list) throw new Error('评论组件加载失败');
+          list.setAttribute('aria-busy', 'true');
+          renderComments(data, list, false, true);
+          return true;
+        } catch (error) {
+          renderComponentPrompt(root, error instanceof Error ? error.message : '评论加载失败，点击重试。', true, false);
+          return false;
+        } finally {
+          loading = false;
+          list?.removeAttribute('aria-busy');
+          syncPaginationControls();
+        }
       };
 
       root.addEventListener('click', event => {
@@ -342,23 +376,17 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
 
       const bootstrap = async () => {
         stopInitialLoader();
-        try {
-          await loadMetadata();
-        } catch (error) {
-          renderComponentPrompt(root, error instanceof Error ? error.message : '评论配置加载失败', true, false);
+        if (initialMode === 'manual') {
+          try {
+            await loadMetadata();
+          } catch (error) {
+            renderComponentPrompt(root, error instanceof Error ? error.message : '评论配置加载失败', true, false);
+            return;
+          }
+          setDeferredPrompt('', true, false);
           return;
         }
-
-        const deferred = root.querySelector('[data-comment-deferred]');
-        const initialButton = root.querySelector('[data-comment-load-initial]');
-        if (initialMode === 'manual') {
-          setDeferredPrompt('', true, false);
-        } else if (initialMode === 'auto-first') {
-          loadComments(1);
-        } else {
-          loadComments(page);
-        }
-        if (initialButton) initialButton.hidden = initialMode !== 'manual';
+        await loadInitialComments(initialMode === 'auto-first' ? 1 : page);
       };
 
       const startComponentLoader = () => {
@@ -366,36 +394,63 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
           void bootstrap();
           return;
         }
-        renderComponentPrompt(root, '', componentMode === 'manual', false);
+        renderComponentPrompt(root, '', true, false);
         if (componentMode === 'manual') return;
         const deferred = root.querySelector('[data-comment-component-deferred]');
-        if (!deferred || !('IntersectionObserver' in window)) {
+        if (!deferred) return;
+
+        const setDwellLoading = loadingState => {
+          deferred.classList.toggle('is-loading', loadingState);
+          const button = deferred.querySelector('[data-comment-load-component]');
+          if (button) button.hidden = loadingState;
+        };
+        const stopDwellTimer = () => {
+          if (dwellTimer) window.clearTimeout(dwellTimer);
+          dwellTimer = null;
+          setDwellLoading(false);
+        };
+        const startDwellTimer = () => {
+          if (!componentScrollStarted || dwellTimer || metadataLoaded || metadataRequest) return;
+          setDwellLoading(true);
           dwellTimer = window.setTimeout(() => {
             dwellTimer = null;
-            void bootstrap();
+            if (componentVisible) void bootstrap();
+            else setDwellLoading(false);
           }, 3_000);
+        };
+
+        componentScrollHandler = () => {
+          if (window.scrollY === componentInitialScrollTop) return;
+          componentScrollStarted = true;
+          window.removeEventListener('scroll', componentScrollHandler);
+          componentScrollHandler = null;
+          if (!componentObserver || componentVisible) startDwellTimer();
+        };
+        window.addEventListener('scroll', componentScrollHandler, { passive: true });
+
+        if (!('IntersectionObserver' in window)) {
+          componentVisible = true;
           return;
         }
         componentObserver = new IntersectionObserver(entries => {
           componentVisible = entries.some(entry => entry.isIntersecting);
           if (!componentVisible) {
-            if (dwellTimer) window.clearTimeout(dwellTimer);
-            dwellTimer = null;
-            deferred.classList.remove('is-loading');
+            stopDwellTimer();
             return;
           }
-          if (dwellTimer || metadataLoaded || metadataRequest) return;
-          deferred.classList.add('is-loading');
-          dwellTimer = window.setTimeout(() => {
-            dwellTimer = null;
-            if (componentVisible) void bootstrap();
-          }, 3_000);
+          startDwellTimer();
         }, { threshold: 0.15 });
         componentObserver.observe(deferred);
       };
 
+      const cleanupStalePage = () => {
+        if (root.isConnected) return;
+        stopInitialLoader();
+        window.removeEventListener('instantclick:newpage', cleanupStalePage);
+      };
+
       startComponentLoader();
-      window.addEventListener('instantclick:newpage', stopInitialLoader, { once: true });
+      window.addEventListener('instantclick:newpage', cleanupStalePage);
     });
   })();
 </script>
