@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
 import { generateSecurityToken } from '@/lib/auth';
 import { loadOptions } from '@/lib/options';
 import { setRequestCoreContext } from '@/lib/context';
@@ -74,10 +75,22 @@ describe('typecho-plugin-notes', () => {
 
   it('normalizes note content and Unicode topic slugs', () => {
     expect(normalizeNoteInput({ content: ' hello ', status: 'private', topicMid: '3' })).toEqual({
-      content: 'hello', status: 'private', topicMid: 3,
+      content: 'hello', status: 'private', topicMid: 3, attachments: [],
     });
     expect(() => normalizeNoteInput({ content: '  ' })).toThrow('不能为空');
     expect(topicSlug(' 日常 / DevOps ')).toBe('日常-devops');
+  });
+
+  it('normalizes attachment ids from arrays, csv strings and invalid input', () => {
+    expect(normalizeNoteInput({ content: 'x', attachments: ['3', 4, 4, 0, -1, 'abc'] })).toEqual({
+      content: 'x', status: 'publish', topicMid: 0, attachments: [3, 4],
+    });
+    expect(normalizeNoteInput({ content: 'x', attachments: '5,6,6, 7' })).toEqual({
+      content: 'x', status: 'publish', topicMid: 0, attachments: [5, 6, 7],
+    });
+    expect(normalizeNoteInput({ content: 'x' }).attachments).toEqual([]);
+    const many = Array.from({ length: 30 }, (_, index) => index + 1);
+    expect(normalizeNoteInput({ content: 'x', attachments: many }).attachments).toHaveLength(20);
   });
 
   it('extracts Wing-style Topics and renders /note/<cid> references', () => {
@@ -108,6 +121,30 @@ describe('typecho-plugin-notes', () => {
     expect(html).toContain('if(!commentReplying.textContent.trim()){commentsDialog.close();return}');
     expect(html).toContain('id="wmd-button-bar"');
     expect(html).toContain('id="wmd-preview"');
+    expect(html).toContain('id="notes-attach"');
+    expect(html).toContain('i-upload');
+    expect(html).toContain('mountAttachButton');
+    expect(html).toContain('wmd-button-row');
+    expect(html).toContain('wmd-image-button');
+    expect(html).toContain('id="notes-attachment-file"');
+    expect(html).toContain('id="notes-attachment-chips"');
+    expect(html).toContain('uploadAttachmentFile');
+    expect(html).toContain('renderAttachmentChips');
+    expect(html).toContain('data-attach-remove');
+    expect(html).toContain('/api/admin/upload?cid=');
+    expect(html).toContain('attachments:state.attachments.map');
+    expect(html).toContain('function mimeClass');
+    expect(html).toContain('mime-image');
+    expect(html).toContain('mime-script');
+    expect(html).toContain('mime-unknow');
+    expect(html).toContain('data-attach-index');
+    expect(html).toContain('addEventListener("dragstart"');
+    expect(html).toContain('addEventListener("drop"');
+    expect(html).toContain('getBoundingClientRect');
+    expect(html).toContain('drop-after');
+    expect(html).toContain('drop-before');
+    expect(html).toMatch(/<div class="notes-composer" id="notes-composer">[\s\S]*?<\/div>\s*<div id="notes-attachment-chips" class="notes-attachment-chips"/);
+    expect(html).not.toContain('notes-attachment-chips" class="notes-attachment-chips"></div>\n    </div>');
     expect(html).toContain('/vendor/pagedown.js');
     expect(html).toContain('id="notes-search-input"');
     expect(html).not.toContain('notes-search-clear');
@@ -184,6 +221,71 @@ describe('typecho-plugin-notes', () => {
     expect(deleteResponse.status).toBe(200);
     const finalList = await handleNotesRequest(new Request('https://example.com/api/admin/notes'), { db: db as any, uid: 1 });
     expect((await finalList.json()).data).toEqual([]);
+  });
+
+  it('persists non-image attachments, drops orphans, and syncs updates', async () => {
+    const { contents, fields } = await import('@/db/schema');
+    const now = Math.floor(Date.now() / 1000);
+    const inserted = await db.insert(contents).values([
+      {
+        title: '文档.pdf', slug: 'att-1',
+        text: JSON.stringify({ name: '文档.pdf', url: 'https://r2.example.com/att/文档.pdf', size: 2048, type: 'application/pdf' }),
+        created: now, modified: now, authorId: 1, type: 'attachment' as const, status: 'publish' as const,
+      },
+      {
+        title: 'video.mp4', slug: 'att-2',
+        text: JSON.stringify({ name: 'video.mp4', url: 'https://r2.example.com/att/video.mp4', size: 1024, type: 'video/mp4' }),
+        created: now, modified: now, authorId: 1, type: 'attachment' as const, status: 'publish' as const,
+      },
+      {
+        title: 'post-not-attachment', slug: 'att-3', text: '<!--markdown-->不是附件',
+        created: now, modified: now, authorId: 1, type: 'post' as const, status: 'publish' as const,
+      },
+    ]).returning({ cid: contents.cid });
+    const [pdf, video, post] = inserted.map(row => row.cid);
+
+    const createResponse = await handleNotesRequest(new Request('https://example.com/api/admin/notes', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'create', content: '带附件', status: 'publish', attachments: [pdf, video, post, 99_999, 0, -1] }),
+    }), { db: db as any, uid: 1 });
+    const created = await createResponse.json();
+    expect(createResponse.status).toBe(200);
+    expect(created.attachments).toEqual([pdf, video]);
+    const cid = created.cid;
+
+    const savedField = await db.query.fields.findFirst({
+      where: (row: any, { and, eq }: any) => and(eq(row.cid, cid), eq(row.name, 'note_attachments')),
+    });
+    expect(savedField?.str_value).toBe(JSON.stringify([pdf, video]));
+
+    const listResponse = await handleNotesRequest(new Request(`https://example.com/api/admin/notes?cid=${cid}`), { db: db as any, uid: 1 });
+    const note = (await listResponse.json()).data[0];
+    expect(note.attachments).toMatchObject([
+      { cid: pdf, name: '文档.pdf', url: 'https://r2.example.com/att/文档.pdf', size: 2048, type: 'application/pdf' },
+      { cid: video, name: 'video.mp4', url: 'https://r2.example.com/att/video.mp4', size: 1024, type: 'video/mp4' },
+    ]);
+
+    const updateResponse = await handleNotesRequest(new Request('https://example.com/api/admin/notes', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'update', cid, content: '去掉一个附件', status: 'publish', attachments: [video] }),
+    }), { db: db as any, uid: 1 });
+    expect(updateResponse.status).toBe(200);
+    const updatedField = await db.query.fields.findFirst({
+      where: (row: any, { and, eq }: any) => and(eq(row.cid, cid), eq(row.name, 'note_attachments')),
+    });
+    expect(updatedField?.str_value).toBe(JSON.stringify([video]));
+
+    await db.delete(contents).where(eq(contents.cid, video));
+    const staleList = await handleNotesRequest(new Request(`https://example.com/api/admin/notes?cid=${cid}`), { db: db as any, uid: 1 });
+    expect((await staleList.json()).data[0].attachments).toEqual([]);
+
+    const deleteResponse = await handleNotesRequest(new Request('https://example.com/api/admin/notes', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'delete', cid }),
+    }), { db: db as any, uid: 1 });
+    expect(deleteResponse.status).toBe(200);
+    const remainingFields = await db.select({ cid: fields.cid }).from(fields).where(eq(fields.cid, cid));
+    expect(remainingFields).toEqual([]);
   });
 
   it('exposes public notes anonymously and the current author private notes when logged in', async () => {

@@ -15,6 +15,11 @@ export const NOTE_TYPE = 'note';
 export const NOTE_TOPIC_TYPE = 'note_topic';
 export const NOTE_REFERENCE_PATTERN = '/note/<cid>';
 
+const NOTE_IMAGES_FIELD = 'note_images';
+const NOTE_ATTACHMENTS_FIELD = 'note_attachments';
+/** Max attachments a single note can persist. Bounds the fields row size. */
+const MAX_NOTE_ATTACHMENTS = 20;
+
 type NoteStatus = 'publish' | 'private' | 'draft';
 export type ThemeNotesStreamMode = 'notes' | 'mixed';
 type ListMode = ThemeNotesStreamMode;
@@ -68,6 +73,14 @@ export interface NoteListItem {
   /** Kept for the first Notes admin release. Prefer `topics`. */
   topic: NoteTopic | null;
   images: Array<{ cid: number; name: string; url: string }>;
+  /** Non-image attachments uploaded through the Notes composer. */
+  attachments: Array<{
+    cid: number;
+    name: string;
+    url: string;
+    size?: number;
+    type?: string;
+  }>;
 }
 
 export interface NotesListResult {
@@ -105,6 +118,8 @@ interface NoteInput {
   status: NoteStatus;
   /** Legacy/manual Topic selection. Extracted Topics are always added as well. */
   topicMid: number;
+  /** Attachment content IDs (type='attachment') to persist on the note. */
+  attachments: number[];
 }
 
 interface ListOptions extends ThemeNotesQuery {
@@ -171,10 +186,16 @@ export function normalizeNoteInput(value: unknown): NoteInput {
   if (!content) throw new Error('笔记内容不能为空');
   if (content.length > 200_000) throw new Error('笔记内容不能超过 200000 个字符');
   const topicMid = Number.parseInt(String(body.topicMid || 0), 10);
+  const rawAttachments = Array.isArray(body.attachments) ? body.attachments : String(body.attachments || '').split(',');
+  const attachments = [...new Set(rawAttachments
+    .map(Number)
+    .filter(id => Number.isSafeInteger(id) && id > 0)
+  )].slice(0, MAX_NOTE_ATTACHMENTS);
   return {
     content,
     status: parseStatus(body.status),
     topicMid: Number.isFinite(topicMid) && topicMid > 0 ? topicMid : 0,
+    attachments,
   };
 }
 
@@ -284,8 +305,34 @@ async function synchronizeNoteTopics(db: Database, cid: number, newMids: number[
   await recountTopics(db, [...oldTopics.map(topic => topic.mid), ...newMids]);
 }
 
-async function resolveTopicMid(db: Database, topic: number | string | null | undefined): Promise<number | null> {
-  if (topic === null || topic === undefined || topic === '' || topic === 0 || topic === '0') return 0;
+/**
+ * Keep only attachment rows that actually exist. Orphaned ids (e.g. an
+ * upload deleted before the note was saved) are dropped instead of failing
+ * the whole note write.
+ */
+async function resolveNoteAttachments(db: Database, ids: number[]): Promise<number[]> {
+  if (!ids.length) return [];
+  const rows = await db.select({ cid: schema.contents.cid }).from(schema.contents)
+    .where(and(inArray(schema.contents.cid, ids), eq(schema.contents.type, 'attachment')));
+  return rows.map(row => row.cid);
+}
+
+/** Persist the note's attachment id list in typecho_fields (upsert by (cid, name)). */
+async function synchronizeNoteAttachments(db: Database, cid: number, ids: number[]): Promise<void> {
+  const value = JSON.stringify(ids);
+  const existing = await db.query.fields.findFirst({
+    where: and(eq(schema.fields.cid, cid), eq(schema.fields.name, NOTE_ATTACHMENTS_FIELD)),
+    columns: { cid: true },
+  });
+  if (existing) {
+    await db.update(schema.fields).set({ str_value: value })
+      .where(and(eq(schema.fields.cid, cid), eq(schema.fields.name, NOTE_ATTACHMENTS_FIELD)));
+  } else if (ids.length) {
+    await db.insert(schema.fields).values({ cid, name: NOTE_ATTACHMENTS_FIELD, str_value: value });
+  }
+}
+
+async function resolveTopicMid(db: Database, topic: number | string | null | undefined): Promise<number | null> {  if (topic === null || topic === undefined || topic === '' || topic === 0 || topic === '0') return 0;
   const numeric = Number.parseInt(String(topic), 10);
   if (Number.isSafeInteger(numeric) && String(numeric) === String(topic).trim()) {
     const row = await db.query.metas.findFirst({
@@ -327,7 +374,7 @@ async function hydrateThemeNoteItems(
     noteCids.length
       ? db.select().from(schema.fields).where(and(
         inArray(schema.fields.cid, noteCids),
-        eq(schema.fields.name, 'note_images'),
+        inArray(schema.fields.name, [NOTE_IMAGES_FIELD, NOTE_ATTACHMENTS_FIELD]),
       ))
       : Promise.resolve([]),
     cids.length
@@ -338,28 +385,42 @@ async function hydrateThemeNoteItems(
   ]);
 
   const imageIdsByCid = new Map<number, number[]>();
+  const attachmentIdsByCid = new Map<number, number[]>();
   const allImageIds = new Set<number>();
+  const allAttachmentIds = new Set<number>();
   for (const field of fieldRows) {
-    if (field.name === 'note_images' && field.str_value) {
-      try {
-        const ids = JSON.parse(field.str_value);
-        if (!Array.isArray(ids)) continue;
-        const normalizedIds = ids.map(Number).filter(id => Number.isInteger(id) && id > 0);
+    if (field.name !== NOTE_IMAGES_FIELD && field.name !== NOTE_ATTACHMENTS_FIELD) continue;
+    if (!field.str_value) continue;
+    try {
+      const ids = JSON.parse(field.str_value);
+      if (!Array.isArray(ids)) continue;
+      const normalizedIds = ids.map(Number).filter(id => Number.isInteger(id) && id > 0);
+      if (field.name === NOTE_IMAGES_FIELD) {
         imageIdsByCid.set(field.cid, normalizedIds);
         normalizedIds.forEach(id => allImageIds.add(id));
-      } catch {
-        // Optional image metadata must never make a note unreadable.
+      } else {
+        attachmentIdsByCid.set(field.cid, normalizedIds);
+        normalizedIds.forEach(id => allAttachmentIds.add(id));
       }
+    } catch {
+      // Optional attachment metadata must never make a note unreadable.
     }
   }
 
-  const attachmentRows = allImageIds.size
+  const allAttachmentIdsCombined = [...new Set([...allImageIds, ...allAttachmentIds])];
+  const attachmentRows = allAttachmentIdsCombined.length
     ? await db.select({ cid: schema.contents.cid, text: schema.contents.text, title: schema.contents.title })
-      .from(schema.contents).where(and(inArray(schema.contents.cid, [...allImageIds]), eq(schema.contents.type, 'attachment')))
+      .from(schema.contents).where(and(inArray(schema.contents.cid, allAttachmentIdsCombined), eq(schema.contents.type, 'attachment')))
     : [];
   const attachments = new Map(attachmentRows.map(attachment => {
     const meta = parseAttachmentMeta(attachment.text);
-    return [attachment.cid, { cid: attachment.cid, name: meta.name || attachment.title || '', url: meta.url || '' }];
+    return [attachment.cid, {
+      cid: attachment.cid,
+      name: meta.name || attachment.title || '',
+      url: meta.url || '',
+      size: meta.size,
+      type: meta.type,
+    }];
   }));
   const topicsByCid = new Map<number, NoteTopic[]>();
   for (const row of topicRows) {
@@ -390,6 +451,7 @@ async function hydrateThemeNoteItems(
       topics: noteTopics,
       topic: noteTopics[0] || null,
       images: isNote ? (imageIdsByCid.get(note.cid) || []).map(id => attachments.get(id)).filter(Boolean) as Array<{ cid: number; name: string; url: string }> : [],
+      attachments: isNote ? (attachmentIdsByCid.get(note.cid) || []).map(id => attachments.get(id)).filter(Boolean) as Array<{ cid: number; name: string; url: string; size?: number; type?: string }> : [],
     };
   });
 }
@@ -705,6 +767,7 @@ async function listNotes(request: Request, context: NotesActionContext): Promise
 async function createNote(body: unknown, context: NotesActionContext): Promise<Response> {
   const input = normalizeNoteInput(body);
   const topicMids = await resolveInputTopics(context.db, input);
+  const attachmentIds = await resolveNoteAttachments(context.db, input.attachments);
   const now = Math.floor(Date.now() / 1000);
   const inserted = await context.db.insert(schema.contents).values({
     title: null,
@@ -723,10 +786,11 @@ async function createNote(body: unknown, context: NotesActionContext): Promise<R
   const cid = inserted[0]?.cid;
   if (!cid) return jsonError(500, '笔记创建失败');
   await synchronizeNoteTopics(context.db, cid, topicMids);
+  await synchronizeNoteAttachments(context.db, cid, attachmentIds);
   if (input.status === 'publish') {
     await invalidatePublicCache(context.db, { reason: 'note-create', domains: ['home', 'note'], sharedDomains: ['sidebar', 'comments', 'notes', 'archive', 'content'] });
   }
-  return jsonOk({ success: true, cid, topics: topicMids });
+  return jsonOk({ success: true, cid, topics: topicMids, attachments: attachmentIds });
 }
 
 async function updateNote(body: Record<string, unknown>, context: NotesActionContext): Promise<Response> {
@@ -739,6 +803,7 @@ async function updateNote(body: Record<string, unknown>, context: NotesActionCon
   });
   if (!existing) return jsonError(404, '笔记不存在');
   const topicMids = await resolveInputTopics(context.db, input);
+  const attachmentIds = await resolveNoteAttachments(context.db, input.attachments);
   await context.db.update(schema.contents).set({
     text: noteText(input.content),
     status: input.status,
@@ -746,10 +811,11 @@ async function updateNote(body: Record<string, unknown>, context: NotesActionCon
     modified: Math.floor(Date.now() / 1000),
   }).where(and(eq(schema.contents.cid, cid), eq(schema.contents.type, NOTE_TYPE)));
   await synchronizeNoteTopics(context.db, cid, topicMids);
+  await synchronizeNoteAttachments(context.db, cid, attachmentIds);
   if (existing.status === 'publish' || input.status === 'publish') {
     await invalidatePublicCache(context.db, { reason: 'note-update', domains: ['home', 'note'], sharedDomains: ['sidebar', 'comments', 'notes', 'archive', 'content'] });
   }
-  return jsonOk({ success: true, topics: topicMids });
+  return jsonOk({ success: true, topics: topicMids, attachments: attachmentIds });
 }
 
 async function deleteNote(body: Record<string, unknown>, context: NotesActionContext): Promise<Response> {

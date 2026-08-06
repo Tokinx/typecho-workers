@@ -10,6 +10,8 @@ Schema，数据存放在现有的 `typecho_contents`、`typecho_metas`、
 - 自动从正文提取 `#话题` 并同步到 `note_topic`；一次笔记可关联多个话题
 - 编辑、删除笔记，点击评论数查看评论列表并回复；保留旧 `topicMid` 写入参数以兼容早期调用
 - 通过核心上传接口插入图片
+- 支持上传附件；附件存入核心 `attachment` 内容类型并持久化在 `typecho_fields.note_attachments`（cid 数组），
+  主题可通过`NoteListItem.attachments`（`cid`/`name`/`url`/`size`/`type`）渲染文件链接
 - 对任意 `/note/<cid>` 引用生成指向笔记详情页的链接
 - 公开笔记复用 Post 详情页和核心评论表单，后台笔记页面可集中查看和回复评论
 - 点赞不属于本插件，后续可由独立 Like 插件实现
