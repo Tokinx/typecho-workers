@@ -25,6 +25,7 @@ import {
 } from '@/lib/plugin-config-secrets';
 import { withTimeout } from '@/lib/timeout';
 import { PLUGIN_CONFIG_TIMEOUT_MS } from '@/lib/constants';
+import { createAdminNoticeRedirectHeaders } from '@/lib/flash';
 
 const ctx = await createContext(Astro.locals, Astro.request);
 const authCheck = requireAuth(ctx);
@@ -104,8 +105,16 @@ if (Astro.request.method === 'POST') {
     Object.assign(configValues, finalSettings);
     displayConfigValues = maskPluginConfigSecrets(configDef, configValues);
 
-    message = '插件设置已经保存';
-    messageType = 'success';
+    return new Response(null, {
+      status: 302,
+      headers: createAdminNoticeRedirectHeaders(
+        `/admin/plugin-config?id=${encodeURIComponent(pluginId)}`,
+        '插件设置已经保存',
+        'success',
+        '/',
+        Astro.request,
+      ),
+    });
   } catch (e) {
     message = e instanceof Error ? e.message : '保存失败';
     messageType = 'error';

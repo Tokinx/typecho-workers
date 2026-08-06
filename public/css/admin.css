@@ -110,7 +110,7 @@ select { border: 1px solid #CCC; height: 28px; }
 .dropdown-menu a:hover { background: #F6F6F3; text-decoration: none !important; }
 
 /** 提示信息框 */
-.message { padding: 8px 10px; border-radius: 2px; }
+.message, .typecho-dismissible { padding: 8px 10px; border-radius: 2px; }
 
 .message p:first-child { margin-top: 0; }
 
@@ -253,7 +253,7 @@ select { border: 1px solid #CCC; height: 28px; }
 .typecho-foot .resource a { margin: 0 3px; color: #999; }
 
 /** 顶部消息样式 by 70 */
-.popup { display: none; position: absolute; top: 0; left: 0; margin: 0; padding: 8px 0; border: none; width: 100%; z-index: 10; text-align: center; border-radius: 0; }
+.popup { display: none; position: relative; margin: 0; padding: 8px 0; border: none; width: 100%; max-width: 100%; box-sizing: border-box; z-index: 10; text-align: center; border-radius: 0; }
 
 .popup ul { list-style: none; margin: 0; padding: 0; text-align: center; }
 

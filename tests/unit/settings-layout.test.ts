@@ -103,4 +103,29 @@ describe('Typecho 1.3 settings option layout', () => {
     expect(css).not.toContain('.typecho-page-main .typecho-option input.text');
     expect(css).not.toContain('.typecho-page-main .typecho-option input.num');
   });
+
+  it('keeps transient admin notices below the sticky header and within the viewport', () => {
+    const css = readAdminCss();
+    expect(css).toContain('.popup { display: none; position: relative;');
+    expect(css).toContain('max-width: 100%; box-sizing: border-box;');
+    expect(css).not.toContain('.popup { display: none; position: absolute; top: 0;');
+  });
+
+  it('consumes admin notices with Astro cookie deletion', () => {
+    const source = readFileSync(join(process.cwd(), 'src/layouts/Admin.astro'), 'utf8');
+    expect(source).toContain("Astro.cookies.delete(ADMIN_NOTICE_FLASH_COOKIE, { path: '/' })");
+    expect(source).toContain("Astro.cookies.delete(ADMIN_NOTICE_TYPE_FLASH_COOKIE, { path: '/' })");
+    expect(source).not.toContain('clearFlashCookieHeader(ADMIN_NOTICE_FLASH_COOKIE');
+  });
+
+  it('uses the shared flash redirect for theme and plugin setting saves', () => {
+    const themeSource = readPage('options-theme');
+    const pluginSource = readPage('plugin-config');
+
+    expect(themeSource).toContain('createAdminNoticeRedirectHeaders');
+    expect(themeSource).toContain("'外观设置已经保存'");
+    expect(pluginSource).toContain('createAdminNoticeRedirectHeaders');
+    expect(pluginSource).toContain("'插件设置已经保存'");
+    expect(pluginSource).toContain('encodeURIComponent(pluginId)');
+  });
 });

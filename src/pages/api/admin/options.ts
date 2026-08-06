@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { setOptionsBatch } from '@/lib/options';
 import { isAdminActionResponse, requireAdminAction, safeAdminRedirectUrl } from '@/lib/admin-auth';
+import { createAdminNoticeRedirectHeaders } from '@/lib/flash';
 
 export const POST: APIRoute = async ({ request, locals }) => {
   const auth = await requireAdminAction(request, 'administrator');
@@ -163,6 +164,6 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   return new Response(null, {
     status: 302,
-    headers: { Location: referer },
+    headers: createAdminNoticeRedirectHeaders(referer, '设置已经保存', 'success', '/', request),
   });
 };

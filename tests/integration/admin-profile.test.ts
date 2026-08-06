@@ -81,6 +81,8 @@ describe('POST /api/admin/profile', () => {
     });
     const res = await POST({ request: req, locals: {} } as any);
     expect(res.status).toBe(302);
+    expect(res.headers.get('set-cookie')).toContain('__typecho_notice=');
+    expect(res.headers.get('set-cookie')).toContain('__typecho_notice_type=success');
 
     const user = await testDb.query.users.findFirst();
     expect(user!.screenName).toBe('Updated Admin');

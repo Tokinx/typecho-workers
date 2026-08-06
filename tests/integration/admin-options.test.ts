@@ -116,6 +116,8 @@ describe('POST /api/admin/options', () => {
     const req = await makeAdminRequest(testDb, { title: 'My Awesome Blog' });
     const res = await POST({ request: req, locals: {} } as any);
     expect(res.status).toBe(302);
+    expect(res.headers.get('set-cookie')).toContain('__typecho_notice=');
+    expect(res.headers.get('set-cookie')).toContain('__typecho_notice_type=success');
     expect(await getOption(testDb, 'title')).toBe('My Awesome Blog');
   });
 

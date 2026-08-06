@@ -2,6 +2,7 @@
 import Admin from '@/layouts/Admin.astro';
 import { createContext, requireAuth } from '@/lib/context';
 import { hasPermission, requireAdminCSRF } from '@/lib/auth';
+import { createAdminNoticeRedirectHeaders } from '@/lib/flash';
 import {
   getActiveTheme,
   getThemeConfigDefinition,
@@ -46,9 +47,16 @@ if (Astro.request.method === 'POST') {
 
     const { setOption } = await import('@/lib/options');
     await setOption(ctx.db, `theme:${theme.id}`, JSON.stringify(sanitized));
-    (options as any)[`theme:${theme.id}`] = JSON.stringify(sanitized);
-    Object.assign(configValues, sanitized);
-    message = '外观设置已经保存';
+    return new Response(null, {
+      status: 302,
+      headers: createAdminNoticeRedirectHeaders(
+        '/admin/options-theme',
+        '外观设置已经保存',
+        'success',
+        '/',
+        Astro.request,
+      ),
+    });
   } catch (error) {
     message = error instanceof Error ? error.message : '保存失败';
     messageType = 'error';

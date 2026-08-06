@@ -6,6 +6,12 @@ const MAX_FLASH_LENGTH = 500;
 
 export const LOGIN_ERROR_FLASH_COOKIE = '__typecho_login_error';
 export const REGISTER_NOTICE_FLASH_COOKIE = '__typecho_register_notice';
+// Keep the names used by Typecho 1.3.0 so admin notices remain compatible
+// with the existing backend convention.
+export const ADMIN_NOTICE_FLASH_COOKIE = '__typecho_notice';
+export const ADMIN_NOTICE_TYPE_FLASH_COOKIE = '__typecho_notice_type';
+
+export type AdminNoticeType = 'success' | 'notice' | 'error';
 
 export function createFlashCookieHeader(
   name: string,
@@ -46,5 +52,18 @@ export function createFlashRedirectHeaders(location: string, name: string, value
   const headers = new Headers();
   headers.set('Location', location);
   headers.append('Set-Cookie', createFlashCookieHeader(name, value, { path, request }));
+  return headers;
+}
+
+export function createAdminNoticeRedirectHeaders(
+  location: string,
+  message: string,
+  type: AdminNoticeType = 'notice',
+  path = '/',
+  request?: Request,
+): Headers {
+  const headers = new Headers({ Location: location });
+  headers.append('Set-Cookie', createFlashCookieHeader(ADMIN_NOTICE_FLASH_COOKIE, message, { path, request }));
+  headers.append('Set-Cookie', createFlashCookieHeader(ADMIN_NOTICE_TYPE_FLASH_COOKIE, type, { path, request }));
   return headers;
 }

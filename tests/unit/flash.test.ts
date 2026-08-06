@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ADMIN_NOTICE_FLASH_COOKIE,
+  ADMIN_NOTICE_TYPE_FLASH_COOKIE,
   clearFlashCookieHeader,
   createFlashCookieHeader,
+  createAdminNoticeRedirectHeaders,
   createFlashRedirectHeaders,
   getFlashCookieValue,
 } from '@/lib/flash';
@@ -41,5 +44,13 @@ describe('flash cookie helpers', () => {
     expect(headers.get('Location')).toBe('/admin/login');
     expect(headers.get('Location')).not.toContain('error=');
     expect(headers.get('Set-Cookie')).toContain('__flash=');
+  });
+
+  it('creates Typecho-compatible admin notice redirect headers', () => {
+    const headers = createAdminNoticeRedirectHeaders('/admin/options-general', '设置已经保存', 'success');
+
+    expect(headers.get('Location')).toBe('/admin/options-general');
+    expect(headers.get('Set-Cookie')).toContain(`${ADMIN_NOTICE_FLASH_COOKIE}=`);
+    expect(headers.get('Set-Cookie')).toContain(`${ADMIN_NOTICE_TYPE_FLASH_COOKIE}=success`);
   });
 });

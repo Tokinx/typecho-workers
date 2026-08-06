@@ -6,6 +6,7 @@ import { isAdminActionResponse, requireAdminAction } from '@/lib/admin-auth';
 import { normalizeHttpUrl } from '@/lib/url';
 import { eq, and, ne } from 'drizzle-orm';
 import { invalidatePublicCache } from '@/lib/cache';
+import { createAdminNoticeRedirectHeaders } from '@/lib/flash';
 
 export const POST: APIRoute = async ({ request, locals }) => {
   const auth = await requireAdminAction(request, 'visitor');
@@ -42,7 +43,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       domains: [],
       sharedDomains: ['admin-users', 'admin-dashboard', 'admin-content', 'admin-comments', 'admin-media'],
     });
-    return redirectToProfile();
+    return redirectToProfile('您的档案已经更新', request);
   }
 
   if (action === 'options') {
@@ -70,7 +71,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
         set: { value },
       }),
     ) as [any, ...any[]]);
-    return redirectToProfile();
+    return redirectToProfile('设置已经保存', request);
   }
 
   if (action === 'password') {
@@ -95,7 +96,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     // Rotate every session after a credential change, then keep this browser signed in.
     const token = await generateAuthToken(auth.uid, newAuthCode, auth.options.secret);
     const [, tokenHash] = token.split(':');
-    const headers = new Headers({ Location: '/admin/profile' });
+    const headers = createAdminNoticeRedirectHeaders('/admin/profile', '密码已经成功修改', 'success', '/', request);
     for (const cookie of setAuthCookieHeaders(auth.uid, tokenHash, 0, request)) {
       headers.append('Set-Cookie', cookie);
     }
@@ -105,6 +106,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
   return new Response('Invalid action', { status: 400 });
 };
 
-function redirectToProfile(): Response {
-  return new Response(null, { status: 302, headers: { Location: '/admin/profile' } });
+function redirectToProfile(message: string, request: Request): Response {
+  return new Response(null, {
+    status: 302,
+    headers: createAdminNoticeRedirectHeaders('/admin/profile', message, 'success', '/', request),
+  });
 }

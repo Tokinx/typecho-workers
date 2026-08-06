@@ -4,6 +4,12 @@ import type { computeUrls } from '@/lib/options';
 import type { UserRow } from '@/lib/context';
 import { hasPermission } from '@/lib/auth';
 import { applyFilterSafely, type HookContext } from '@/lib/plugin';
+import {
+  ADMIN_NOTICE_FLASH_COOKIE,
+  ADMIN_NOTICE_TYPE_FLASH_COOKIE,
+  getFlashCookieValue,
+  type AdminNoticeType,
+} from '@/lib/flash';
 
 interface Props {
   title: string;
@@ -72,6 +78,19 @@ const menuGroups = [
 const visibleGroups = menuGroups.filter(g => g.show);
 const adminHeadHtml = await applyFilterSafely(_pluginCtx, 'admin:header', '', { options, urls, user, activeMenu, title });
 const adminFooterHtml = await applyFilterSafely(_pluginCtx, 'admin:footer', '', { options, urls, user, activeMenu, title });
+
+const adminNoticeCookie = Astro.request.headers.get('cookie');
+const adminNotice = getFlashCookieValue(adminNoticeCookie, ADMIN_NOTICE_FLASH_COOKIE);
+const adminNoticeTypeValue = getFlashCookieValue(adminNoticeCookie, ADMIN_NOTICE_TYPE_FLASH_COOKIE);
+const adminNoticeType: AdminNoticeType = adminNoticeTypeValue === 'success'
+  || adminNoticeTypeValue === 'error'
+  || adminNoticeTypeValue === 'notice'
+  ? adminNoticeTypeValue
+  : 'notice';
+if (adminNotice) {
+  Astro.cookies.delete(ADMIN_NOTICE_FLASH_COOKIE, { path: '/' });
+  Astro.cookies.delete(ADMIN_NOTICE_TYPE_FLASH_COOKIE, { path: '/' });
+}
 ---
 <!DOCTYPE html>
 <html lang={options.lang === 'zh_CN' ? 'zh-CN' : 'en'}>
@@ -121,6 +140,13 @@ const adminFooterHtml = await applyFilterSafely(_pluginCtx, 'admin:footer', '', 
     </nav>
   </header>
 
+  {adminNotice && (
+    <div class={`message popup typecho-admin-notice typecho-dismissible ${adminNoticeType}`} role="status" aria-live="polite">
+      <ul><li>{adminNotice}</li></ul>
+      <button type="button" class="typecho-notice-close" aria-label="关闭提示">&times;</button>
+    </div>
+  )}
+
   <div class="main">
     <div class="body container">
       <div class="typecho-page-title">
@@ -149,6 +175,13 @@ const adminFooterHtml = await applyFilterSafely(_pluginCtx, 'admin:footer', '', 
       $(document).ready(function() {
         $('.main').on('click', '.typecho-notice-close', function () {
           $(this).closest('.typecho-dismissible').remove();
+        });
+
+        $('.typecho-admin-notice').stop(true, true).slideDown(function () {
+          var notice = $(this);
+          window.setTimeout(function () {
+            notice.fadeOut(function () { notice.remove(); });
+          }, 5000);
         });
 
         function selectionScope(input) {
