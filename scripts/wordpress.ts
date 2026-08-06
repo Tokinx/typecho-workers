@@ -681,11 +681,12 @@ export function buildWordPressMigrationDataset(
     if (item.postType === 'note' && praise !== undefined) add(fieldRow(cid, 'note_likes', praise, true));
 
     if (item.postType === 'note') {
-      const imageIds = [...(values.get('images') || []), ...(values.get('attachment') || [])]
+      // Wing 的 images / attachment meta 统一迁移到 note_attachments
+      const attachmentIds = [...(values.get('images') || []), ...(values.get('attachment') || [])]
         .flatMap(value => value.match(/\d+/g) || [])
         .map(value => contentIdByOldId.get(Number(value)))
         .filter((value): value is number => value !== undefined);
-      if (imageIds.length) add(fieldRow(cid, 'note_images', JSON.stringify([...new Set(imageIds)])));
+      if (attachmentIds.length) add(fieldRow(cid, 'note_attachments', JSON.stringify([...new Set(attachmentIds)])));
     }
 
     const thumbnailId = Number(values.get('_thumbnail_id')?.at(-1) || 0);

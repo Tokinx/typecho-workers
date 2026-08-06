@@ -89,7 +89,7 @@ describe('WordPress WXR migration', () => {
     expect(dataset.comments[2]).toMatchObject({ cid: 43, text: 'Page comment', status: 'approved' });
     expect(dataset.relationships).toContainEqual({ cid: 41, mid: 5 });
     expect(dataset.fields).toContainEqual(expect.objectContaining({ cid: 45, name: 'note_likes', int_value: 7 }));
-    expect(dataset.fields).toContainEqual(expect.objectContaining({ cid: 45, name: 'note_images', str_value: '[46]' }));
+    expect(dataset.fields).toContainEqual(expect.objectContaining({ cid: 45, name: 'note_attachments', str_value: '[46]' }));
     expect(dataset.fields).toContainEqual(expect.objectContaining({ cid: 41, name: 'featured_attachment', int_value: 46 }));
     expect(dataset.fields).toContainEqual(expect.objectContaining({ cid: 43, name: 'featured_attachment', int_value: 46 }));
     expect(dataset.fields).toContainEqual(expect.objectContaining({
@@ -194,7 +194,7 @@ describe('WordPress WXR migration', () => {
     expect(dataset.comments.map(comment => comment.coid)).toEqual([100, 101, 102]);
     expect(dataset.comments[1]).toMatchObject({ cid: 10, parent: 100 });
     expect(dataset.comments[2]).toMatchObject({ cid: 40, parent: 0 });
-    expect(dataset.fields).toContainEqual(expect.objectContaining({ cid: 20, name: 'note_images', str_value: '[30]' }));
+    expect(dataset.fields).toContainEqual(expect.objectContaining({ cid: 20, name: 'note_attachments', str_value: '[30]' }));
     expect(dataset.fields).toContainEqual(expect.objectContaining({ cid: 10, name: 'featured_attachment', int_value: 30 }));
   });
 
