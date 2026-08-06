@@ -44,9 +44,15 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
       </article>`;
     };
 
+    const setCommentMessage = (element, value) => {
+      if (!element) return;
+      element.textContent = value || element.dataset.defaultMessage || '';
+    };
+
     const renderForm = (options, commenter, password, cid) => {
       if (!options.allowComment) return '<p class="warm-comments__closed">评论已关闭。</p>';
       const loggedIn = commenter?.loggedIn === true;
+      const defaultMessage = options.markdown ? '支持 Markdown 语法' : '良言善语';
       const identity = loggedIn
         ? `<p class="warm-comment-form__identity">以 <strong>${escapeHtml(commenter.author || '当前用户')}</strong> 的身份评论</p>`
         : `<div class="warm-form-grid">
@@ -58,7 +64,7 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
               <span>电子邮箱 ${options.requireMail ? '<i>*</i>' : ''}</span>
               <input name="mail" type="email" autocomplete="email" ${options.requireMail ? 'required' : ''} value="${escapeHtml(commenter?.mail)}" placeholder="不会公开">
             </label>
-            ${options.showUrl ? `<label class="warm-form-grid__wide">
+            ${options.showUrl ? `<label>
               <span>个人网站 ${options.requireUrl ? '<i>*</i>' : ''}</span>
               <input name="url" type="url" autocomplete="url" ${options.requireUrl ? 'required' : ''} value="${escapeHtml(commenter?.url)}" placeholder="https://">
             </label>` : ''}
@@ -78,8 +84,7 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
           <span>留言内容 <i>*</i></span>
           <textarea name="text" rows="5" required maxlength="10000" placeholder="静水流深，留下你的想法..."></textarea>
         </label>
-        <div class="warm-comment-form__actions"><span>${options.markdown ? '支持 Markdown 语法' : '良言善语'}</span><button type="submit">发送评论</button></div>
-        <p class="warm-comment-form__message" data-comment-message role="status" aria-live="polite"></p>
+        <div class="warm-comment-form__actions"><span class="warm-comment-form__message" data-comment-message data-default-message="${escapeHtml(defaultMessage)}" role="status" aria-live="polite">${escapeHtml(defaultMessage)}</span><button type="submit">发送评论</button></div>
       </form>`;
     };
 
@@ -245,7 +250,7 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
           return true;
         } catch (error) {
           const message = root.querySelector('[data-comment-message]');
-          if (message) message.textContent = error instanceof Error ? error.message : '评论加载失败';
+          setCommentMessage(message, error instanceof Error ? error.message : '评论加载失败');
           if (automatic) automaticPaused = true;
           if (!commentsLoaded) setDeferredPrompt('评论加载失败，点击重试。', true, false);
           else {
@@ -347,7 +352,7 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
         const submit = form.querySelector('button[type="submit"]');
         const message = form.querySelector('[data-comment-message]');
         if (submit) submit.disabled = true;
-        if (message) message.textContent = '正在发送...';
+        setCommentMessage(message, '正在发送...');
         try {
           const response = await fetch(form.action, {
             method: 'POST', body: new FormData(form), credentials: 'same-origin',
@@ -361,11 +366,11 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
           const replying = form.querySelector('[data-replying]');
           if (parentInput) parentInput.value = '0';
           if (replying) replying.hidden = true;
-          if (message) message.textContent = data.status === 'approved' ? '评论已发布。' : '评论已提交，等待审核。';
+          setCommentMessage(message, data.status === 'approved' ? '评论已发布。' : '评论已提交，等待审核。');
           page = null;
           await loadComments(page);
         } catch (error) {
-          if (message) message.textContent = error instanceof Error ? error.message : '评论发送失败';
+          setCommentMessage(message, error instanceof Error ? error.message : '评论发送失败');
         } finally {
           if (submit) submit.disabled = false;
         }

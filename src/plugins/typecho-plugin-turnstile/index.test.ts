@@ -37,22 +37,32 @@ describe('typecho-plugin-turnstile', () => {
       size: 'compact',
     }));
 
-    expect(snippet.headHtml).toContain('https://challenges.cloudflare.com/turnstile/v0/api.js');
-    expect(snippet.headHtml).not.toContain('render=explicit');
+    expect(snippet.headHtml).toContain('https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit');
     expect(snippet.headHtml).toContain('__typechoTurnstileSubmit');
     expect(snippet.headHtml).toContain('__typechoTurnstileSetStatus');
+    expect(snippet.headHtml).toContain('requestSubmit()');
     expect(snippet.headHtml).toContain('.typecho-turnstile-status:empty');
+    expect(snippet.headHtml).toContain('.typecho-turnstile[data-typecho-turnstile-pending]');
     expect(snippet.headHtml).toContain('.typecho-turnstile { margin: 0 0 1em; text-align: left; }');
     expect(snippet.headHtml).toContain('message ');
     expect(snippet.bodyHtml).toContain('cf-turnstile typecho-turnstile-widget');
-    expect(snippet.bodyHtml).toContain('typecho-turnstile-status');
+    expect(snippet.headHtml).toContain('data-comment-message');
+    expect(snippet.bodyHtml).not.toContain('id="typecho-turnstile-comment-form-status"');
     expect(snippet.bodyHtml).toContain('site-key');
     expect(snippet.bodyHtml).toContain('interaction-only');
     expect(snippet.bodyHtml).toContain('data-response-field="true"');
     expect(snippet.bodyHtml).toContain('data-response-field-name="cf-token"');
+    expect(snippet.bodyHtml).toContain('data-typecho-turnstile-pending');
     expect(snippet.bodyHtml).toContain('cf-token');
-    expect(snippet.bodyHtml).toContain('form.insertBefore(widget, submitBlock)');
-    expect(snippet.bodyHtml).toContain('document.getElementById(formId)');
+    expect(snippet.bodyHtml).toContain('anchor.before(widget)');
+    expect(snippet.bodyHtml).toContain('form.appendChild(widget)');
+    expect(snippet.bodyHtml).toContain('anchor.parentNode === form');
+    expect(snippet.bodyHtml).toContain('window.turnstile.render(container');
+    expect(snippet.bodyHtml).toContain('data-typecho-turnstile-widget-id');
+    expect(snippet.bodyHtml).toContain('.warm-comment-form,[data-comment-form],#comment-form,form[action$=\\"/api/comment\\"]');
+    expect(snippet.bodyHtml).toContain("widget.removeAttribute('data-typecho-turnstile-pending')");
+    expect(snippet.bodyHtml).toContain('MutationObserver');
+    expect(snippet.bodyHtml).toContain('watchForForm');
   });
 
   it('executes interaction-only widgets on submit so login cannot post without a token', () => {
@@ -69,7 +79,8 @@ describe('typecho-plugin-turnstile', () => {
     expect(snippet.bodyHtml).toContain('正在加载人机验证，请稍候...');
     expect(snippet.bodyHtml).toContain('请完成人机验证');
     expect(snippet.bodyHtml).toContain('人机验证加载超时，请检查网络后重试');
-    expect(snippet.bodyHtml).toContain('turnstile.execute("#" + containerId)');
+    expect(snippet.bodyHtml).toContain('window.turnstile.execute(widgetId)');
+    expect(snippet.bodyHtml).toContain('data-typecho-turnstile-widget-id');
     expect(snippet.bodyHtml).not.toContain('turnstile.reset');
   });
 
@@ -83,9 +94,11 @@ describe('typecho-plugin-turnstile', () => {
     expect(snippet.bodyHtml).toContain('data-execution="execute"');
     expect(snippet.bodyHtml).toContain('data-timeout-callback="__typechoTurnstileResetPending"');
     expect(snippet.bodyHtml).toContain('form.addEventListener("submit"');
-    expect(snippet.bodyHtml).toContain('turnstile.execute("#" + containerId)');
+    expect(snippet.bodyHtml).toContain('window.turnstile.execute(widgetId)');
+    expect(snippet.bodyHtml).toContain('window.turnstile.render(container');
     expect(snippet.bodyHtml).toContain('typecho-turnstile-comment-form');
     expect(snippet.bodyHtml).toContain('timer: setTimeout(resetPending, 15000)');
+    expect(snippet.bodyHtml).toContain('form.dataset.typechoTurnstileBound');
     expect(snippet.bodyHtml).not.toContain('container.hidden = true');
   });
 

@@ -35,6 +35,18 @@ describe('Warm post comments', () => {
     expect(source).toContain('warm-comment__status');
   });
 
+  it('uses the action hint as the comment status message', () => {
+    const source = readFileSync(
+      join(warmRoot, 'components/WarmComments.astro'),
+      'utf-8',
+    );
+
+    expect(source).toContain('class="warm-comment-form__message" data-comment-message');
+    expect(source).toContain('data-default-message="${escapeHtml(defaultMessage)}"');
+    expect(source).toContain("value || element.dataset.defaultMessage || ''");
+    expect(source).not.toContain('<p class="warm-comment-form__message"');
+  });
+
   it('passes comment page context to frontend plugin snippets', () => {
     const post = readFileSync(join(warmRoot, 'components/Post.astro'), 'utf-8');
     const page = readFileSync(join(warmRoot, 'components/Page.astro'), 'utf-8');

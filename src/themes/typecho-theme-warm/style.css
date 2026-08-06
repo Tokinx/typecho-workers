@@ -686,15 +686,15 @@ body.warm-theme {
   border-radius: 16px;
   background: var(--warm-surface);
 }
+.warm-comment-form .typecho-turnstile {
+  margin: 10px 0;
+  line-height: 0;
+}
 
 .warm-form-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 13px;
-}
-
-.warm-form-grid__wide {
-  grid-column: 1 / -1;
 }
 
 .warm-comment-form label > span,
@@ -806,12 +806,8 @@ body.warm-theme {
 }
 
 .warm-comment-form__message {
-  min-height: 20px;
-  margin: 8px 0 -8px;
-}
-
-.warm-comment-form__message:empty {
-  display: none;
+  flex: 1;
+  min-width: 0;
 }
 
 .warm-replying {

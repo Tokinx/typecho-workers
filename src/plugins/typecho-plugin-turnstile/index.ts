@@ -102,13 +102,22 @@ function buildSnippet(options: Record<string, unknown> | undefined, formId: stri
     if (pending.timer) clearTimeout(pending.timer);
     if (pending.button) pending.button.disabled = false;
     window.__typechoTurnstilePending = null;
-    pending.form.submit();
+    if (typeof pending.form.requestSubmit === "function") {
+      pending.form.requestSubmit();
+    } else {
+      pending.form.submit();
+    }
   };
   window.__typechoTurnstileSetStatus = window.__typechoTurnstileSetStatus || function(containerId, message, type) {
-    var status = document.getElementById(containerId + "-status");
+    var container = document.getElementById(containerId);
+    var form = container && container.closest("form");
+    var status = form && form.querySelector("[data-comment-message]");
+    if (!status) status = document.getElementById(containerId + "-status");
     if (!status) return;
-    status.textContent = message || "";
-    status.className = "typecho-turnstile-status message " + (type === "error" ? "error" : "notice");
+    status.textContent = message || status.getAttribute("data-default-message") || "";
+    if (!status.hasAttribute("data-comment-message")) {
+      status.className = "typecho-turnstile-status message " + (type === "error" ? "error" : "notice");
+    }
   };
   window.__typechoTurnstileResetPending = window.__typechoTurnstileResetPending || function(message) {
     var pending = window.__typechoTurnstilePending;
@@ -120,14 +129,14 @@ function buildSnippet(options: Record<string, unknown> | undefined, formId: stri
     window.__typechoTurnstilePending = null;
   };
   window.__typechoTurnstileReady = window.__typechoTurnstileReady || function(callback) {
-    if (window.turnstile && typeof window.turnstile.execute === "function") {
+    if (window.turnstile && typeof window.turnstile.render === "function") {
       callback();
       return;
     }
     var attempts = 0;
     var timer = setInterval(function() {
       attempts += 1;
-      if (window.turnstile && typeof window.turnstile.execute === "function") {
+      if (window.turnstile && typeof window.turnstile.render === "function") {
         clearInterval(timer);
         callback();
       } else if (attempts >= 100) {
@@ -138,10 +147,15 @@ function buildSnippet(options: Record<string, unknown> | undefined, formId: stri
 })();
 </script><style>
 .typecho-turnstile { margin: 0 0 1em; text-align: left; }
+.typecho-turnstile[data-typecho-turnstile-pending] {
+  position: fixed;
+  top: 0;
+  left: -10000px;
+}
 .typecho-turnstile-widget { display: inline-block; min-height: 65px; }
 .typecho-turnstile-status:empty { display: none; }
 .typecho-turnstile-status { margin: 6px 0 0; text-align: left; }
-</style><script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>`;
+</style><script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>`;
   const sitekey = escapeAttr(config.sitekey);
   const inputAttr = escapeAttr(config.input);
   const themeAttr = escapeAttr(config.theme);
@@ -150,12 +164,18 @@ function buildSnippet(options: Record<string, unknown> | undefined, formId: stri
   const onDemand = config.appearance === 'execute' || config.appearance === 'interaction-only';
   const executionAttr = escapeAttr(onDemand ? 'execute' : 'render');
   const input = JSON.stringify(config.input);
-  const targetFormId = JSON.stringify(formId);
+  const targetFormSelector = formId === 'comment-form'
+    ? '.warm-comment-form,[data-comment-form],#comment-form,form[action$="/api/comment"]'
+    : `#${formId}`;
+  const targetFormSelectorValue = JSON.stringify(targetFormSelector);
   const containerIdValue = `typecho-turnstile-${formId}`;
   const containerIdAttr = escapeAttr(containerIdValue);
   const statusIdAttr = escapeAttr(`${containerIdValue}-status`);
+  const statusHtml = formId === 'comment-form'
+    ? ''
+    : `<p id="${statusIdAttr}" class="typecho-turnstile-status" aria-live="polite"></p>`;
 
-  const widgetHtml = `<div class="typecho-turnstile">
+  const widgetHtml = `<div class="typecho-turnstile" data-typecho-turnstile-pending>
 <div
   id="${containerIdAttr}"
   class="cf-turnstile typecho-turnstile-widget"
@@ -170,33 +190,80 @@ function buildSnippet(options: Record<string, unknown> | undefined, formId: stri
   data-error-callback="__typechoTurnstileResetPending"
   data-timeout-callback="__typechoTurnstileResetPending"
 ></div>
-<p id="${statusIdAttr}" class="typecho-turnstile-status" aria-live="polite"></p>
+${statusHtml}
 </div>`;
 
-  // archive:footer is rendered just before </body>. Move the comment widget
-  // into the form so it stays next to the action it protects instead of
-  // appearing at the bottom of the whole page.
-  const placementHtml = formId === 'comment-form' ? `<script is:inline>
+  // archive:footer is rendered just before </body>. Move the widget into the
+  // target form, including forms created later by API-backed themes.
+  const placementHtml = `<script is:inline>
 (function() {
-  var formId = ${targetFormId};
+  var formSelector = ${targetFormSelectorValue};
   var containerId = ${JSON.stringify(containerIdValue)};
-  function placeWidget() {
-    var form = document.getElementById(formId);
+  function renderWidget() {
     var container = document.getElementById(containerId);
-    if (!form || !container) return;
+    if (!container || !container.isConnected || !window.turnstile || typeof window.turnstile.render !== "function") return false;
+    if (container.getAttribute("data-typecho-turnstile-widget-id") !== null) return true;
+    try {
+      var widgetId = window.turnstile.render(container, {
+        sitekey: container.getAttribute("data-sitekey") || "",
+        theme: container.getAttribute("data-theme") || "auto",
+        size: container.getAttribute("data-size") || "normal",
+        appearance: container.getAttribute("data-appearance") || "always",
+        execution: container.getAttribute("data-execution") || "render",
+        "response-field": true,
+        "response-field-name": container.getAttribute("data-response-field-name") || "cf-turnstile-response",
+        callback: window.__typechoTurnstileSubmit,
+        "error-callback": window.__typechoTurnstileResetPending,
+        "timeout-callback": window.__typechoTurnstileResetPending
+      });
+      if (widgetId === undefined || widgetId === null) return false;
+      container.setAttribute("data-typecho-turnstile-widget-id", String(widgetId));
+      return true;
+    } catch (error) {
+      console.error("[turnstile] Widget render failed:", error);
+      return false;
+    }
+  }
+  function queueRender() {
+    window.__typechoTurnstileReady(renderWidget);
+  }
+  function placeWidget() {
+    var form = document.querySelector(formSelector);
+    var container = document.getElementById(containerId);
+    if (!form || !container) return false;
     var widget = container.closest('.typecho-turnstile');
-    var submit = form.querySelector('[type="submit"]');
-    if (!widget || !submit || widget.parentNode === form) return;
-    var submitBlock = submit.closest('p') || submit;
-    form.insertBefore(widget, submitBlock);
+    if (!widget) return false;
+    if (widget.parentNode === form) {
+      widget.removeAttribute('data-typecho-turnstile-pending');
+      queueRender();
+      return true;
+    }
+    var anchor = form.classList.contains('warm-comment-form')
+      ? form.querySelector('.warm-comment-form__actions')
+      : form.querySelector('.submit');
+    if (anchor && anchor.parentNode === form) {
+      anchor.before(widget);
+    } else {
+      form.appendChild(widget);
+    }
+    widget.removeAttribute('data-typecho-turnstile-pending');
+    queueRender();
+    return true;
+  }
+  function watchForForm() {
+    if (placeWidget() || !document.body) return;
+    var observer = new MutationObserver(function() {
+      if (placeWidget()) observer.disconnect();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
   }
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", placeWidget);
+    document.addEventListener("DOMContentLoaded", watchForForm, { once: true });
   } else {
-    placeWidget();
+    watchForForm();
   }
 })();
-</script>` : '';
+</script>`;
 
   if (!onDemand) {
     return {
@@ -210,6 +277,7 @@ function buildSnippet(options: Record<string, unknown> | undefined, formId: stri
     bodyHtml: `${widgetHtml}${placementHtml}<script is:inline>
 (function() {
   var inputName = ${input};
+  var formSelector = ${targetFormSelectorValue};
   var containerId = ${JSON.stringify(containerIdValue)};
 
   function getTokenField(form) {
@@ -226,8 +294,9 @@ function buildSnippet(options: Record<string, unknown> | undefined, formId: stri
   }
 
   function initTurnstile() {
-    var form = document.getElementById(${targetFormId});
-    if (!form) return;
+    var form = document.querySelector(formSelector);
+    if (!form || form.dataset.typechoTurnstileBound === "1") return !!form;
+    form.dataset.typechoTurnstileBound = "1";
     form.addEventListener("submit", function(e) {
       if (hasToken(form)) return;
       e.preventDefault();
@@ -243,14 +312,28 @@ function buildSnippet(options: Record<string, unknown> | undefined, formId: stri
       };
       window.__typechoTurnstileReady(function() {
         window.__typechoTurnstileSetStatus(containerId, "请完成人机验证", "loading");
-        turnstile.execute("#" + containerId);
+        var container = document.getElementById(containerId);
+        var widgetId = container && container.getAttribute("data-typecho-turnstile-widget-id");
+        if (!widgetId || !window.turnstile || typeof window.turnstile.execute !== "function") {
+          window.__typechoTurnstileResetPending("人机验证加载失败，请刷新页面后重试");
+          return;
+        }
+        window.turnstile.execute(widgetId);
       });
     });
+    return true;
+  }
+  function watchForForm() {
+    if (initTurnstile() || !document.body) return;
+    var observer = new MutationObserver(function() {
+      if (initTurnstile()) observer.disconnect();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
   }
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", initTurnstile);
+    document.addEventListener("DOMContentLoaded", watchForForm, { once: true });
   } else {
-    initTurnstile();
+    watchForForm();
   }
 })();
 </script>`,
