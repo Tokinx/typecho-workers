@@ -6,6 +6,7 @@ import { createContext } from '@/lib/context';
 import type { ThemePostProps } from '@/lib/theme-props';
 import WarmShell from './WarmShell.astro';
 import WarmComments from './WarmComments.astro';
+import WarmNoteMedia from './WarmNoteMedia.astro';
 import { formatWarmDate, plainExcerpt, readingMinutes, warmSettings } from './warm';
 
 type Props = ThemePostProps;
@@ -58,11 +59,7 @@ const description = plainExcerpt(isNote ? note.source : post.content, 160);
 
     <div class:list={["warm-prose", { "warm-note-prose": isNote }]} itemprop="articleBody" set:html={displayContent} />
 
-    {isNote && note.images.length > 0 && (
-      <div class:list={["warm-note__images", "warm-note__images--detail", `has-${Math.min(note.images.length, 4)}`]}>
-        {note.images.slice(0, 4).map(image => <img src={image.url} alt={image.name || '笔记配图'} loading="lazy" />)}
-      </div>
-    )}
+    {isNote && <WarmNoteMedia note={note} detail />}
 
     {!isNote && tags.length > 0 && (
       <footer class="warm-article__tags">

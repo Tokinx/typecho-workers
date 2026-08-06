@@ -1,0 +1,68 @@
+---
+import type { NoteListItem } from 'typecho-plugin-notes';
+
+interface Props {
+  note: NoteListItem;
+  /** Detail view (note page) instead of stream card. */
+  detail?: boolean;
+}
+
+const { note, detail = false } = Astro.props;
+const images = (note.images || []).slice(0, 4);
+const media = [
+  ...(note.videos || []).map(video => ({ ...video, kind: 'video' as const })),
+  ...(note.music || []).map(track => ({ ...track, kind: 'audio' as const })),
+];
+const attachments = note.attachments || [];
+
+function fileExt(name: string): string {
+  const dot = String(name || '').lastIndexOf('.');
+  return dot >= 0 && dot < name.length - 1 ? name.slice(dot + 1).toUpperCase().slice(0, 8) : '文件';
+}
+---
+
+{images.length > 0 && (
+  <div
+    class:list={[
+      "warm-note__images",
+      `has-${Math.min(images.length, 4)}`,
+      { "warm-note__images--detail": detail },
+    ]}
+  >
+    {images.map(image => (
+      <img src={image.url} alt={image.name || '笔记配图'} loading="lazy" />
+    ))}
+  </div>
+)}
+
+{media.length > 0 && (
+  <div class:list={["warm-note__media", `has-${Math.min(media.length, 2)}`]}>
+    {media.map(item => item.kind === 'video' ? (
+      <div class="warm-note__media-item">
+        <video src={item.url} controls preload="metadata"></video>
+        <span class="warm-note__media-name">{item.name || '视频'}</span>
+      </div>
+    ) : (
+      <div class="warm-note__media-item">
+        <audio src={item.url} controls preload="metadata"></audio>
+        <span class="warm-note__media-name">{item.name || '音频'}</span>
+      </div>
+    ))}
+  </div>
+)}
+
+{attachments.length > 0 && (
+  <div class:list={["warm-note__attachments", `has-${Math.min(attachments.length, 2)}`]}>
+    {attachments.map(file => (
+      <a
+        class="warm-note__attachment"
+        href={file.url}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        <span class="warm-note__attachment-ext">{fileExt(file.name)}</span>
+        <span class="warm-note__attachment-name">{file.name || '附件'}</span>
+      </a>
+    ))}
+  </div>
+)}

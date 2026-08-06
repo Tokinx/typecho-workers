@@ -9,6 +9,7 @@ import { buildCategoryLink } from '@/lib/content';
 import NotFound from './NotFound.astro';
 import WarmShell from './WarmShell.astro';
 import WarmStreamPagination from './WarmStreamPagination.astro';
+import WarmNoteMedia from './WarmNoteMedia.astro';
 import { formatWarmDate, plainExcerpt, warmSettings } from './warm';
 
 type Props = ThemeIndexProps;
@@ -182,13 +183,7 @@ if (isNotesStreamOutOfRange) Astro.response.status = 404;
           <time datetime={new Date(item.created * 1000).toISOString()}>{formatWarmDate(item.created, options.postDateFormat, options.timezone, true)}</time>
         </div>
         <div class="warm-note__content" set:html={item.html} />
-        {item.images.length > 0 && (
-          <div class:list={["warm-note__images", `has-${Math.min(item.images.length, 4)}`]}>
-            {item.images.slice(0, 4).map(image => (
-              <img src={image.url} alt={image.name || '笔记配图'} loading="lazy" />
-            ))}
-          </div>
-        )}
+        <WarmNoteMedia note={item} />
       </article>
     ) : (
       <article class="warm-stream-item warm-post-card" data-content-type="post">
