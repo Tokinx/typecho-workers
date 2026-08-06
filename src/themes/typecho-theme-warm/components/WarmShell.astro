@@ -1,6 +1,7 @@
 ---
 import Base from '@/layouts/Base.astro';
 import type { ThemeBaseProps } from '@/lib/theme-props';
+import type { PageContext } from '@/lib/plugin';
 import { PUBLIC_HTML_HEADER } from '@/lib/cache';
 import { warmSettings, type WarmSection } from './warm';
 import { instantClickSource } from './instantclick';
@@ -9,6 +10,7 @@ interface Props extends Omit<ThemeBaseProps, 'user' | 'isLoggedIn'> {
   title?: string;
   description?: string;
   section?: WarmSection;
+  pageContext?: PageContext;
 }
 
 const {
@@ -20,6 +22,7 @@ const {
   pages,
   sidebarData,
   pluginCtx,
+  pageContext,
   currentPath
 } = Astro.props;
 
@@ -41,6 +44,7 @@ const socialLinks = [
   description={description}
   options={options}
   urls={urls}
+  pageContext={pageContext}
   pluginCtx={pluginCtx}
   bodyClass="warm-theme"
 >

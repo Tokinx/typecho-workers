@@ -269,6 +269,12 @@ describe('typecho-plugin-antispam', () => {
 
     expect(result).toContain(HONEYPOT_FIELD);
     expect(result).toContain(TOKEN_FIELD);
+    expect(result).toContain('data-typecho-antispam-honeypot');
+    expect(result).toContain('typecho-antispam-fields');
+    expect(result).toContain('[data-comment-form],#comment-form');
+    expect(result).toContain('/api/comment');
+    expect(result).toContain('MutationObserver');
+    expect(result).toContain('cloneNode(true)');
   });
 
   it('skips injection when page lacks comment form', async () => {

@@ -35,6 +35,7 @@ const description = plainExcerpt(isNote ? note.source : post.content, 160);
   pages={pages}
   sidebarData={sidebarData}
   currentPath={currentPath}
+  pageContext={{ hasComments: post.allowComment, pageType: 'post' }}
   pluginCtx={pluginCtx}
   section={isNote ? 'notes' : 'articles'}
 >

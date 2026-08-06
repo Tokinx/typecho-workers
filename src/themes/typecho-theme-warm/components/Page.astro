@@ -20,6 +20,7 @@ const settings = warmSettings(options);
   pages={pages}
   sidebarData={sidebarData}
   currentPath={currentPath}
+  pageContext={{ hasComments: page.allowComment, pageType: 'page' }}
   pluginCtx={pluginCtx}
   section={isAbout ? 'about' : 'none'}
 >

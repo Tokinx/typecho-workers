@@ -45,6 +45,7 @@ function validateMode(raw: unknown): SpamMode {
 const PLUGIN_ID = 'typecho-plugin-antispam';
 const HONEYPOT_FIELD = 'address_confirm';
 const TOKEN_FIELD = 'antispam_token';
+const SNIPPET_ID = 'typecho-antispam-fields';
 
 function intOrDefault(raw: unknown, fallback: number, min: number): number {
   const n = parseInt(String(raw ?? ''));
@@ -151,7 +152,7 @@ function countLinks(text: string): number {
 }
 
 function buildHoneypotHtml(): string {
-  return `<div style="position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden;" aria-hidden="true" tabindex="-1">
+  return `<div data-typecho-antispam-honeypot style="position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden;" aria-hidden="true" tabindex="-1">
 <label for="comment-${HONEYPOT_FIELD}">Address</label>
 <input type="text" name="${escapeAttr(HONEYPOT_FIELD)}" id="comment-${escapeAttr(HONEYPOT_FIELD)}" tabindex="-1" autocomplete="off">
 </div>`;
@@ -178,7 +179,44 @@ async function buildSnippet(options?: Record<string, unknown>): Promise<{ headHt
     }
   }
 
-  return { headHtml: '', bodyHtml };
+  if (!bodyHtml) return { headHtml: '', bodyHtml: '' };
+
+  // Some themes render the comment form after the page has loaded. Keep the
+  // fields in a temporary container and copy them into every supported form
+  // when it appears, so the server receives the same protection on SSR and
+  // API-backed comment forms.
+  const fieldNames = JSON.stringify([HONEYPOT_FIELD, TOKEN_FIELD]);
+  const formSelector = '[data-comment-form],#comment-form,form[action$="/api/comment"]';
+  const attachScript = `<script>
+(() => {
+  const source = document.getElementById(${JSON.stringify(SNIPPET_ID)});
+  if (!source) return;
+  const fieldNames = ${fieldNames};
+  const attachFields = () => {
+    document.querySelectorAll(${JSON.stringify(formSelector)}).forEach(form => {
+      if (!(form instanceof HTMLFormElement)) return;
+      fieldNames.forEach(name => {
+        if (form.elements.namedItem(name)) return;
+        const field = source.querySelector('[name="' + name + '"]');
+        if (!field) return;
+        const copy = name === ${JSON.stringify(HONEYPOT_FIELD)}
+          ? field.closest('[data-typecho-antispam-honeypot]') || field
+          : field;
+        form.appendChild(copy.cloneNode(true));
+      });
+    });
+  };
+  attachFields();
+  const observer = new MutationObserver(attachFields);
+  observer.observe(document.body, { childList: true, subtree: true });
+  window.setTimeout(() => observer.disconnect(), 60000);
+})();
+</script>`;
+
+  return {
+    headHtml: '',
+    bodyHtml: `<div id="${SNIPPET_ID}" hidden>${bodyHtml}</div>${attachScript}`,
+  };
 }
 
 function rejectComment(commentData: MutableCommentData, mode: SpamMode, reason: string): MutableCommentData {

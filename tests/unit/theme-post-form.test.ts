@@ -34,4 +34,14 @@ describe('Warm post comments', () => {
     expect(source).toContain("comment.status !== 'approved'");
     expect(source).toContain('warm-comment__status');
   });
+
+  it('passes comment page context to frontend plugin snippets', () => {
+    const post = readFileSync(join(warmRoot, 'components/Post.astro'), 'utf-8');
+    const page = readFileSync(join(warmRoot, 'components/Page.astro'), 'utf-8');
+    const shell = readFileSync(join(warmRoot, 'components/WarmShell.astro'), 'utf-8');
+
+    expect(post).toContain("pageContext={{ hasComments: post.allowComment, pageType: 'post' }}");
+    expect(page).toContain("pageContext={{ hasComments: page.allowComment, pageType: 'page' }}");
+    expect(shell).toContain('pageContext={pageContext}');
+  });
 });
