@@ -11,7 +11,12 @@ Schema，数据存放在现有的 `typecho_contents`、`typecho_metas`、
 - 编辑、删除笔记，点击评论数查看评论列表并回复；保留旧 `topicMid` 写入参数以兼容早期调用
 - 通过核心上传接口插入图片
 - 支持上传附件；附件存入核心 `attachment` 内容类型并持久化在 `typecho_fields.note_attachments`（cid 数组），
-  主题可通过`NoteListItem.attachments`（`cid`/`name`/`url`/`size`/`type`）渲染文件链接
+  主题可通过 `NoteListItem.attachments`（`cid`/`name`/`url`/`size`/`type`）渲染文件链接
+- 加载时按 MIME 类型自动分流附件：图片并入 `NoteListItem.images`（note-images 网格格式，兼容历史
+  `note_images` 字段，1~4 张自动应用 `has-1` ~ `has-4` 网格类，单张最宽 50%），视频进
+  `NoteListItem.videos`、音频进 `NoteListItem.music`，其余（以及第 3 个及之后的视频/音频）保留在
+  `NoteListItem.attachments`；后台列表用 `<video>` / `<audio>` 标签内联播放（单个最宽 50%），
+  编辑回填时自动合并四个分桶，避免保存丢失媒体附件
 - 对任意 `/note/<cid>` 引用生成指向笔记详情页的链接
 - 公开笔记复用 Post 详情页和核心评论表单，后台笔记页面可集中查看和回复评论
 - 点赞不属于本插件，后续可由独立 Like 插件实现

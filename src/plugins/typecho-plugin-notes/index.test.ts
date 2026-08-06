@@ -133,10 +133,29 @@ describe('typecho-plugin-notes', () => {
     expect(html).toContain('data-attach-remove');
     expect(html).toContain('/api/admin/upload?cid=');
     expect(html).toContain('attachments:state.attachments.map');
+    expect(html).toContain('concat(note.images||[],note.videos||[],note.music||[],note.attachments||[])');
     expect(html).toContain('function mimeClass');
     expect(html).toContain('mime-image');
     expect(html).toContain('mime-script');
     expect(html).toContain('mime-unknow');
+    expect(html).toContain("<video src=\"'+E(video.url)+'\" controls preload=\"metadata\"></video>");
+    expect(html).toContain("<audio src=\"'+E(track.url)+'\" controls preload=\"metadata\"></audio>");
+    expect(html).toContain('note-media-list');
+    expect(html).toContain('note-media-name');
+    expect(html).toContain('var gridClass=imageItems.length?"has-"+Math.min(imageItems.length,4):""');
+    expect(html).toContain("note-images '+gridClass+'\"");
+    expect(html).toContain('.note-images.has-1{grid-template-columns:minmax(0,1fr);max-width:50%}');
+    expect(html).toContain('.note-images.has-2{');
+    expect(html).toContain('.note-images.has-3{');
+    expect(html).toContain('note-media video{max-width:50%');
+    expect(html).toContain('note-media audio{max-width:50%');
+    expect(html).toContain('var videos=(note.videos||[])');
+    expect(html).toContain('var music=(note.music||[])');
+    expect(html).toContain('.note-media video{');
+    expect(html).toContain('.note-media audio{');
+    expect(html).toContain('png|jpe?g|gif|webp|svg|bmp|avif|ico');
+    expect(html).toContain('mp4|webm|mov|m4v|avi|mkv|ogv');
+    expect(html).toContain('mp3|wav|flac|m4a|aac|oga|opus|wma');
     expect(html).toContain('data-attach-index');
     expect(html).toContain('addEventListener("dragstart"');
     expect(html).toContain('addEventListener("drop"');
@@ -262,6 +281,8 @@ describe('typecho-plugin-notes', () => {
     const note = (await listResponse.json()).data[0];
     expect(note.attachments).toMatchObject([
       { cid: pdf, name: '文档.pdf', url: 'https://r2.example.com/att/文档.pdf', size: 2048, type: 'application/pdf' },
+    ]);
+    expect(note.videos).toMatchObject([
       { cid: video, name: 'video.mp4', url: 'https://r2.example.com/att/video.mp4', size: 1024, type: 'video/mp4' },
     ]);
 
@@ -277,7 +298,7 @@ describe('typecho-plugin-notes', () => {
 
     await db.delete(contents).where(eq(contents.cid, video));
     const staleList = await handleNotesRequest(new Request(`https://example.com/api/admin/notes?cid=${cid}`), { db: db as any, uid: 1 });
-    expect((await staleList.json()).data[0].attachments).toEqual([]);
+    expect((await staleList.json()).data[0].videos).toEqual([]);
 
     const deleteResponse = await handleNotesRequest(new Request('https://example.com/api/admin/notes', {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -286,6 +307,79 @@ describe('typecho-plugin-notes', () => {
     expect(deleteResponse.status).toBe(200);
     const remainingFields = await db.select({ cid: fields.cid }).from(fields).where(eq(fields.cid, cid));
     expect(remainingFields).toEqual([]);
+  });
+
+  it('splits attachments into images / videos / music / others and merges legacy note_images', async () => {
+    const { contents, fields } = await import('@/db/schema');
+    const now = Math.floor(Date.now() / 1000);
+    const inserted = await db.insert(contents).values([
+      {
+        title: 'photo.png', slug: 'att-img',
+        text: JSON.stringify({ name: 'photo.png', url: 'https://r2.example.com/att/photo.png', size: 100, type: 'image/png' }),
+        created: now, modified: now, authorId: 1, type: 'attachment' as const, status: 'publish' as const,
+      },
+      {
+        title: 'clip.webm', slug: 'att-vid',
+        text: JSON.stringify({ name: 'clip.webm', url: 'https://r2.example.com/att/clip.webm', size: 200, type: 'video/webm' }),
+        created: now, modified: now, authorId: 1, type: 'attachment' as const, status: 'publish' as const,
+      },
+      {
+        title: 'clip2.webm', slug: 'att-vid2',
+        text: JSON.stringify({ name: 'clip2.webm', url: 'https://r2.example.com/att/clip2.webm', size: 220, type: 'video/webm' }),
+        created: now, modified: now, authorId: 1, type: 'attachment' as const, status: 'publish' as const,
+      },
+      {
+        title: 'song.mp3', slug: 'att-mus',
+        text: JSON.stringify({ name: 'song.mp3', url: 'https://r2.example.com/att/song.mp3', size: 300, type: 'audio/mpeg' }),
+        created: now, modified: now, authorId: 1, type: 'attachment' as const, status: 'publish' as const,
+      },
+      {
+        title: 'song2.mp3', slug: 'att-mus2',
+        text: JSON.stringify({ name: 'song2.mp3', url: 'https://r2.example.com/att/song2.mp3', size: 320, type: 'audio/mpeg' }),
+        created: now, modified: now, authorId: 1, type: 'attachment' as const, status: 'publish' as const,
+      },
+      {
+        title: 'legacy.jpg', slug: 'att-legacy',
+        text: JSON.stringify({ name: 'legacy.jpg', url: 'https://r2.example.com/att/legacy.jpg', size: 400, type: 'image/jpeg' }),
+        created: now, modified: now, authorId: 1, type: 'attachment' as const, status: 'publish' as const,
+      },
+      {
+        title: 'notes.zip', slug: 'att-zip',
+        text: JSON.stringify({ name: 'notes.zip', url: 'https://r2.example.com/att/notes.zip', size: 500, type: 'application/zip' }),
+        created: now, modified: now, authorId: 1, type: 'attachment' as const, status: 'publish' as const,
+      },
+    ]).returning({ cid: contents.cid });
+    const [photo, clip, clip2, song, song2, legacy, zip] = inserted.map(row => row.cid);
+
+    const createResponse = await handleNotesRequest(new Request('https://example.com/api/admin/notes', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'create', content: '多媒体', status: 'publish', attachments: [photo, clip, song, clip2, song2, zip] }),
+    }), { db: db as any, uid: 1 });
+    const { cid } = await createResponse.json();
+    expect(createResponse.status).toBe(200);
+
+    await db.insert(fields).values({ cid, name: 'note_images', str_value: JSON.stringify([legacy]) });
+
+    const listResponse = await handleNotesRequest(new Request(`https://example.com/api/admin/notes?cid=${cid}`), { db: db as any, uid: 1 });
+    const note = (await listResponse.json()).data[0];
+    expect(note.images).toMatchObject([
+      { cid: legacy, name: 'legacy.jpg', type: 'image/jpeg' },
+      { cid: photo, name: 'photo.png', type: 'image/png' },
+    ]);
+    expect(note.videos).toMatchObject([{ cid: clip, name: 'clip.webm', type: 'video/webm' }]);
+    expect(note.music).toMatchObject([{ cid: song, name: 'song.mp3', type: 'audio/mpeg' }]);
+    expect(note.attachments).toMatchObject([
+      { cid: clip2, name: 'clip2.webm', type: 'video/webm' },
+      { cid: song2, name: 'song2.mp3', type: 'audio/mpeg' },
+      { cid: zip, name: 'notes.zip', type: 'application/zip' },
+    ]);
+    expect(note.images).toHaveLength(2);
+
+    const deleteResponse = await handleNotesRequest(new Request('https://example.com/api/admin/notes', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'delete', cid }),
+    }), { db: db as any, uid: 1 });
+    expect(deleteResponse.status).toBe(200);
   });
 
   it('exposes public notes anonymously and the current author private notes when logged in', async () => {

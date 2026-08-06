@@ -19,6 +19,8 @@ const NOTE_IMAGES_FIELD = 'note_images';
 const NOTE_ATTACHMENTS_FIELD = 'note_attachments';
 /** Max attachments a single note can persist. Bounds the fields row size. */
 const MAX_NOTE_ATTACHMENTS = 20;
+/** Only the first N video/audio attachments render as inline media; the rest fall back to plain attachments. */
+const MAX_INLINE_MEDIA = 2;
 
 type NoteStatus = 'publish' | 'private' | 'draft';
 export type ThemeNotesStreamMode = 'notes' | 'mixed';
@@ -72,8 +74,25 @@ export interface NoteListItem {
   topics: NoteTopic[];
   /** Kept for the first Notes admin release. Prefer `topics`. */
   topic: NoteTopic | null;
-  images: Array<{ cid: number; name: string; url: string }>;
-  /** Non-image attachments uploaded through the Notes composer. */
+  /** Images (legacy note_images plus image attachments), note-images grid format. */
+  images: Array<{ cid: number; name: string; url: string; size?: number; type?: string }>;
+  /** Video attachments. */
+  videos: Array<{
+    cid: number;
+    name: string;
+    url: string;
+    size?: number;
+    type?: string;
+  }>;
+  /** Audio attachments. */
+  music: Array<{
+    cid: number;
+    name: string;
+    url: string;
+    size?: number;
+    type?: string;
+  }>;
+  /** Remaining non-media attachments. */
   attachments: Array<{
     cid: number;
     name: string;
@@ -314,7 +333,8 @@ async function resolveNoteAttachments(db: Database, ids: number[]): Promise<numb
   if (!ids.length) return [];
   const rows = await db.select({ cid: schema.contents.cid }).from(schema.contents)
     .where(and(inArray(schema.contents.cid, ids), eq(schema.contents.type, 'attachment')));
-  return rows.map(row => row.cid);
+  const found = new Set(rows.map(row => row.cid));
+  return ids.filter(id => found.has(id));
 }
 
 /** Persist the note's attachment id list in typecho_fields (upsert by (cid, name)). */
@@ -434,6 +454,10 @@ async function hydrateThemeNoteItems(
     const isNote = note.type === NOTE_TYPE;
     const noteTopics = topicsByCid.get(note.cid) || [];
     const source = stripMarkdownMarker(note.text || '');
+    const media = isNote
+      ? splitNoteMedia([...(imageIdsByCid.get(note.cid) || []), ...(attachmentIdsByCid.get(note.cid) || [])]
+        .map(id => attachments.get(id)).filter(Boolean) as Array<{ cid: number; name: string; url: string; size?: number; type?: string }>)
+      : { images: [], videos: [], music: [], attachments: [] };
     return {
       cid: note.cid,
       type: isNote ? 'note' : 'post',
@@ -450,10 +474,42 @@ async function hydrateThemeNoteItems(
       allowComment: note.allowComment === '1',
       topics: noteTopics,
       topic: noteTopics[0] || null,
-      images: isNote ? (imageIdsByCid.get(note.cid) || []).map(id => attachments.get(id)).filter(Boolean) as Array<{ cid: number; name: string; url: string }> : [],
-      attachments: isNote ? (attachmentIdsByCid.get(note.cid) || []).map(id => attachments.get(id)).filter(Boolean) as Array<{ cid: number; name: string; url: string; size?: number; type?: string }> : [],
+      images: media.images,
+      videos: media.videos,
+      music: media.music,
+      attachments: media.attachments,
     };
   });
+}
+
+/**
+ * Split note attachments into images / up to MAX_INLINE_MEDIA media (video/music) / other buckets.
+ * Only the first video-or-audio items (in original order) are treated as inline media;
+ * additional videos and music fall back to plain attachments.
+ */
+function splitNoteMedia(items: Array<{ cid: number; name: string; url: string; size?: number; type?: string }>) {
+  const images: Array<{ cid: number; name: string; url: string; size?: number; type?: string }> = [];
+  const videos: Array<{ cid: number; name: string; url: string; size?: number; type?: string }> = [];
+  const music: Array<{ cid: number; name: string; url: string; size?: number; type?: string }> = [];
+  const attachments: Array<{ cid: number; name: string; url: string; size?: number; type?: string }> = [];
+  let inlineMedia = 0;
+  for (const item of items) {
+    const type = String(item.type || '');
+    if (type.startsWith('image/')) {
+      images.push(item);
+    } else if (type.startsWith('video/') || type.startsWith('audio/')) {
+      if (inlineMedia < MAX_INLINE_MEDIA) {
+        inlineMedia += 1;
+        if (type.startsWith('video/')) videos.push(item);
+        else music.push(item);
+      } else {
+        attachments.push(item);
+      }
+    } else {
+      attachments.push(item);
+    }
+  }
+  return { images, videos, music, attachments };
 }
 
 async function listNotesData(db: Database, rawOptions: ListOptions = {}): Promise<NotesListResult> {
