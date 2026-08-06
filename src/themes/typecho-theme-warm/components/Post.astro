@@ -49,7 +49,7 @@ const description = plainExcerpt(isNote ? note.source : post.content, 160);
           <span>文章</span>
         )}
         <span aria-hidden="true">·</span>
-        <time datetime={new Date(post.created * 1000).toISOString()} itemprop="datePublished">{formatWarmDate(post.created)}</time>
+        <time datetime={new Date(post.created * 1000).toISOString()} itemprop="datePublished">{formatWarmDate(post.created, options.postDateFormat, options.timezone, isNote)}</time>
         {!isNote && <><span aria-hidden="true">·</span><span>约 {readingMinutes(post.content)} 分钟阅读</span></>}
       </div>
       {!isNote && <h1 itemprop="headline">{post.title}</h1>}

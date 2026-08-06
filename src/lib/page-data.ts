@@ -177,7 +177,7 @@ export function buildCommentOptions(options: SiteOptions, securityToken: string)
     avatarRating: options.commentsAvatarRating || 'G',
     order: options.commentsOrder === 'DESC' ? 'DESC' : 'ASC',
     dateFormat: options.commentDateFormat || 'Y-m-d H:i',
-    timezone: options.timezone || 28800,
+    timezone: Number.isFinite(Number(options.timezone)) ? Number(options.timezone) : 28800,
     securityToken,
     showCommentOnly: !!options.commentsShowCommentOnly,
     markdown: !!options.commentsMarkdown,

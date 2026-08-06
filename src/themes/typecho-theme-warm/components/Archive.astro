@@ -28,7 +28,7 @@ const settings = warmSettings(options);
         <div class="warm-item-meta">
           {post.categories[0] ? <a class="warm-category" href={post.categories[0].permalink}>{post.categories[0].name}</a> : null}
           {post.categories[0] ? <span aria-hidden="true">·</span> : null}
-          <time datetime={new Date(post.created * 1000).toISOString()}>{formatWarmDate(post.created)}</time>
+          <time datetime={new Date(post.created * 1000).toISOString()}>{formatWarmDate(post.created, options.postDateFormat, options.timezone)}</time>
         </div>
         <h2><a href={post.permalink}>{post.title}</a></h2>
         <p>{plainExcerpt(post.excerpt)}</p>

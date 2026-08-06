@@ -211,6 +211,10 @@ describe('formatDate()', () => {
     expect(formatDate(ts, 'M', 0)).toBe('Mar');
   });
 
+  it('formats the extended PHP date tokens used by theme settings', () => {
+    expect(formatDate(ts, 'D l jS N w z U', 0)).toBe('Sun Sunday 15th 7 0 73 1773577845');
+  });
+
   it('escapes backslash-prefixed characters', () => {
     // \a\t in format should be literal "at"
     const result = formatDate(ts, 'Y-m-d \\a\\t H:i', 0);

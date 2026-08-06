@@ -20,6 +20,7 @@ import {
 } from '@/lib/plugin';
 import { loadCommentPage, loadPublicCommentPage } from '@/lib/comment-page';
 import { buildCommentOptions, buildCommentTree, buildGravatarMap } from '@/lib/page-data';
+import { formatDate } from '@/lib/content';
 import { jsonError, jsonOk } from '@/lib/http';
 import {
   createSharedCacheTrace,
@@ -44,6 +45,11 @@ interface CachedPublicCommentPage {
   comments: PublicCommentNode[];
   gravatarMap: Record<number, string>;
   pagination: CommentPagination;
+}
+
+interface FormattedPublicCommentNode extends Omit<PublicCommentNode, 'children'> {
+  date: string;
+  children: FormattedPublicCommentNode[];
 }
 
 export const GET: APIRoute = async ({ request, locals, url }) => {
@@ -187,9 +193,12 @@ export const GET: APIRoute = async ({ request, locals, url }) => {
   const publicAvatarMap = filteredAvatarMap && typeof filteredAvatarMap === 'object'
     ? filteredAvatarMap as Record<number, string>
     : commentData.gravatarMap;
+  const commentDateFormat = options.commentDateFormat || 'Y-m-d H:i';
+  const numericTimezone = Number(options.timezone);
+  const commentTimezone = Number.isFinite(numericTimezone) ? numericTimezone : 28800;
 
   const response = jsonOk({
-    comments: commentData.comments,
+    comments: formatPublicCommentDates(commentData.comments, commentDateFormat, commentTimezone),
     gravatarMap: publicAvatarMap,
     pagination: commentData.pagination,
     options: { ...buildCommentOptions(options, securityToken), allowComment },
@@ -206,6 +215,18 @@ function redactCommentMail(comments: CommentNode[]): PublicCommentNode[] {
   return comments.map(({ mail: _mail, children, ...comment }) => ({
     ...comment,
     children: redactCommentMail(children),
+  }));
+}
+
+function formatPublicCommentDates(
+  comments: PublicCommentNode[],
+  format: string,
+  timezone: number,
+): FormattedPublicCommentNode[] {
+  return comments.map(comment => ({
+    ...comment,
+    date: formatDate(comment.created, format, timezone),
+    children: formatPublicCommentDates(comment.children, format, timezone),
   }));
 }
 

@@ -14,5 +14,3 @@ wrangler.toml
 /.env
 /.pnpm-store
 /docs
-
-WordPress.*.xml

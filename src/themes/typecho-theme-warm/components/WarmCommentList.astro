@@ -24,13 +24,13 @@ const { comments, commentOptions, gravatarMap, depth = 0 } = Astro.props;
           {comment.url && commentOptions.showUrl ? (
             <a href={comment.url} rel={commentOptions.urlNofollow ? 'external nofollow' : 'external'}>{comment.author}</a>
           ) : <strong>{comment.author}</strong>}
-          <time datetime={new Date(comment.created * 1000).toISOString()}>{formatWarmDate(comment.created, true)}</time>
+          <time datetime={new Date(comment.created * 1000).toISOString()}>{formatWarmDate(comment.created, commentOptions.dateFormat, commentOptions.timezone)}</time>
         </div>
       </div>
       {commentOptions.allowComment && <button type="button" class="warm-comment__reply" data-reply-to={comment.coid} data-reply-author={comment.author}>回复</button>}
     </div>
     {comment.status !== 'approved' && <p class="warm-comment__status">评论待审核，仅你可见</p>}
-    <div class="warm-comment__content" set:html={comment.text} />
+    <div class="warm-comment__content warm-prose" set:html={comment.text} />
     {comment.children.length > 0 && (
       <div class="warm-comment__children">
         <Astro.self

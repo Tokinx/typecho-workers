@@ -89,7 +89,7 @@ const { hasPrev, hasNext, prevUrl, nextUrl, mode, label } = Astro.props;
         if (!userHasScrolled || !canAutomaticallyLoad() || !sentinel || !('IntersectionObserver' in window)) return;
         observer = new IntersectionObserver(entries => {
           if (entries.some(entry => entry.isIntersecting)) loadNext(true);
-        }, { rootMargin: '160px 0px' });
+        }, { rootMargin: '0px 0px -20% 0px' });
         observer.observe(sentinel);
       };
 

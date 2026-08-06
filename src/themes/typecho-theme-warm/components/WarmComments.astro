@@ -34,15 +34,12 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
       const authorHtml = comment.url && options.showUrl
         ? `<a href="${escapeHtml(comment.url)}" rel="${options.urlNofollow ? 'external nofollow' : 'external'}">${author}</a>`
         : `<strong>${author}</strong>`;
-      const date = new Intl.DateTimeFormat('zh-CN', {
-        month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
-      }).format(new Date(comment.created * 1000));
       const children = (comment.children || []).map(child => renderComment(child, options, avatars, depth + 1)).join('');
       return `<article class="warm-comment" id="comment-${comment.coid}" data-comment-id="${comment.coid}" style="--comment-depth:${Math.min(depth, 3)}">
-        <div class="warm-comment__header"><div class="warm-comment__identity">${avatar}<div>${authorHtml}<time>${escapeHtml(date)}</time></div></div>
+        <div class="warm-comment__header"><div class="warm-comment__identity">${avatar}<div>${authorHtml}<time>${escapeHtml(comment.date || '')}</time></div></div>
         ${options.allowComment ? `<button type="button" class="warm-comment__reply" data-reply-to="${comment.coid}" data-reply-author="${author}">回复</button>` : ''}</div>
         ${comment.status !== 'approved' ? '<p class="warm-comment__status">评论待审核，仅你可见</p>' : ''}
-        <div class="warm-comment__content">${comment.text}</div>
+        <div class="warm-comment__content warm-prose">${comment.text}</div>
         ${children ? `<div class="warm-comment__children">${children}</div>` : ''}
       </article>`;
     };
@@ -181,7 +178,7 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
           if (!entries.some(entry => entry.isIntersecting)) return;
           const nextPage = activePagination?.currentPage + 1;
           if (Number.isSafeInteger(nextPage)) loadComments(nextPage, true, true);
-        }, { rootMargin: '160px 0px' });
+        }, { rootMargin: '0px 0px -20% 0px' });
         paginationObserver.observe(sentinel);
       };
 
@@ -439,7 +436,7 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
             return;
           }
           startDwellTimer();
-        }, { threshold: 0.15 });
+        }, { rootMargin: '0px 0px -20% 0px' });
         componentObserver.observe(deferred);
       };
 

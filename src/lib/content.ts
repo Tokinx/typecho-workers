@@ -164,40 +164,57 @@ export function buildSearchLink(keywords: string, siteUrl: string): string {
 
 /**
  * Format a Unix timestamp using PHP-style date formatting
- * Supports common PHP date format characters
+ * Supports the PHP date format characters used by Typecho settings.
  */
 export function formatDate(timestamp: number, format: string, timezoneOffset = 28800): string {
-  const date = new Date((timestamp + timezoneOffset) * 1000);
-  const utcDate = new Date(date.getTime() + date.getTimezoneOffset() * 60000);
-
-  const Y = String(utcDate.getFullYear());
-  const m = String(utcDate.getMonth() + 1).padStart(2, '0');
-  const d = String(utcDate.getDate()).padStart(2, '0');
-  const H = String(utcDate.getHours()).padStart(2, '0');
-  const i = String(utcDate.getMinutes()).padStart(2, '0');
-  const s = String(utcDate.getSeconds()).padStart(2, '0');
-  const n = String(utcDate.getMonth() + 1);
-  const j = String(utcDate.getDate());
-  const c = new Date(timestamp * 1000).toISOString();
-
+  const numericTimestamp = Number(timestamp);
+  const numericOffset = Number(timezoneOffset);
+  const offset = Number.isFinite(numericOffset) ? numericOffset : 28800;
+  const date = new Date((numericTimestamp + offset) * 1000);
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth() + 1;
+  const day = date.getUTCDate();
+  const hour = date.getUTCHours();
+  const minute = date.getUTCMinutes();
+  const second = date.getUTCSeconds();
+  const dayOfWeek = date.getUTCDay();
   const monthNames = [
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December',
   ];
-  const shortMonthNames = monthNames.map((name) => name.substring(0, 3));
-  const F = monthNames[utcDate.getMonth()];
-  const M = shortMonthNames[utcDate.getMonth()];
-
-  const replacements: Record<string, string> = { Y, m, d, H, i, s, n, j, F, M, c };
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const dayOfYear = Math.floor((Date.UTC(year, month - 1, day) - Date.UTC(year, 0, 1)) / 86400000);
+  const ordinal = day % 10 === 1 && day % 100 !== 11
+    ? 'st'
+    : day % 10 === 2 && day % 100 !== 12
+      ? 'nd'
+      : day % 10 === 3 && day % 100 !== 13
+        ? 'rd'
+        : 'th';
+  const values: Record<string, string> = {
+    Y: String(year), y: String(year).slice(-2),
+    m: String(month).padStart(2, '0'), n: String(month),
+    d: String(day).padStart(2, '0'), j: String(day), S: ordinal,
+    H: String(hour).padStart(2, '0'), G: String(hour),
+    h: String(hour % 12 || 12).padStart(2, '0'), g: String(hour % 12 || 12),
+    i: String(minute).padStart(2, '0'), s: String(second).padStart(2, '0'),
+    a: hour < 12 ? 'am' : 'pm', A: hour < 12 ? 'AM' : 'PM',
+    F: monthNames[month - 1], M: monthNames[month - 1].slice(0, 3),
+    D: dayNames[dayOfWeek].slice(0, 3), l: dayNames[dayOfWeek],
+    N: String(dayOfWeek || 7), w: String(dayOfWeek),
+    t: String(daysInMonth), z: String(dayOfYear),
+    c: new Date(numericTimestamp * 1000).toISOString(), U: String(Math.floor(numericTimestamp)),
+  };
 
   // Single-pass replacement: match either an escaped char (\X) or a format letter (X).
   // This prevents substituted values from being re-processed by subsequent replacements.
-  return format.replace(/\\(.)|(Y|m|d|H|i|s|n|j|F|M|c)/g, (match, escaped, token) => {
+  return String(format || 'Y-m-d H:i').replace(/\\(.)|(Y|y|m|n|d|j|S|H|G|h|g|i|s|a|A|F|M|D|l|N|w|t|z|c|U)/g, (match, escaped, token) => {
     if (escaped !== undefined) {
       // \X — output the literal character X (strips the backslash)
       return escaped;
     }
-    return replacements[token] ?? match;
+    return values[token] ?? match;
   });
 }
 

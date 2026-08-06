@@ -380,7 +380,6 @@ body.warm-theme {
   width: 100%;
   height: 180px;
   aspect-ratio: 4 / 3;
-  border: 1px solid var(--warm-border);
   border-radius: 8px;
   background: var(--warm-surface-strong);
   object-fit: cover;
@@ -654,8 +653,8 @@ body.warm-theme {
 }
 
 .warm-comments {
-  margin: 74px 16px 0;
-  padding-top: 38px;
+  margin: 50px 16px 0;
+  padding-top: 50px;
   border-top: 1px solid var(--warm-border);
 }
 
@@ -969,6 +968,10 @@ body.warm-theme {
   margin: 0 0 8px;
 }
 
+.warm-comment__content p:last-child {
+  margin: 0;
+}
+
 .warm-comment__status {
   margin: 7px 0 0 46px;
   color: var(--warm-accent);
@@ -977,7 +980,10 @@ body.warm-theme {
 
 .warm-comment-list > .warm-comment > .warm-comment__children {
   margin-left: 2rem;
-  padding: 1rem 0;
+}
+
+.warm-comment-list > .warm-comment > .warm-comment__children .warm-comment {
+  margin-top: 10px;
 }
 
 

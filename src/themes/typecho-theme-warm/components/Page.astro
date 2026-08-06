@@ -25,7 +25,7 @@ const settings = warmSettings(options);
 >
   <article class="warm-article warm-page" itemscope itemtype="https://schema.org/Article">
     <header class="warm-article__header">
-      <div class="warm-item-meta"><span>独立页面</span><span aria-hidden="true">·</span><time>{formatWarmDate(page.created)}</time></div>
+      <div class="warm-item-meta"><span class="warm-note-label">独立页面</span><span aria-hidden="true">·</span><time>{formatWarmDate(page.created, options.postDateFormat, options.timezone)}</time></div>
       <h1 itemprop="headline">{page.title}</h1>
     </header>
     <div class="warm-prose" itemprop="articleBody" set:html={page.content} />

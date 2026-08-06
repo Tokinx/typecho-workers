@@ -172,7 +172,7 @@ describe('GET /api/comments', () => {
   });
 
   it('returns sanitized public comments without email addresses', async () => {
-    await seedOptions();
+    await seedOptions({ commentDateFormat: 'Y-m-d H:i:s', timezone: '0' });
     const post = await seedPost();
     await testDb.insert(schema.comments).values([
       {
@@ -209,6 +209,7 @@ describe('GET /api/comments', () => {
     const body = JSON.parse(raw);
     expect(body.comments).toHaveLength(1);
     expect(body.comments[0].text).toContain('有用的评论');
+    expect(body.comments[0].date).toBe('1970-01-01 00:01:40');
     expect(body.options.securityToken).toBeTruthy();
   });
 

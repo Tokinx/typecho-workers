@@ -1,5 +1,6 @@
 import type { ThemeBaseProps } from '@/lib/theme-props';
 import { loadThemeConfig } from '@/lib/theme';
+import { formatDate } from '@/lib/content';
 
 export const WARM_THEME_ID = 'typecho-theme-warm';
 
@@ -80,21 +81,21 @@ export function safeEmail(value: unknown): string {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : '';
 }
 
-export function formatWarmDate(timestamp: number, includeTime = false): string {
-  const date = new Date(timestamp * 1000);
-  const parts = new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: includeTime ? '2-digit' : undefined,
-    minute: includeTime ? '2-digit' : undefined,
-    hour12: false,
-  }).formatToParts(date);
-  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
-  return includeTime
-    ? `${values.year}-${values.month}-${values.day} ${values.hour}:${values.minute}`
-    : `${values.year}.${values.month}.${values.day}`;
+export function formatWarmDate(
+  timestamp: number,
+  format: string | boolean = 'Y-m-d',
+  timezoneOffset = 28800,
+  includeTime = false,
+): string {
+  let dateFormat = typeof format === 'boolean'
+    ? format ? 'Y-m-d H:i' : 'Y-m-d'
+    : format || 'Y-m-d';
+  if (includeTime && !hasTimeFormat(dateFormat)) dateFormat += ' H:i';
+  return formatDate(timestamp, dateFormat, timezoneOffset);
+}
+
+function hasTimeFormat(format: string): boolean {
+  return /[HhGgisaA]/.test(format.replace(/\\./g, ''));
 }
 
 export function plainExcerpt(value: string, length = 150): string {

@@ -179,7 +179,7 @@ if (isNotesStreamOutOfRange) Astro.response.status = 404;
         <div class="warm-item-meta">
           <span class="warm-note-label">笔记</span>
           <span aria-hidden="true">·</span>
-          <time datetime={new Date(item.created * 1000).toISOString()}>{formatWarmDate(item.created, true)}</time>
+          <time datetime={new Date(item.created * 1000).toISOString()}>{formatWarmDate(item.created, options.postDateFormat, options.timezone, true)}</time>
         </div>
         <div class="warm-note__content" set:html={item.html} />
         {item.images.length > 0 && (
@@ -196,7 +196,7 @@ if (isNotesStreamOutOfRange) Astro.response.status = 404;
         <div class="warm-item-meta">
           {item.categories[0] ? <a class="warm-category" href={item.categories[0].permalink}>{item.categories[0].name}</a> : null}
           {item.categories[0] ? <span aria-hidden="true">·</span> : null}
-          <time datetime={new Date(item.created * 1000).toISOString()}>{formatWarmDate(item.created)}</time>
+          <time datetime={new Date(item.created * 1000).toISOString()}>{formatWarmDate(item.created, options.postDateFormat, options.timezone)}</time>
         </div>
         <h2><a href={item.permalink}>{item.title}</a></h2>
         {item.excerpt && <p>{item.excerpt}</p>}
