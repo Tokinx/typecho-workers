@@ -88,6 +88,11 @@ describe('POST /api/admin/content', () => {
 
     const res = await POST({ request: req, locals: {} } as any);
     expect(res.status).toBe(302);
+    expect(res.headers.get('Location')).toBe('/admin/manage-posts');
+    expect(res.headers.get('Set-Cookie')).toContain(encodeURIComponent('文章 "A Readable Post Title" 已经发布'));
+    expect(res.headers.get('Set-Cookie')).toContain('__typecho_notice_type=success');
+    expect(res.headers.get('Set-Cookie')).toContain('__typecho_notice_link_text=');
+    expect(res.headers.get('Set-Cookie')).toContain('__typecho_notice_link_url=');
     const content = await testDb.query.contents.findFirst({ where: eq(schema.contents.title, 'A Readable Post Title') });
     expect(content?.slug).toBe('a-readable-post-title');
   });
@@ -196,6 +201,8 @@ describe('POST /api/admin/content', () => {
 
     const res = await POST({ request: req, locals: {} } as any);
     expect(res.status).toBe(302);
+    expect(res.headers.get('Location')).toBe('/admin/manage-posts');
+    expect(res.headers.get('Set-Cookie')).toContain(encodeURIComponent('文章 "Second updated" 已经发布'));
 
     const updated = await testDb.query.contents.findFirst({
       where: eq(schema.contents.cid, second!.cid),
@@ -301,11 +308,33 @@ describe('POST /api/admin/content', () => {
 
     const res = await POST({ request: req, locals: {} } as any);
     expect(res.status).toBe(302);
+    expect(res.headers.get('Location')).toBe('/admin/manage-pages');
 
     const child = await testDb.query.contents.findFirst({
       where: eq(schema.contents.title, 'Child page'),
     });
     expect(child?.parent).toBe(parent.cid);
+  });
+
+  it('sets a save flash notice when creating a page draft', async () => {
+    const admin = await testDb.query.users.findFirst();
+    const cookie = await makeAuthCookie(testDb, admin!.uid, TEST_AUTH_CODE, TEST_SECRET);
+    const req = await makeContentRequest({
+      do: 'create',
+      type: 'page',
+      title: 'Draft page',
+      text: 'Draft body',
+      status: 'draft',
+    }, cookie);
+
+    const res = await POST({ request: req, locals: {} } as any);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get('Location')).toMatch(/^\/admin\/write-page\?cid=\d+$/);
+    expect(res.headers.get('Set-Cookie')).toContain(encodeURIComponent('草稿 "Draft page" 已经被保存'));
+    expect(res.headers.get('Set-Cookie')).toContain('__typecho_notice_type=success');
+    expect(res.headers.get('Set-Cookie')).toContain('__typecho_notice_link_text=;');
+    expect(res.headers.get('Set-Cookie')).toContain('__typecho_notice_link_url=;');
   });
 
   it('rejects nonexistent and cyclic page parents', async () => {

@@ -7,6 +7,7 @@ import { buildPermalink, generateSlug } from '@/lib/content';
 import { applyFilter, doHook } from '@/lib/plugin';
 import { invalidatePublicCache } from '@/lib/cache';
 import { jsonError, jsonOk } from '@/lib/http';
+import { createAdminNoticeRedirectHeaders } from '@/lib/flash';
 import { canViewContent } from '@/lib/content-visibility';
 import { parseTrackbackUrls, sendTrackbacks, TrackbackInputError } from '@/lib/trackback';
 import { eq, and, sql } from 'drizzle-orm';
@@ -253,6 +254,11 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const slugInput = formData.get('slug')?.toString()?.trim() || '';
   const submitAction = formData.get('status')?.toString() || 'publish'; // 'draft' or 'publish' from submit button
   const isDraft = submitAction === 'draft';
+  const contentLabel = type === 'page' ? '页面' : '文章';
+  const noticeTitle = title || '未命名文档';
+  const successMessage = isDraft
+    ? `草稿 "${noticeTitle}" 已经被保存`
+    : `${contentLabel} "${noticeTitle}" 已经发布`;
   const status = VISIBILITY_TO_STATUS[formData.get('visibility')?.toString() || ''] || 'publish';
   const password = formData.get('password')?.toString()?.trim() || null;
   const allowComment = formData.get('allowComment') ? '1' : '0';
@@ -462,9 +468,21 @@ export const POST: APIRoute = async ({ request, locals }) => {
     await purgeContentAndRelatedCache(db, options, newCid, finishData as typeof schema.contents.$inferSelect);
 
     const editUrl = type === 'page' ? `/admin/write-page?cid=${newCid}` : `/admin/write-post?cid=${newCid}`;
+    const redirectUrl = isDraft
+      ? editUrl
+      : type === 'page' ? '/admin/manage-pages' : '/admin/manage-posts';
+    const noticeLink = isDraft ? undefined : {
+      text: noticeTitle,
+      href: buildPermalink(
+        { cid: newCid, slug: finalSlug, type: contentType, created },
+        options.siteUrl,
+        options.permalinkPattern,
+        options.pagePattern,
+      ),
+    };
     return new Response(null, {
       status: 302,
-      headers: { Location: editUrl },
+      headers: createAdminNoticeRedirectHeaders(redirectUrl, successMessage, 'success', '/', request, noticeLink),
     });
   }
 
@@ -558,9 +576,21 @@ export const POST: APIRoute = async ({ request, locals }) => {
     }, { wasPublic: canViewContent(existing, {}) });
 
     const editUrl = type === 'page' ? `/admin/write-page?cid=${cid}` : `/admin/write-post?cid=${cid}`;
+    const redirectUrl = isDraft
+      ? editUrl
+      : type === 'page' ? '/admin/manage-pages' : '/admin/manage-posts';
+    const noticeLink = isDraft ? undefined : {
+      text: noticeTitle,
+      href: buildPermalink(
+        { cid, slug: finalSlug, type: contentType, created },
+        options.siteUrl,
+        options.permalinkPattern,
+        options.pagePattern,
+      ),
+    };
     return new Response(null, {
       status: 302,
-      headers: { Location: editUrl },
+      headers: createAdminNoticeRedirectHeaders(redirectUrl, successMessage, 'success', '/', request, noticeLink),
     });
   }
 

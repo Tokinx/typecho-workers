@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   ADMIN_NOTICE_FLASH_COOKIE,
+  ADMIN_NOTICE_LINK_TEXT_COOKIE,
+  ADMIN_NOTICE_LINK_URL_COOKIE,
   ADMIN_NOTICE_TYPE_FLASH_COOKIE,
   clearFlashCookieHeader,
   createFlashCookieHeader,
@@ -52,5 +54,19 @@ describe('flash cookie helpers', () => {
     expect(headers.get('Location')).toBe('/admin/options-general');
     expect(headers.get('Set-Cookie')).toContain(`${ADMIN_NOTICE_FLASH_COOKIE}=`);
     expect(headers.get('Set-Cookie')).toContain(`${ADMIN_NOTICE_TYPE_FLASH_COOKIE}=success`);
+  });
+
+  it('stores a safe admin notice link separately from the escaped message', () => {
+    const headers = createAdminNoticeRedirectHeaders(
+      '/admin/manage-posts',
+      '文章 "欢迎使用 Typecho" 已经发布',
+      'success',
+      '/',
+      undefined,
+      { text: '欢迎使用 Typecho', href: 'https://example.com/2026/1.html' },
+    );
+
+    expect(headers.get('Set-Cookie')).toContain(`${ADMIN_NOTICE_LINK_TEXT_COOKIE}=`);
+    expect(headers.get('Set-Cookie')).toContain(`${ADMIN_NOTICE_LINK_URL_COOKIE}=`);
   });
 });

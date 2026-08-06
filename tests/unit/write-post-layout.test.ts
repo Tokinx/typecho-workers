@@ -111,4 +111,11 @@ describe('Typecho 1.3 post editor layout', () => {
     expect(source).toContain("data.set('autosave', '1')");
     expect(source).toContain('name="autosaveDraftId"');
   });
+
+  it('does not warn about leaving after a publish or draft save is submitted', () => {
+    expect(source).toContain('submitting = false');
+    expect(source).toContain('submitting = true;');
+    expect(source).toContain('changed = false;');
+    expect(source).toContain("if (!submitting && changed) return '内容已经改变尚未保存, 您确认要离开此页面吗?';");
+  });
 });

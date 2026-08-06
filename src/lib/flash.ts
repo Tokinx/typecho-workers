@@ -10,8 +10,15 @@ export const REGISTER_NOTICE_FLASH_COOKIE = '__typecho_register_notice';
 // with the existing backend convention.
 export const ADMIN_NOTICE_FLASH_COOKIE = '__typecho_notice';
 export const ADMIN_NOTICE_TYPE_FLASH_COOKIE = '__typecho_notice_type';
+export const ADMIN_NOTICE_LINK_TEXT_COOKIE = '__typecho_notice_link_text';
+export const ADMIN_NOTICE_LINK_URL_COOKIE = '__typecho_notice_link_url';
 
 export type AdminNoticeType = 'success' | 'notice' | 'error';
+
+export interface AdminNoticeLink {
+  text: string;
+  href: string;
+}
 
 export function createFlashCookieHeader(
   name: string,
@@ -61,9 +68,17 @@ export function createAdminNoticeRedirectHeaders(
   type: AdminNoticeType = 'notice',
   path = '/',
   request?: Request,
+  link?: AdminNoticeLink,
 ): Headers {
   const headers = new Headers({ Location: location });
   headers.append('Set-Cookie', createFlashCookieHeader(ADMIN_NOTICE_FLASH_COOKIE, message, { path, request }));
   headers.append('Set-Cookie', createFlashCookieHeader(ADMIN_NOTICE_TYPE_FLASH_COOKIE, type, { path, request }));
+  if (link) {
+    headers.append('Set-Cookie', createFlashCookieHeader(ADMIN_NOTICE_LINK_TEXT_COOKIE, link.text, { path, request }));
+    headers.append('Set-Cookie', createFlashCookieHeader(ADMIN_NOTICE_LINK_URL_COOKIE, link.href, { path, request }));
+  } else {
+    headers.append('Set-Cookie', clearFlashCookieHeader(ADMIN_NOTICE_LINK_TEXT_COOKIE, { path, request }));
+    headers.append('Set-Cookie', clearFlashCookieHeader(ADMIN_NOTICE_LINK_URL_COOKIE, { path, request }));
+  }
   return headers;
 }

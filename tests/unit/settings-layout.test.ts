@@ -114,6 +114,8 @@ describe('Typecho 1.3 settings option layout', () => {
   it('consumes admin notices with Astro cookie deletion', () => {
     const source = readFileSync(join(process.cwd(), 'src/layouts/Admin.astro'), 'utf8');
     expect(source).toContain("Astro.cookies.delete(ADMIN_NOTICE_FLASH_COOKIE, { path: '/' })");
+    expect(source).toContain("Astro.cookies.delete(ADMIN_NOTICE_LINK_TEXT_COOKIE, { path: '/' })");
+    expect(source).toContain("Astro.cookies.delete(ADMIN_NOTICE_LINK_URL_COOKIE, { path: '/' })");
     expect(source).toContain("Astro.cookies.delete(ADMIN_NOTICE_TYPE_FLASH_COOKIE, { path: '/' })");
     expect(source).not.toContain('clearFlashCookieHeader(ADMIN_NOTICE_FLASH_COOKIE');
   });
@@ -127,5 +129,11 @@ describe('Typecho 1.3 settings option layout', () => {
     expect(pluginSource).toContain('createAdminNoticeRedirectHeaders');
     expect(pluginSource).toContain("'插件设置已经保存'");
     expect(pluginSource).toContain('encodeURIComponent(pluginId)');
+  });
+
+  it('renders content notice titles as safe same-origin links', () => {
+    const source = readFileSync(join(process.cwd(), 'src/layouts/Admin.astro'), 'utf8');
+    expect(source).toContain('<a href={adminNoticeLinkHref}><strong>{adminNoticeLinkText}</strong></a>');
+    expect(source).toContain("linkUrl.origin === siteOrigin");
   });
 });

@@ -552,6 +552,7 @@ const writePageBottomHtml = await applyFilterSafely(ctx, 'admin:writePage:bottom
             autoSaveEnabled = form.attr('data-auto-save') === '1',
             autoSaveMessage = $('<span id="auto-save-message"></span>').prependTo('.submit .left'),
             changed = false,
+            submitting = false,
             saving = false,
             saveTimer = null,
             lastSaveTime = '',
@@ -661,9 +662,11 @@ const writePageBottomHtml = await applyFilterSafely(ctx, 'admin:writePage:bottom
         form.on('submit', function () {
           if (saveTimer) clearTimeout(saveTimer);
           autoSaveEnabled = false;
+          submitting = true;
+          changed = false;
         });
         $(window).on('beforeunload.writePage', function () {
-          if (changed) return '内容已经改变尚未保存, 您确认要离开此页面吗?';
+          if (!submitting && changed) return '内容已经改变尚未保存, 您确认要离开此页面吗?';
         });
 
         $('#btn-preview').on('click', function () {

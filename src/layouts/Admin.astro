@@ -6,6 +6,8 @@ import { hasPermission } from '@/lib/auth';
 import { applyFilterSafely, type HookContext } from '@/lib/plugin';
 import {
   ADMIN_NOTICE_FLASH_COOKIE,
+  ADMIN_NOTICE_LINK_TEXT_COOKIE,
+  ADMIN_NOTICE_LINK_URL_COOKIE,
   ADMIN_NOTICE_TYPE_FLASH_COOKIE,
   getFlashCookieValue,
   type AdminNoticeType,
@@ -81,14 +83,37 @@ const adminFooterHtml = await applyFilterSafely(_pluginCtx, 'admin:footer', '', 
 
 const adminNoticeCookie = Astro.request.headers.get('cookie');
 const adminNotice = getFlashCookieValue(adminNoticeCookie, ADMIN_NOTICE_FLASH_COOKIE);
+const adminNoticeLinkText = getFlashCookieValue(adminNoticeCookie, ADMIN_NOTICE_LINK_TEXT_COOKIE);
+const adminNoticeLinkUrl = getFlashCookieValue(adminNoticeCookie, ADMIN_NOTICE_LINK_URL_COOKIE);
 const adminNoticeTypeValue = getFlashCookieValue(adminNoticeCookie, ADMIN_NOTICE_TYPE_FLASH_COOKIE);
 const adminNoticeType: AdminNoticeType = adminNoticeTypeValue === 'success'
   || adminNoticeTypeValue === 'error'
   || adminNoticeTypeValue === 'notice'
   ? adminNoticeTypeValue
   : 'notice';
+
+let adminNoticeLinkHref = '';
+if (adminNoticeLinkText && adminNoticeLinkUrl) {
+  try {
+    const siteOrigin = new URL(urls.siteUrl || Astro.url.origin).origin;
+    const linkUrl = new URL(adminNoticeLinkUrl, Astro.url.origin);
+    if ((linkUrl.protocol === 'http:' || linkUrl.protocol === 'https:') && linkUrl.origin === siteOrigin) {
+      adminNoticeLinkHref = linkUrl.href;
+    }
+  } catch {
+    adminNoticeLinkHref = '';
+  }
+}
+const adminNoticeLinkStart = adminNoticeLinkText && adminNotice
+  ? adminNotice.indexOf(`"${adminNoticeLinkText}"`) + 1
+  : -1;
+const canRenderAdminNoticeLink = !!adminNoticeLinkHref
+  && adminNoticeLinkStart > 0
+  && adminNoticeLinkStart + adminNoticeLinkText.length <= adminNotice.length;
 if (adminNotice) {
   Astro.cookies.delete(ADMIN_NOTICE_FLASH_COOKIE, { path: '/' });
+  Astro.cookies.delete(ADMIN_NOTICE_LINK_TEXT_COOKIE, { path: '/' });
+  Astro.cookies.delete(ADMIN_NOTICE_LINK_URL_COOKIE, { path: '/' });
   Astro.cookies.delete(ADMIN_NOTICE_TYPE_FLASH_COOKIE, { path: '/' });
 }
 ---
@@ -142,7 +167,15 @@ if (adminNotice) {
 
   {adminNotice && (
     <div class={`message popup typecho-admin-notice typecho-dismissible ${adminNoticeType}`} role="status" aria-live="polite">
-      <ul><li>{adminNotice}</li></ul>
+      <ul><li>
+        {canRenderAdminNoticeLink ? (
+          <>
+            {adminNotice.slice(0, adminNoticeLinkStart)}
+            <a href={adminNoticeLinkHref}><strong>{adminNoticeLinkText}</strong></a>
+            {adminNotice.slice(adminNoticeLinkStart + adminNoticeLinkText.length)}
+          </>
+        ) : adminNotice}
+      </li></ul>
       <button type="button" class="typecho-notice-close" aria-label="关闭提示">&times;</button>
     </div>
   )}

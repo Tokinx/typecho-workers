@@ -848,10 +848,6 @@ function editorHtml(contentType: ContentType): string {
   cursor: default;
 }
 
-#wmd-editarea {
-  position: relative;
-}
-
 .typecho-scribe-overlay {
   display: none;
   position: absolute;
