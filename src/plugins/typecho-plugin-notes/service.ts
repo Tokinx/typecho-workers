@@ -74,7 +74,7 @@ export interface NoteListItem {
   topics: NoteTopic[];
   /** Kept for the first Notes admin release. Prefer `topics`. */
   topic: NoteTopic | null;
-  /** Images (legacy note_images plus image attachments), note-images grid format. */
+  /** Images (legacy note_images plus image attachments), note-media-list grid format. */
   images: Array<{ cid: number; name: string; url: string; size?: number; type?: string }>;
   /** Video attachments. */
   videos: Array<{
