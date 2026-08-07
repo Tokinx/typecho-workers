@@ -103,6 +103,13 @@ describe('typecho-theme-warm', () => {
     expect(shell).toContain("init('mousedown')");
     expect(shell).toContain('data-instant-track');
     expect(shell).toContain('data-no-instant');
+    expect(shell).toContain('warmRepairNoteMedia');
+    expect(shell).toContain("window.addEventListener('instantclick:newpage', () => repairNoteMedia(document));");
+    expect(shell).toContain('.warm-note__media video, .warm-note__media audio');
+    expect(shell).toContain("media.dataset.warmRepaired === '1'");
+    expect(shell).toContain("media.dataset.warmRepaired = '1';");
+    expect(shell).toContain('media.load()');
+    expect(streamPagination).toContain("if (typeof window.warmRepairNoteMedia === 'function') window.warmRepairNoteMedia(stream);");
     const post = readFileSync(join(themeRoot, 'components/Post.astro'), 'utf8');
     expect(post).not.toContain('warm-back');
     expect(post).not.toContain('continuousLoadMode={settings.continuousLoadMode}');

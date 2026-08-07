@@ -109,6 +109,19 @@ const socialLinks = [
   </Fragment>
   <script is:inline data-no-instant>
     (() => {
+      const repairNoteMedia = root => {
+        const scope = root && root.querySelectorAll ? root : document;
+        scope.querySelectorAll('.warm-note__media video, .warm-note__media audio').forEach(media => {
+          if (typeof media.load !== 'function') return;
+          const reused = media.dataset.warmRepaired === '1';
+          if (media.readyState === 0 || reused) {
+            media.dataset.warmRepaired = '1';
+            media.load();
+          }
+        });
+      };
+      window.warmRepairNoteMedia = repairNoteMedia;
+      window.addEventListener('instantclick:newpage', () => repairNoteMedia(document));
       if (window.InstantClick?.supported) window.InstantClick.init('mousedown');
     })();
   </script>

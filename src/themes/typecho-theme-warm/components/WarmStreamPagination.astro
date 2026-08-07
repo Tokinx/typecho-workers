@@ -131,6 +131,7 @@ const { hasPrev, hasNext, prevUrl, nextUrl, mode, label } = Astro.props;
           if (!items.length) throw new Error('下一页没有可加载的内容');
 
           stream.append(...items);
+          if (typeof window.warmRepairNoteMedia === 'function') window.warmRepairNoteMedia(stream);
           pagination.dataset.warmNextUrl = nextPagination?.getAttribute('data-warm-next-url') || '';
           if (pagination.dataset.warmNextUrl) link.href = pagination.dataset.warmNextUrl;
           if (automatic) automaticLoads += 1;
