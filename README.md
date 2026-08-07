@@ -22,7 +22,7 @@
 
 ### 前置要求
 
-- Node.js 18+
+- Node.js ≥ 22.12.0
 - Bun ≥ 1.2（`curl -fsSL https://bun.sh/install | bash`）
 - [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/)（`npm install -g wrangler`）
 - Cloudflare 帐号

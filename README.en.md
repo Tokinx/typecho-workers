@@ -22,7 +22,7 @@ A modern rewrite of [Typecho](https://typecho.org) in TypeScript, running on **A
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js ≥ 22.12.0
 - Bun ≥ 1.2 (`curl -fsSL https://bun.sh/install | bash`)
 - [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/) (`npm install -g wrangler`)
 - Cloudflare account

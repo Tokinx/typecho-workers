@@ -830,21 +830,39 @@
 
     "tsx": ["tsx@4.23.10", "https://registry.npmmirror.com/tsx/-/tsx-4.23.10.tgz", { "dependencies": { "esbuild": "~0.28.0" }, "optionalDependencies": { "fsevents": "~2.3.3" }, "bin": { "tsx": "dist/cli.mjs" } }, "sha512-0Vb9eKU47njkxv/6B8CRZRDsxNDT/Pz+BIU+M5jw7xL3TdzAjSxlZUxu0xFL/kLpaG3sHZ0LH2wbK1T1yo7CUQ=="],
 
+    "typecho-plugin-antispam": ["typecho-plugin-antispam@file:src/plugins/typecho-plugin-antispam", {}],
+
     "typecho-plugin-antispam": ["typecho-plugin-antispam@workspace:src/plugins/typecho-plugin-antispam"],
 
     "typecho-plugin-cache": ["typecho-plugin-cache@workspace:src/plugins/typecho-plugin-cache"],
 
+    "typecho-plugin-cache": ["typecho-plugin-cache@file:src/plugins/typecho-plugin-cache", {}],
+
+    "typecho-plugin-mailer": ["typecho-plugin-mailer@file:src/plugins/typecho-plugin-mailer", {}],
+
     "typecho-plugin-mailer": ["typecho-plugin-mailer@workspace:src/plugins/typecho-plugin-mailer"],
 
+    "typecho-plugin-notes": ["typecho-plugin-notes@file:src/plugins/typecho-plugin-notes", {}],
+
     "typecho-plugin-notes": ["typecho-plugin-notes@workspace:src/plugins/typecho-plugin-notes"],
+
+    "typecho-plugin-scribe": ["typecho-plugin-scribe@file:src/plugins/typecho-plugin-scribe", {}],
 
     "typecho-plugin-scribe": ["typecho-plugin-scribe@workspace:src/plugins/typecho-plugin-scribe"],
 
     "typecho-plugin-turnstile": ["typecho-plugin-turnstile@workspace:src/plugins/typecho-plugin-turnstile"],
 
+    "typecho-plugin-turnstile": ["typecho-plugin-turnstile@file:src/plugins/typecho-plugin-turnstile", {}],
+
+    "typecho-plugin-webdav": ["typecho-plugin-webdav@file:src/plugins/typecho-plugin-webdav", {}],
+
     "typecho-plugin-webdav": ["typecho-plugin-webdav@workspace:src/plugins/typecho-plugin-webdav"],
 
     "typecho-plugin-wechat-publisher": ["typecho-plugin-wechat-publisher@workspace:src/plugins/typecho-plugin-wechat-publisher"],
+
+    "typecho-plugin-wechat-publisher": ["typecho-plugin-wechat-publisher@file:src/plugins/typecho-plugin-wechat-publisher", {}],
+
+    "typecho-theme-warm": ["typecho-theme-warm@file:src/themes/typecho-theme-warm", {}],
 
     "typecho-theme-warm": ["typecho-theme-warm@workspace:src/themes/typecho-theme-warm"],
 
