@@ -43,8 +43,6 @@
     "typecho-plugin-notes": "workspace:*",
     "typecho-plugin-scribe": "workspace:*",
     "typecho-plugin-turnstile": "workspace:*",
-    "typecho-plugin-webdav": "workspace:*",
-    "typecho-plugin-wechat-publisher": "workspace:*",
     "typecho-theme-warm": "workspace:*"
   },
   "devDependencies": {

@@ -16,8 +16,6 @@
         "typecho-plugin-notes": "workspace:*",
         "typecho-plugin-scribe": "workspace:*",
         "typecho-plugin-turnstile": "workspace:*",
-        "typecho-plugin-webdav": "workspace:*",
-        "typecho-plugin-wechat-publisher": "workspace:*",
         "typecho-theme-warm": "workspace:*",
       },
       "devDependencies": {
@@ -54,14 +52,6 @@
     },
     "src/plugins/typecho-plugin-turnstile": {
       "name": "typecho-plugin-turnstile",
-      "version": "1.0.0",
-    },
-    "src/plugins/typecho-plugin-webdav": {
-      "name": "typecho-plugin-webdav",
-      "version": "1.0.0",
-    },
-    "src/plugins/typecho-plugin-wechat-publisher": {
-      "name": "typecho-plugin-wechat-publisher",
       "version": "1.0.0",
     },
     "src/themes/typecho-theme-warm": {
@@ -841,10 +831,6 @@
     "typecho-plugin-scribe": ["typecho-plugin-scribe@workspace:src/plugins/typecho-plugin-scribe"],
 
     "typecho-plugin-turnstile": ["typecho-plugin-turnstile@workspace:src/plugins/typecho-plugin-turnstile"],
-
-    "typecho-plugin-webdav": ["typecho-plugin-webdav@workspace:src/plugins/typecho-plugin-webdav"],
-
-    "typecho-plugin-wechat-publisher": ["typecho-plugin-wechat-publisher@workspace:src/plugins/typecho-plugin-wechat-publisher"],
 
     "typecho-theme-warm": ["typecho-theme-warm@workspace:src/themes/typecho-theme-warm"],
 

@@ -39,13 +39,10 @@ describe('admin navigation', () => {
   });
 
   it('inserts plugin navigation entries into the Typecho 1.3 menu structure', () => {
-    const webdav = readProjectFile('src/plugins/typecho-plugin-webdav/index.ts');
     const notes = readProjectFile('src/plugins/typecho-plugin-notes/index.ts');
 
-    expect(webdav).toContain(".typecho-head-nav nav > menu > li:nth-child(3) > menu");
     expect(notes).toContain(".typecho-head-nav nav > menu > li:nth-child('+rootIndex+')");
     expect(notes).toContain("':scope > menu a[href=\"'+afterHref+'\"]'");
-    expect(webdav).not.toContain('typecho-nav-list');
     expect(notes).not.toContain('typecho-nav-list');
   });
 });

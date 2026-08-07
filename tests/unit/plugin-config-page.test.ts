@@ -2,14 +2,6 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-function loadWebdavManifest() {
-  const pkg = JSON.parse(readFileSync(
-    join(process.cwd(), 'src/plugins/typecho-plugin-webdav/package.json'),
-    'utf-8',
-  ));
-  return pkg.typecho.plugin;
-}
-
 describe('admin plugin config page', () => {
   it('filters R2 binding choices to bucket-like bindings when possible', () => {
     const source = readFileSync(
@@ -74,7 +66,7 @@ describe('admin plugin config page', () => {
     expect(source).toContain("select.value = select.getAttribute('data-current-value') || ''");
   });
 
-  it('registers WebDAV route:request via lazy init, not hardcoded import', () => {
+  it('registers plugin route handlers via lazy init, not hardcoded import', () => {
     const middlewareSource = readFileSync(
       join(process.cwd(), 'src/middleware.ts'),
       'utf-8',
@@ -84,9 +76,9 @@ describe('admin plugin config page', () => {
       'utf-8',
     );
 
-    // middleware.ts must NOT hardcode any WebDAV import
-    expect(middlewareSource).not.toContain("from '@/plugins/typecho-plugin-webdav/index'");
-    expect(middlewareSource).not.toContain("from 'typecho-plugin-webdav");
+    // middleware.ts must NOT hardcode any plugin route import
+    expect(middlewareSource).not.toContain("from '@/plugins/typecho-plugin-notes/index'");
+    expect(middlewareSource).not.toContain("from 'typecho-plugin-notes");
 
     // middleware.ts uses setActivatedPlugins which triggers lazy init
     expect(middlewareSource).toContain('setActivatedPlugins');
@@ -119,23 +111,4 @@ describe('admin plugin config page', () => {
     expect(themesSource).not.toContain('bumpCacheVersion(ctx.db)');
   });
 
-  it('does not expose configurable WebDAV access rules', () => {
-    const manifest = loadWebdavManifest();
-    expect(manifest.config.requiredGroup).toBeUndefined();
-    expect(manifest.config.mounts.itemFields.allowedUsers).toBeUndefined();
-  });
-
-  it('defaults the WebDAV entry route to /webdav', () => {
-    const manifest = loadWebdavManifest();
-    expect(manifest.config.routePath.default).toBe('/webdav');
-    expect(manifest.config.routePath.description).toContain('/webdav');
-  });
-
-  it('defaults WebDAV mounts to the route root and whole bucket', () => {
-    const manifest = loadWebdavManifest();
-    expect(manifest.config.mounts.default[0].mount).toBe('/');
-    expect(manifest.config.mounts.default[0].prefix).toBe('');
-    expect(manifest.config.mounts.itemFields.mount.default).toBe('/');
-    expect(manifest.config.mounts.itemFields.prefix.default).toBe('');
-  });
 });

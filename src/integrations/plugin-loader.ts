@@ -212,7 +212,7 @@ function tryLoadPlugin(packageName: string, packageDir: string, importBase?: str
  * module that the middleware imports statically. The middleware import is what
  * guarantees the loader table exists before the first request of a cold
  * isolate runs `setActivatedPlugins` — page-ssr scripts only execute once a
- * page chunk loads, which never happens for a plugin route like /webdav.
+ * page chunk loads, which never happens for a plugin route like /api/admin/notes.
  */
 function buildRegistryCode(discoveredPlugins: DiscoveredPlugin[]): string {
   const registrations = discoveredPlugins.map((plugin) => {
@@ -259,8 +259,8 @@ export default function pluginLoaderIntegration(): AstroIntegration {
         // Expose the generated registry as a Vite virtual module that
         // src/middleware.ts imports statically. Without it, plugin loaders
         // are only registered after a page chunk (page-ssr script) loads,
-        // so a cold isolate's FIRST request — e.g. a WebDAV client hitting
-        // /webdav directly — runs setActivatedPlugins before any loader is
+        // so a cold isolate's FIRST request — e.g. a plugin client hitting
+        // /api/admin/notes directly — runs setActivatedPlugins before any loader is
         // registered and the plugin route falls through to a 404.
         updateConfig({
           vite: {

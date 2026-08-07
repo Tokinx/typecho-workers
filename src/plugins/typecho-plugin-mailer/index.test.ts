@@ -621,7 +621,7 @@ describe('typecho-plugin-mailer', () => {
     it('leaves other plugin pages untouched', () => {
       const hooks = collectHooks();
       const handler = hooks.get('admin:page')!;
-      expect(handler('', { slug: 'webdav', csrfToken: 'x' })).toBe('');
+      expect(handler('', { slug: 'unrelated-plugin', csrfToken: 'x' })).toBe('');
     });
   });
 

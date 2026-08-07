@@ -4,7 +4,7 @@
  * Sends real GET requests through the middleware to verify that no path
  * produces a 302 redirect when the DB is seeded and ready.
  */
-import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { createTestDb, type TestDatabase } from '../helpers';
 import { resetIsolateBoot } from '@/lib/isolate-boot';
 
@@ -374,21 +374,17 @@ describe('Middleware: activated plugin routes (registry imported by middleware)'
     await testDb.insert(schema.options).values({
       name: 'activatedPlugins',
       user: 0,
-      value: JSON.stringify(['typecho-plugin-webdav']),
-    });
-    await testDb.insert(schema.options).values({
-      name: 'plugin:typecho-plugin-webdav',
-      user: 0,
-      value: JSON.stringify({
-        routePath: '/webdav',
-        protocolEnabled: 'true',
-        mounts: [{ mount: '', provider: 'r2', bindingName: 'BUCKET', prefix: '' }],
-      }),
+      value: JSON.stringify(['typecho-plugin-notes']),
     });
   });
 
-  it('claims GET /webdav with a Basic-auth challenge instead of 404', async () => {
-    const request = new Request(`${SITE}/webdav`, { method: 'GET' });
+  afterAll(async () => {
+    await testDb.delete(schema.options).where(eq(schema.options.name, 'activatedPlugins'));
+    advanceOptionsSnapshotGeneration(testDb as any);
+  });
+
+  it('claims GET /api/admin/notes with an auth challenge instead of 404', async () => {
+    const request = new Request(`${SITE}/api/admin/notes`, { method: 'GET' });
     const ctx = {
       request,
       url: new URL(request.url),
@@ -398,25 +394,10 @@ describe('Middleware: activated plugin routes (registry imported by middleware)'
     } as any;
     const response = await onRequest(ctx, async () => new Response('not found', { status: 404 })) as Response;
     expect(response.status).toBe(401);
-    expect(response.headers.get('WWW-Authenticate')).toContain('Basic realm="Typecho WebDAV"');
   });
 
-  it('answers OPTIONS /webdav with 204 and DAV capabilities', async () => {
-    const request = new Request(`${SITE}/webdav`, { method: 'OPTIONS' });
-    const ctx = {
-      request,
-      url: new URL(request.url),
-      locals: {},
-      redirect: (p: string) => new Response(null, { status: 302, headers: { Location: p } }),
-      rewrite: (p: string) => new Response(null, { status: 302, headers: { Location: p } }),
-    } as any;
-    const response = await onRequest(ctx, async () => new Response('not found', { status: 404 })) as Response;
-    expect(response.status).toBe(204);
-    expect(response.headers.get('DAV')).toBe('1, 2');
-  });
-
-  it('leaves non-WebDAV paths untouched (still 404)', async () => {
-    const request = new Request(`${SITE}/webdavish`, { method: 'GET' });
+  it('leaves non-plugin admin paths untouched (still 404)', async () => {
+    const request = new Request(`${SITE}/api/admin/notesish`, { method: 'GET' });
     const ctx = {
       request,
       url: new URL(request.url),

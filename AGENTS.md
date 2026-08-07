@@ -202,7 +202,7 @@ addHook(hookPoint, pluginId, handler, priority = 10)
 - 插件 `init()` **不在 build 时直接执行**；`plugin-loader.ts` 通过 `registerPluginLoaders()` 登记字面量动态 import，未激活插件的模块不会在 isolate 启动时求值
 - 真正的 `init({ addHook, pluginId })` 由异步的 `setActivatedPlugins(activatedIds)` 在第一次激活时按需触发；调用方必须 `await`，未激活的插件不会注入任何 hook（G6）
 - 插件不要在模块顶层做副作用（数据库读写、外部请求、`addHook` 写入），所有注册逻辑必须放在导出的 `init()` 内
-- `plugin-loader.ts` 生成的注册代码同时以 `virtual:typecho-plugin-registry` 虚拟模块暴露，并由 `src/middleware.ts` 静态导入；保证冷启动 isolate 的第一次请求（例如直接访问插件路由 `/webdav`）在 `setActivatedPlugins` 执行前 loader 表已就绪（page-ssr 注入只在页面 chunk 加载后才运行，无法覆盖插件路由）
+- `plugin-loader.ts` 生成的注册代码同时以 `virtual:typecho-plugin-registry` 虚拟模块暴露，并由 `src/middleware.ts` 静态导入；保证冷启动 isolate 的第一次请求（例如直接访问插件路由 `/api/admin/notes`）在 `setActivatedPlugins` 执行前 loader 表已就绪（page-ssr 注入只在页面 chunk 加载后才运行，无法覆盖插件路由）
 
 ### 6.3 插件管理路径注册
 
@@ -213,10 +213,10 @@ import { registerPluginAdminPath } from 'typecho/plugin-sdk';
 
 export default function init({ addHook, pluginId }: PluginInitContext): void {
   // 注册插件的管理路径，使其不被中间件拦截
-  registerPluginAdminPath('/api/admin/webdav');
+  registerPluginAdminPath('/api/admin/notes');
 
   addHook('route:request', pluginId, async (result, extra) => {
-    if (extra.path === '/api/admin/webdav') { /* ... */ }
+    if (extra.path === '/api/admin/notes') { /* ... */ }
     return result;
   });
 }
@@ -237,13 +237,13 @@ src/pages/admin/plugin/[slug].astro  — 通用插件页面容器
   → HTML 通过 set:html 注入（插件负责自行转义用户数据）
 ```
 
-WebDAV 插件的文件管理器是完整参考实现：`admin:page` 返回包含 CRUD UI 的 HTML + 内联 JS，`admin:footer` 注入导航菜单项。
+Notes 插件的笔记管理页是完整参考实现：`admin:page` 返回包含 CRUD UI 的 HTML + 内联 JS，`admin:footer` 注入导航菜单项。
 
 **关键规则**：
 - `admin:page` 是 `[slug].astro` 使用的 filter 风格注入点，但不属于 `HookPoints` 常量，因此不计入 6.6 的 68 个 Hook 点
 - `[slug].astro` 使用 `applyFilterSafely`（不是 `applyFilter`），单个插件异常不会导致整页 500
 - 插件通过 `admin:footer` hook 向导航栏注入菜单入口（JSON 注入 + JS DOM 操作）
-- 插件返回的 HTML 中所有用户数据必须转义（参考 WebDAV 中的 `E()` 辅助函数）
+- 插件返回的 HTML 中所有用户数据必须转义（参考 Notes 中的 `E()` 辅助函数）
 
 ### 6.5 插件包约定
 
@@ -456,7 +456,7 @@ vi.mock('cloudflare:workers', () => ({ env: { DB: null, BUCKET: { delete: mockFn
 | 示例 | 路径 | 说明 |
 |------|------|------|
 | 参考插件（基础） | `src/plugins/typecho-plugin-antispam/` | 含完整 package.json、index.ts、index.test.ts，基础 filter hook 示例 |
-| 参考插件（高级） | `src/plugins/typecho-plugin-webdav/` | 含 `plugin:config:beforeSave` 校验、`route:request` 自定义路由、`admin:page` 管理页面、`admin:footer` 菜单注入、`csp:directives` CSP 扩展、`WebDavStorageAdapter` 适配器模式、内联 JS 文件管理器 |
+| 参考插件（高级） | `src/plugins/typecho-plugin-mailer/` | 含 `plugin:config:beforeSave` 校验、`route:request` 自定义路由、`admin:page` 管理页面、`admin:footer` 菜单注入、`mail:send` 适配器与模板占位符渲染 |
 | 参考插件（CSP 注入） | `src/plugins/typecho-plugin-turnstile/` | 含 `csp:directives` filter hook 动态追加 CSP 来源、`admin:loginHead`/`admin:loginForm` 注入 Turnstile Widget |
 | 参考插件（邮件） | `src/plugins/typecho-plugin-mailer/` | 含 `mail:send` 适配器（多渠道 HTTP API）、自带测试发送页面（`admin:page` + `route:request` 完整认证）、模板占位符渲染 |
 | 参考主题 | `src/themes/typecho-theme-warm/` | 含完整 theme.json、5 个模板组件 |
@@ -508,19 +508,17 @@ src/
 │   ├── README.md                    # 插件开发完整规范
 │   ├── typecho-plugin-antispam/     # 反垃圾评论（参考基础插件）
 │   ├── typecho-plugin-cache/        # Edge Cache：L1/L2/L3 + 数据缓存 + CDN 改写
-│   ├── typecho-plugin-webdav/       # WebDAV 协议 + 文件管理器（参考高级插件）
 │   ├── typecho-plugin-mailer/       # 邮件通知（多渠道 HTTP API + 测试发送）
 │   ├── typecho-plugin-notes/        # 笔记内容类型与时间线
 │   ├── typecho-plugin-turnstile/    # Cloudflare Turnstile 人机验证
-│   ├── typecho-plugin-scribe/       # AI 写作辅助
-│   └── typecho-plugin-wechat-publisher/ # 微信公众号发布
+│   └── typecho-plugin-scribe/       # AI 写作辅助
 └── themes/                          # 内置主题（工作区包）
     └── README.md                    # 主题开发完整规范
 tests/
 ├── setup.ts                         # 全局测试 setup
 ├── helpers.ts                       # 测试工具函数 (createTestDb, seedAdmin, makeAuthCookie)
 ├── __mocks__/cloudflare-workers.ts  # cloudflare:workers stub + caches mock
-├── unit/                            # 单元测试 (60 个文件)
+├── unit/                            # 单元测试 (59 个文件)
 └── integration/                     # 集成测试 (37 个文件)
 scripts/
 ├── generate-wrangler-config.ts      # build:cloudflare 前生成被忽略的 wrangler.toml
@@ -529,4 +527,4 @@ scripts/
 └── reset-password.ts                # 密码重置工具
 ```
 
-另：`src/lib` 与 `src/plugins` 下共有 10 个测试文件，全部测试文件数为 107。
+另：`src/lib` 与 `src/plugins` 下共有 8 个测试文件，全部测试文件数为 104。

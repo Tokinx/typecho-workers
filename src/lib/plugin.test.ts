@@ -32,7 +32,7 @@ describe('parsePluginConfigFormData()', () => {
     };
 
     const formData = new FormData();
-    formData.set('title', 'WebDAV');
+    formData.set('title', 'Example');
     formData.append('flags', 'a');
     formData.set('mounts[0][mount]', 'media');
     formData.set('mounts[0][provider]', 'r2');
@@ -42,7 +42,7 @@ describe('parsePluginConfigFormData()', () => {
     formData.set('mounts[1][pathStyle]', 'false');
 
     expect(parsePluginConfigFormData(configDef, formData)).toEqual({
-      title: 'WebDAV',
+      title: 'Example',
       flags: ['a'],
       mounts: [
         { mount: 'media', provider: 'r2', pathStyle: 'true' },

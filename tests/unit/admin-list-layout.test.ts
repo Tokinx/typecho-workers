@@ -90,14 +90,6 @@ describe('admin list layout', () => {
     expect(layout).toContain('event.stopPropagation();');
   });
 
-  it('uses the same list operation structure in the WebDAV management page', () => {
-    const source = readProjectFile('src/plugins/typecho-plugin-webdav/index.ts');
-
-    expect(source).toContain('<form method="get" class="typecho-list-operate" onsubmit="return false">');
-    expect(source).not.toContain('typecho-list-operate clearfix');
-    expect(source).not.toContain('class="typecho-table-wrap"');
-  });
-
   it('keeps Typecho 1.3 page hierarchy and drag-order markup', () => {
     const source = readProjectFile('src/pages/admin/manage-pages.astro');
     const layout = readProjectFile('src/layouts/Admin.astro');

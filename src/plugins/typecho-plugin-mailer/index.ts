@@ -441,7 +441,7 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
   );
 }
 
-// ── Admin auth helpers (same pattern as the WebDAV plugin) ──
+// ── Admin auth helpers for custom plugin routes ──
 
 interface AdminAuthResult {
   uid: number;

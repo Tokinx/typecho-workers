@@ -20,7 +20,7 @@ import { PUBLIC_HTML_HEADER } from '@/lib/cache';
 // Statically imported so the lazy plugin loader table exists before the first
 // request of a cold isolate runs setActivatedPlugins. Page-ssr scripts only
 // execute after a page chunk loads, which may never happen before a plugin
-// route like /webdav is requested. Vitest resolves this to a stub that
+// route like /api/admin/notes is requested. Vitest resolves this to a stub that
 // mirrors the generated registry.
 import 'virtual:typecho-plugin-registry';
 
