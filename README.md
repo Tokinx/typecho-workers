@@ -119,8 +119,9 @@ bun run deploy
 ### Git 自动部署（不提交 `wrangler.toml`）
 
 Cloudflare Workers Builds 从 Git 检出时没有本地的 `wrangler.toml`。本项目的
-`build:cloudflare` 会在构建前根据构建变量生成一个被忽略的临时配置，使 Astro
-和 Wrangler 都能获得相同的兼容性与资源绑定配置。
+`build:cloudflare` 会在构建前根据构建变量生成一个被忽略的临时配置，供 Astro
+构建流程使用。构建完成后，`@astrojs/cloudflare` 会在 `dist/server/wrangler.json`
+生成完整的部署配置（含全部资源绑定），部署命令直接使用该产物。
 
 在 Cloudflare 的 **Build variables** 中添加以下值：
 
@@ -154,7 +155,7 @@ Cloudflare Workers Builds 从 Git 检出时没有本地的 `wrangler.toml`。本
 | `bun run build` | 生产构建 |
 | `bun run build:cloudflare` | Git 构建前生成被忽略的 Worker 配置，再构建 |
 | `bun run deploy` | 构建 + 部署到 Cloudflare Workers |
-| `bun run deploy:cloudflare-build` | 使用构建期临时配置部署 Worker |
+| `bun run deploy:cloudflare-build` | 使用构建产物 `dist/server/wrangler.json` 部署 Worker |
 | `bun run test` | 运行所有测试 |
 | `bun run test:watch` | 监听模式运行测试 |
 | `bun run test:coverage` | 生成覆盖率报告 |

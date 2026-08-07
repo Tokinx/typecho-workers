@@ -33,6 +33,6 @@ describe('package scripts', () => {
     const pkg = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf-8'));
 
     expect(pkg.scripts['build:cloudflare']).toContain('generate:cloudflare-config');
-    expect(pkg.scripts['deploy:cloudflare-build']).toBe('wrangler deploy --config wrangler.toml');
+    expect(pkg.scripts['deploy:cloudflare-build']).toBe('wrangler deploy --config dist/server/wrangler.json');
   });
 });
