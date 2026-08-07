@@ -6,10 +6,10 @@
  *
  * Usage:
  *   # Reset password for local D1 (wrangler dev)
- *   pnpm reset-password --user admin --password newpass123
+ *   bun run reset-password --user admin --password newpass123
  *
  *   # Reset password for remote D1 (Cloudflare)
- *   pnpm reset-password:cloudflare --user admin --password newpass123
+ *   bun run reset-password:cloudflare --user admin --password newpass123
  *
  *   # Using npx directly
  *   npx tsx scripts/reset-password.ts --user admin --password newpass123 --target local
@@ -128,19 +128,19 @@ Environment:
 
 Examples:
   # Reset admin password (local)
-  pnpm reset-password --user admin --password newpass123
+  bun run reset-password --user admin --password newpass123
 
   # Reset admin password (remote/Cloudflare)
-  pnpm reset-password:cloudflare --user admin --password newpass123
+  bun run reset-password:cloudflare --user admin --password newpass123
 
   # Auto-generate password (local)
-  pnpm reset-password --user admin
+  bun run reset-password --user admin
 
   # List all users (local)
-  pnpm reset-password --list
+  bun run reset-password --list
 
   # List all users (remote)
-  pnpm reset-password:cloudflare --list
+  bun run reset-password:cloudflare --list
 `);
 }
 

@@ -212,7 +212,7 @@ describe('WordPress WXR migration', () => {
     expect(sql).toContain('UPDATE typecho_metas SET "count"');
   });
 
-  it('accepts pnpm run argument separators', () => {
+  it('accepts bun run argument separators', () => {
     expect(parseWordPressMigrationArgs(['--', '--source', import.meta.filename, '--dry-run'])).toMatchObject({
       source: import.meta.filename,
       dryRun: true,

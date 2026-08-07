@@ -203,7 +203,7 @@ WordPress WXR Migration Tool
 ============================
 
 Usage:
-  pnpm run db:migrate:wordpress -- --source WordPress.2026-07-29.xml [options]
+  bun run db:migrate:wordpress -- --source WordPress.2026-07-29.xml [options]
 
 Options:
   --source, -s <file>       WordPress WXR XML file (required)
@@ -260,7 +260,7 @@ class WranglerTarget {
   }
 
   private async wrangler(args: string[]): Promise<string> {
-    const { stdout, stderr } = await execFileAsync('pnpm', ['exec', 'wrangler', ...args], {
+    const { stdout, stderr } = await execFileAsync('bun', ['x', 'wrangler', ...args], {
       encoding: 'utf8',
       maxBuffer: 32 * 1024 * 1024,
     });

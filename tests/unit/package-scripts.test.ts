@@ -14,18 +14,19 @@ describe('package scripts', () => {
 
   it('uses one parameterized command for PHP Typecho migrations', () => {
     const pkg = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf-8'));
-    expect(pkg.scripts['db:migrate:typecho']).toBe('tsx scripts/migrate.ts');
+    expect(pkg.scripts['db:migrate:typecho']).toBe('bun run scripts/migrate.ts');
     expect(pkg.scripts['db:migrate']).toBeUndefined();
     expect(pkg.scripts['db:migrate:local']).toBeUndefined();
     expect(pkg.scripts['db:migrate:cloudflare']).toBeUndefined();
     expect(pkg.scripts['db:migrate:dry-run']).toBeUndefined();
   });
 
-  it('declares local plugins and themes as pnpm workspace packages', () => {
-    const workspace = readFileSync(join(process.cwd(), 'pnpm-workspace.yaml'), 'utf-8');
+  it('declares local plugins and themes as bun workspace packages', () => {
+    const pkg = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf-8'));
+    const workspaces = pkg.workspaces ?? [];
 
-    expect(workspace).toMatch(/packages:\s*\n\s*- 'src\/plugins\/\*'/);
-    expect(workspace).toMatch(/packages:[\s\S]*- 'src\/themes\/\*'/);
+    expect(workspaces).toContain('src/plugins/*');
+    expect(workspaces).toContain('src/themes/*');
   });
 
   it('provides a dedicated Git build and deploy path for an ignored Worker config', () => {

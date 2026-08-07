@@ -13,7 +13,7 @@
 | 描述 | Typecho 博客系统的 TypeScript 重写，运行于 Astro + Cloudflare Workers + D1 |
 | 仓库 | `https://github.com/Tokinx/typecho-workers` |
 | 许可证 | MIT |
-| 包管理器 | pnpm（锁定） |
+| 包管理器 | bun（锁定） |
 
 ---
 
@@ -107,7 +107,7 @@ src/lib/constants.ts   — 跨模块常量（密码最小长度、slug 后缀上
 **不可变约束**：
 - 表名必须保持 `typecho_*` 前缀，**不可重命名**
 - 列名必须与 PHP Typecho 保持一致
-- Schema 定义在 `src/db/schema.ts`，修改后必须运行 `pnpm run db:generate`
+- Schema 定义在 `src/db/schema.ts`，修改后必须运行 `bun run db:generate`
 - **禁止手动修改 `drizzle/` 目录下的迁移文件**
 - 建表 SQL 由 `src/lib/schema-sql.ts` 在运行时从 Drizzle schema 反射生成（`generateCreateSQL()` 同时输出 CREATE TABLE 与 CREATE INDEX；中间件首次命中时会在后台幂等地补齐生产库索引）
 - D1 不支持真实事务；批量改写应使用 `db.batch([...])` 单次往返
@@ -436,7 +436,7 @@ vi.mock('cloudflare:workers', () => ({ env: { DB: null, BUCKET: { delete: mockFn
 ### 10.4 测试要求
 
 - 新增功能和 bug 修复必须同步添加对应测试用例
-- 修改后必须运行 `pnpm run test` 与 `pnpm exec tsc --noEmit`
+- 修改后必须运行 `bun run test` 与 `bunx tsc --noEmit`
 - 若集成测试为了隔离端点 mock 了 `requireAdminCSRF`，必须另有单元/集成测试覆盖真实 `requireAdminAction()` / CSRF 失败路径
 - 安全修复必须包含负向回归用例（例如跨 origin、协议不一致、前缀匹配伪造、非法 enum/type、路径穿越）
 - 每个插件必须包含 `index.test.ts`，覆盖：Hook 注册、守卫分支、正常路径、拒绝路径、边界情况、配置验证

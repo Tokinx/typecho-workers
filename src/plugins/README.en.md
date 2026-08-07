@@ -312,14 +312,14 @@ The host project supplies the `typecho` package at install time, and `typecho/pl
 
 1. Place the plugin directory under `src/plugins/`
 2. Add `"<packageName>": "file:src/plugins/<packageName>"` to the root `package.json` `dependencies`
-3. Run `pnpm install`
-4. Rebuild with `pnpm run build`
+3. Run `bun install`
+4. Rebuild with `bun run build`
 
 ### Install from npm
 
 ```bash
-pnpm add typecho-plugin-example
-pnpm run build
+bun add typecho-plugin-example
+bun run build
 ```
 
 > Standalone plugins must declare `typecho` as a `peerDependency`. The SDK is provided by the host project when the plugin is installed.

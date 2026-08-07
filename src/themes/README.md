@@ -319,15 +319,15 @@ const { options, posts, pagination, urls, isLoggedIn, user, pages, sidebarData }
 
 1. 将主题目录放在 `src/themes/` 下
 2. 在根 `package.json` 的 `workspaces` 中添加路径（如已有 `src/themes/*` 则自动包含）
-3. 运行 `pnpm install`
-4. 重新执行 `pnpm run build`
+3. 运行 `bun install`
+4. 重新执行 `bun run build`
 5. 在管理后台「外观」页面切换到新主题
 
 ### npm 发布后安装
 
 ```bash
-pnpm add typecho-theme-example
-pnpm run build
+bun add typecho-theme-example
+bun run build
 ```
 
 ---

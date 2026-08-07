@@ -23,7 +23,7 @@ A modern rewrite of [Typecho](https://typecho.org) in TypeScript, running on **A
 ### Prerequisites
 
 - Node.js 18+
-- pnpm (`npm install -g pnpm`)
+- Bun ≥ 1.2 (`curl -fsSL https://bun.sh/install | bash`)
 - [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/) (`npm install -g wrangler`)
 - Cloudflare account
 
@@ -33,10 +33,10 @@ A modern rewrite of [Typecho](https://typecho.org) in TypeScript, running on **A
 # Clone and install dependencies
 git clone https://github.com/Tokinx/typecho-workers.git
 cd typecho-workers
-pnpm install
+bun install
 
 # Start dev server (D1 + R2 are automatically simulated by wrangler)
-pnpm run dev
+bun run dev
 ```
 
 Visit http://localhost:4321 — first visit auto-redirects to the installation wizard.
@@ -78,7 +78,7 @@ id = "your-kv-namespace-id"
 **3. Build and deploy**
 
 ```bash
-pnpm run deploy
+bun run deploy
 ```
 
 After deployment, visit your Worker URL — first visit auto-redirects to the installation wizard.
@@ -89,19 +89,19 @@ After deployment, visit your Worker URL — first visit auto-redirects to the in
 
 | Command | Description |
 |---------|-------------|
-| `pnpm run dev` | Start local dev server |
-| `pnpm run build` | Production build |
-| `pnpm run deploy` | Build + deploy to Cloudflare Workers |
-| `pnpm run test` | Run all tests |
-| `pnpm run test:watch` | Watch mode |
-| `pnpm run test:coverage` | Generate coverage report |
-| `pnpm exec tsc --noEmit` | TypeScript type check |
-| `pnpm run db:generate` | Generate Drizzle migrations |
-| `pnpm run db:studio` | Launch Drizzle Studio |
-| `pnpm run db:migrate:typecho` | Migrate PHP Typecho data; select target and preview mode with options |
-| `pnpm run db:migrate:wordpress` | Migrate WordPress WXR XML data |
-| `pnpm run reset-password` | Reset user password (local) |
-| `pnpm run reset-password:cloudflare` | Reset user password (Cloudflare) |
+| `bun run dev` | Start local dev server |
+| `bun run build` | Production build |
+| `bun run deploy` | Build + deploy to Cloudflare Workers |
+| `bun run test` | Run all tests |
+| `bun run test:watch` | Watch mode |
+| `bun run test:coverage` | Generate coverage report |
+| `bunx tsc --noEmit` | TypeScript type check |
+| `bun run db:generate` | Generate Drizzle migrations |
+| `bun run db:studio` | Launch Drizzle Studio |
+| `bun run db:migrate:typecho` | Migrate PHP Typecho data; select target and preview mode with options |
+| `bun run db:migrate:wordpress` | Migrate WordPress WXR XML data |
+| `bun run reset-password` | Reset user password (local) |
+| `bun run reset-password:cloudflare` | Reset user password (Cloudflare) |
 
 ---
 
@@ -111,19 +111,19 @@ After deployment, visit your Worker URL — first visit auto-redirects to the in
 
 ```bash
 # Migrate to Cloudflare (production)
-pnpm run db:migrate:typecho -- \
+bun run db:migrate:typecho -- \
   --target cloudflare \
   --source /path/to/typecho.db \
   --uploads /path/to/usr/uploads
 
 # Migrate to local (development)
-pnpm run db:migrate:typecho -- \
+bun run db:migrate:typecho -- \
   --target local \
   --source /path/to/typecho.db \
   --uploads /path/to/usr/uploads
 
 # Preview mode (no data written)
-pnpm run db:migrate:typecho -- \
+bun run db:migrate:typecho -- \
   --target local \
   --dry-run \
   --source /path/to/typecho.db \
@@ -149,10 +149,10 @@ Password hashing is incompatible (PHP phpass → SHA-256 + salt), so passwords m
 
 ```bash
 # Local
-pnpm run reset-password
+bun run reset-password
 
 # Cloudflare
-pnpm run reset-password:cloudflare
+bun run reset-password:cloudflare
 ```
 
 ## Migrating from WordPress
@@ -161,7 +161,7 @@ pnpm run reset-password:cloudflare
 
 ```bash
 # Migrate to Cloudflare (production) and download referenced media to R2
-pnpm run db:migrate:wordpress -- \
+bun run db:migrate:wordpress -- \
   --target cloudflare \
   --source WordPress.2026-07-29.xml \
   --author-id 1 \
@@ -169,13 +169,13 @@ pnpm run db:migrate:wordpress -- \
   --download-media
 
 # Migrate to local (development)
-pnpm run db:migrate:wordpress -- \
+bun run db:migrate:wordpress -- \
   --target local \
   --source WordPress.2026-07-29.xml \
   --author-id 1
 
 # Preview mode (no data written)
-pnpm run db:migrate:wordpress -- \
+bun run db:migrate:wordpress -- \
   --dry-run \
   --source WordPress.2026-07-29.xml \
   --author-id 1
@@ -227,7 +227,7 @@ See [Theme Development Guide](src/themes/README.md).
 | ORM | [Drizzle ORM](https://orm.drizzle.team) |
 | File Storage | [Cloudflare R2](https://developers.cloudflare.com/r2/) |
 | Testing | [Vitest](https://vitest.dev) |
-| Package Manager | pnpm |
+| Package Manager | bun |
 
 ---
 
@@ -236,7 +236,7 @@ See [Theme Development Guide](src/themes/README.md).
 - Admin APIs must use `requireAdminAction()` for authentication, authorization, and CSRF checks; admin redirects must be same-origin and limited to `/admin` paths.
 - Comment referer checks and post-comment redirects must trust sources by URL `origin`, not by string prefix or host-only comparison.
 - Frontend, admin, plugin route, and cache-hit responses are normalized by middleware with baseline security headers.
-- Every feature or bug fix needs matching regression coverage and must pass both `pnpm run test` and `pnpm exec tsc --noEmit`.
+- Every feature or bug fix needs matching regression coverage and must pass both `bun run test` and `bunx tsc --noEmit`.
 
 ---
 

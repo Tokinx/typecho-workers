@@ -23,7 +23,7 @@
 ### 前置要求
 
 - Node.js 18+
-- pnpm（`npm install -g pnpm`）
+- Bun ≥ 1.2（`curl -fsSL https://bun.sh/install | bash`）
 - [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/)（`npm install -g wrangler`）
 - Cloudflare 帐号
 
@@ -33,10 +33,10 @@
 # 克隆并安装依赖
 git clone https://github.com/Tokinx/typecho-workers.git
 cd typecho-workers
-pnpm install
+bun install
 
 # 启动开发服务器（D1 + R2 由 wrangler 自动模拟）
-pnpm run dev
+bun run dev
 ```
 
 访问 http://localhost:4321，首次访问自动跳转安装向导。
@@ -90,7 +90,7 @@ PBKDF2_ITERATIONS = "50000"
 `[vars]`。首次部署前生成 32 字节随机 Pepper：
 
 ```bash
-openssl rand -hex 32 | pnpm exec wrangler secret put PASSWORD_PEPPER
+openssl rand -hex 32 | bunx wrangler secret put PASSWORD_PEPPER
 ```
 
 启用后，新密码保存为 `$PBKDF2P$iterations$salt$hash`；旧的无 Pepper
@@ -102,16 +102,16 @@ PBKDF2 密码仍可登录，并会在成功登录时自动升级。Pepper 不支
 
 ```bash
 RECOVERY_PEPPER=$(openssl rand -hex 32)
-printf '%s' "$RECOVERY_PEPPER" | pnpm exec wrangler secret put PASSWORD_PEPPER
+printf '%s' "$RECOVERY_PEPPER" | bunx wrangler secret put PASSWORD_PEPPER
 PBKDF2_ITERATIONS=50000 PASSWORD_PEPPER="$RECOVERY_PEPPER" \
-  pnpm run reset-password:cloudflare -- --user admin
+  bun run reset-password:cloudflare -- --user admin
 unset RECOVERY_PEPPER
 ```
 
 **3. 构建并部署**
 
 ```bash
-pnpm run deploy
+bun run deploy
 ```
 
 部署完成后访问 Worker URL，首次访问自动跳转安装向导。
@@ -136,8 +136,8 @@ Cloudflare Workers Builds 从 Git 检出时没有本地的 `wrangler.toml`。本
 将构建设置改为：
 
 ```text
-构建命令：pnpm run build:cloudflare
-部署命令：pnpm run deploy:cloudflare-build
+构建命令：bun run build:cloudflare
+部署命令：bun run deploy:cloudflare-build
 ```
 
 该流程不会写入 `PASSWORD_PEPPER` 或 `INSTALL_TOKEN`。首次 Git 部署创建 Worker
@@ -150,21 +150,21 @@ Cloudflare Workers Builds 从 Git 检出时没有本地的 `wrangler.toml`。本
 
 | 命令 | 说明 |
 |------|------|
-| `pnpm run dev` | 本地开发服务器 |
-| `pnpm run build` | 生产构建 |
-| `pnpm run build:cloudflare` | Git 构建前生成被忽略的 Worker 配置，再构建 |
-| `pnpm run deploy` | 构建 + 部署到 Cloudflare Workers |
-| `pnpm run deploy:cloudflare-build` | 使用构建期临时配置部署 Worker |
-| `pnpm run test` | 运行所有测试 |
-| `pnpm run test:watch` | 监听模式运行测试 |
-| `pnpm run test:coverage` | 生成覆盖率报告 |
-| `pnpm exec tsc --noEmit` | TypeScript 类型检查 |
-| `pnpm run db:generate` | 生成 Drizzle 数据库迁移 |
-| `pnpm run db:studio` | 启动 Drizzle Studio |
-| `pnpm run db:migrate:typecho` | 从 Typecho SQLite 迁移数据 |
-| `pnpm run db:migrate:wordpress` | 从 WordPress WXR XML 迁移数据 |
-| `pnpm run reset-password` | 重置用户密码（本地） |
-| `pnpm run reset-password:cloudflare` | 重置用户密码（Cloudflare） |
+| `bun run dev` | 本地开发服务器 |
+| `bun run build` | 生产构建 |
+| `bun run build:cloudflare` | Git 构建前生成被忽略的 Worker 配置，再构建 |
+| `bun run deploy` | 构建 + 部署到 Cloudflare Workers |
+| `bun run deploy:cloudflare-build` | 使用构建期临时配置部署 Worker |
+| `bun run test` | 运行所有测试 |
+| `bun run test:watch` | 监听模式运行测试 |
+| `bun run test:coverage` | 生成覆盖率报告 |
+| `bunx tsc --noEmit` | TypeScript 类型检查 |
+| `bun run db:generate` | 生成 Drizzle 数据库迁移 |
+| `bun run db:studio` | 启动 Drizzle Studio |
+| `bun run db:migrate:typecho` | 从 Typecho SQLite 迁移数据 |
+| `bun run db:migrate:wordpress` | 从 WordPress WXR XML 迁移数据 |
+| `bun run reset-password` | 重置用户密码（本地） |
+| `bun run reset-password:cloudflare` | 重置用户密码（Cloudflare） |
 
 ---
 
@@ -174,19 +174,19 @@ Cloudflare Workers Builds 从 Git 检出时没有本地的 `wrangler.toml`。本
 
 ```bash
 # 迁移到 Cloudflare（生产环境）
-pnpm run db:migrate:typecho -- \
+bun run db:migrate:typecho -- \
   --target cloudflare \
   --source /path/to/typecho.db \
   --uploads /path/to/usr/uploads
 
 # 迁移到本地（开发调试）
-pnpm run db:migrate:typecho -- \
+bun run db:migrate:typecho -- \
   --target local \
   --source /path/to/typecho.db \
   --uploads /path/to/usr/uploads
 
 # 预览模式（不写入任何数据）
-pnpm run db:migrate:typecho -- \
+bun run db:migrate:typecho -- \
   --target local \
   --dry-run \
   --source /path/to/typecho.db \
@@ -212,10 +212,10 @@ pnpm run db:migrate:typecho -- \
 
 ```bash
 # 本地
-pnpm run reset-password
+bun run reset-password
 
 # Cloudflare
-pnpm run reset-password:cloudflare
+bun run reset-password:cloudflare
 ```
 
 ## 从 WordPress 迁移
@@ -224,7 +224,7 @@ pnpm run reset-password:cloudflare
 
 ```bash
 # 迁移到 Cloudflare（生产环境），并下载正文引用的媒体到 R2
-pnpm run db:migrate:wordpress -- \
+bun run db:migrate:wordpress -- \
   --target cloudflare \
   --source WordPress.2026-07-29.xml \
   --author-id 1 \
@@ -232,13 +232,13 @@ pnpm run db:migrate:wordpress -- \
   --download-media
 
 # 迁移到本地（开发调试）
-pnpm run db:migrate:wordpress -- \
+bun run db:migrate:wordpress -- \
   --target local \
   --source WordPress.2026-07-29.xml \
   --author-id 1
 
 # 预览模式（不写入任何数据）
-pnpm run db:migrate:wordpress -- \
+bun run db:migrate:wordpress -- \
   --dry-run \
   --source WordPress.2026-07-29.xml \
   --author-id 1
@@ -289,7 +289,7 @@ pnpm run db:migrate:wordpress -- \
 | ORM | [Drizzle ORM](https://orm.drizzle.team) |
 | 文件存储 | [Cloudflare R2](https://developers.cloudflare.com/r2/) |
 | 测试 | [Vitest](https://vitest.dev) |
-| 包管理 | pnpm |
+| 包管理 | bun |
 
 ---
 
@@ -298,7 +298,7 @@ pnpm run db:migrate:wordpress -- \
 - 管理 API 必须通过 `requireAdminAction()` 做登录、权限与 CSRF 校验；重定向回后台页面必须使用同源且仅限 `/admin` 路径的安全回跳。
 - 评论来源与评论提交后的回跳只按 URL `origin` 判定可信来源，禁止用字符串前缀或仅 host 比较。
 - 前台、后台、插件路由和缓存命中的响应都由中间件补齐基础安全响应头。
-- 新增功能和 bug 修复必须补对应回归测试，并同时通过 `pnpm run test` 与 `pnpm exec tsc --noEmit`。
+- 新增功能和 bug 修复必须补对应回归测试，并同时通过 `bun run test` 与 `bunx tsc --noEmit`。
 
 ---
 

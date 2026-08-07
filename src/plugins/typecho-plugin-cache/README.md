@@ -7,7 +7,7 @@ Typecho-Workers 的三级页面缓存与 CDN 地址改写插件。
 创建 KV namespace：
 
 ```bash
-pnpm exec wrangler kv namespace create TYPECHO_CACHE
+bunx wrangler kv namespace create TYPECHO_CACHE
 ```
 
 将返回的 namespace ID 写入 `wrangler.toml`：

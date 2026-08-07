@@ -307,15 +307,15 @@ The system automatically injects the following `<link>` tags into `<head>` (base
 
 1. Place the theme directory under `src/themes/`
 2. Ensure `src/themes/*` is listed in the root `package.json` `workspaces`
-3. Run `pnpm install`
-4. Rebuild with `pnpm run build`
+3. Run `bun install`
+4. Rebuild with `bun run build`
 5. Switch to the new theme in the admin panel under "Appearance"
 
 ### Install from npm
 
 ```bash
-pnpm add typecho-theme-example
-pnpm run build
+bun add typecho-theme-example
+bun run build
 ```
 
 ---

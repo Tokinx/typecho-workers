@@ -527,7 +527,7 @@ export function getCookieValue(cookieHeader: string | null, name: string): strin
 
 /**
  * Decide whether to emit the `Secure` cookie attribute. Production deploys
- * always run on HTTPS via Cloudflare, but `pnpm run dev` exposes the worker
+ * always run on HTTPS via Cloudflare, but `bun run dev` exposes the worker
  * over plain http://localhost. Marking cookies Secure on http drops them.
  */
 export function shouldUseSecureCookie(request?: Request): boolean {

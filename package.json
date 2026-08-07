@@ -7,22 +7,26 @@
     "./plugin-sdk": "./src/lib/plugin-sdk.ts",
     "./db": "./src/db/index.ts"
   },
+  "workspaces": [
+    "src/plugins/*",
+    "src/themes/*"
+  ],
   "scripts": {
     "dev": "astro dev --force",
     "build": "astro build",
-    "generate:cloudflare-config": "tsx scripts/generate-wrangler-config.ts",
-    "build:cloudflare": "pnpm run generate:cloudflare-config && astro build",
-    "deploy": "pnpm build && wrangler deploy",
+    "generate:cloudflare-config": "bun run scripts/generate-wrangler-config.ts",
+    "build:cloudflare": "bun run generate:cloudflare-config && astro build",
+    "deploy": "bun run build && wrangler deploy",
     "deploy:cloudflare-build": "wrangler deploy --config wrangler.toml",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
-    "db:migrate:typecho": "tsx scripts/migrate.ts",
-    "db:migrate:wordpress": "tsx scripts/migrate-wordpress.ts",
-    "reset-password": "tsx scripts/reset-password.ts --target local",
-    "reset-password:cloudflare": "tsx scripts/reset-password.ts --target cloudflare"
+    "db:migrate:typecho": "bun run scripts/migrate.ts",
+    "db:migrate:wordpress": "bun run scripts/migrate-wordpress.ts",
+    "reset-password": "bun run scripts/reset-password.ts --target local",
+    "reset-password:cloudflare": "bun run scripts/reset-password.ts --target cloudflare"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^14.1.5",
@@ -47,7 +51,6 @@
     "drizzle-kit": "^0.31.10",
     "esbuild": "^0.28.1",
     "fast-xml-parser": "^5.10.1",
-    "tsx": "^4.23.1",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10",
     "wrangler": "^4.114.0"

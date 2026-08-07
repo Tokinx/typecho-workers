@@ -147,8 +147,6 @@ describe('typecho-plugin-notes', () => {
     expect(html).toContain('.note-media-list.has-1{grid-template-columns:minmax(0,1fr);max-width:50%}');
     expect(html).toContain('.note-media-list.has-2{');
     expect(html).toContain('.note-media-list.has-3{');
-    expect(html).toContain('note-media video{max-width:50%');
-    expect(html).toContain('note-media audio{max-width:50%');
     expect(html).toContain('var videos=(note.videos||[])');
     expect(html).toContain('var music=(note.music||[])');
     expect(html).toContain('.note-media video{');

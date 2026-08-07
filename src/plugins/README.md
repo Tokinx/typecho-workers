@@ -315,14 +315,14 @@ import { schema } from 'typecho/db';
 
 1. 将插件目录放在 `src/plugins/` 下
 2. 在根 `package.json` 的 `dependencies` 中添加 `"<packageName>": "file:src/plugins/<packageName>"`
-3. 运行 `pnpm install`
-4. 重新执行 `pnpm run build`
+3. 运行 `bun install`
+4. 重新执行 `bun run build`
 
 ### npm 发布后安装
 
 ```bash
-pnpm add typecho-plugin-example
-pnpm run build
+bun add typecho-plugin-example
+bun run build
 ```
 
 > 独立发布的插件必须将 `typecho` 声明为 `peerDependencies`。宿主项目安装插件时，`typecho` 包会自动提供 SDK 解析。
