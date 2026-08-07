@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import init from './index';
 
 function collectHooks() {
@@ -17,6 +18,7 @@ function collectHooks() {
 
 describe('typecho-plugin-scribe', () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -39,10 +41,40 @@ describe('typecho-plugin-scribe', () => {
 
     expect(postHtml).toContain('typecho-scribe');
     expect(postHtml).toContain('data-content-type="post"');
-    expect(postHtml).toContain('AI 生成');
-    expect(postHtml).toContain('AI 润色');
-    expect(postHtml).toContain('AI 纠错');
+    expect(postHtml).toContain("MODE_LABELS = { generate: '生成', polish: '润色', correct: '纠错' }");
+    expect(postHtml).toContain("button.innerHTML = (MODE_ICONS[mode] || '') + '<span>' + title + '</span>'");
+    expect(postHtml).toContain('typecho-scribe-menu-actions');
+    expect(postHtml).toContain('data-scribe-setting="userPrompt"');
+    expect(postHtml).toContain('data-scribe-setting="outputLanguage"');
+    expect(postHtml).toContain('data-scribe-setting="stylePostCount"');
+    expect(postHtml).toContain('data-scribe-setting="targetAudience"');
+    expect(postHtml).toContain('data-scribe-setting="lengthPreset"');
+    expect(postHtml).toContain('data-scribe-setting="factPolicy"');
+    expect(postHtml).toContain('data-scribe-setting="includeBodyAssets"');
+    expect(postHtml).toContain("menu.addEventListener('click', function(event) {");
+    expect(postHtml).toContain('参考历史文章');
+    expect(postHtml).toContain('<option value="0">不参考</option>');
+    expect(postHtml).toContain('<option value="5">5</option>');
+    expect(postHtml).toContain('<option value="10">10</option>');
+    expect(postHtml).not.toContain('<option value="1">1</option>');
     expect(pageHtml).toContain('data-content-type="page"');
+  });
+
+  it('keeps the connection-only plugin config and reads editor settings from the mounted menu', () => {
+    const hooks = collectHooks();
+    const postHtml = hooks.get('admin:writePost:bottom')![0]('');
+    const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
+
+    expect(Object.keys(pkg.typecho.plugin.config).sort()).toEqual([
+      'apiKey',
+      'endpoint',
+      'maxTokens',
+      'model',
+      'temperature',
+    ]);
+    expect(postHtml).toContain("var menu = button ? button.closest('.typecho-scribe-menu') : null;");
+    expect(postHtml).toContain('writingOptions: collectWritingSettings(menu || box)');
+    expect(postHtml).toContain('saveWritingSettings(collectWritingSettings(settings))');
   });
 
   it('ignores config validation for other plugins', async () => {
@@ -95,6 +127,32 @@ describe('typecho-plugin-scribe', () => {
     });
   });
 
+  it('saves connection settings without blocking on live model validation', async () => {
+    const hooks = collectHooks();
+    const validate = hooks.get('plugin:config:beforeSave')![0];
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await validate({ success: true, settings: {} }, {
+      pluginId: 'typecho-plugin-scribe',
+      settings: {
+        endpoint: 'https://llm.example/v1',
+        apiKey: 'test-key',
+        model: 'demo-model',
+      },
+    });
+
+    expect(result).toMatchObject({
+      success: true,
+      settings: {
+        endpoint: 'https://llm.example/v1',
+        apiKey: 'test-key',
+        model: 'demo-model',
+      },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('returns not handled for unsupported plugin actions', async () => {
     const hooks = collectHooks();
     const action = hooks.get('plugin:typecho-plugin-scribe:action')![0];
@@ -123,6 +181,39 @@ describe('typecho-plugin-scribe', () => {
       handled: true,
       success: false,
       error: '请先完整配置接口地址、API Key 和模型名称',
+    });
+  });
+
+  it('reports the LLM timeout before the generic plugin action timeout', async () => {
+    vi.useFakeTimers();
+    const hooks = collectHooks();
+    const action = hooks.get('plugin:typecho-plugin-scribe:action')![0];
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => {
+        reject(new DOMException('Aborted', 'AbortError'));
+      });
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const pending = action({ handled: false }, {
+      action: 'generate',
+      payload: { contentType: 'post', title: 'Test' },
+      options: {
+        'plugin:typecho-plugin-scribe': JSON.stringify({
+          endpoint: 'https://llm.example/v1',
+          apiKey: 'test-key',
+          model: 'demo-model',
+        }),
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(55_000);
+    const result = await pending;
+
+    expect(result).toMatchObject({
+      handled: true,
+      success: false,
+      error: 'LLM 请求超时，请稍后重试',
     });
   });
 
@@ -175,5 +266,56 @@ describe('typecho-plugin-scribe', () => {
     expect(body.messages[1].content).toContain('篇幅策略：深入');
     expect(body.messages[1].content).toContain('<task>');
     expect(body.messages[1].content).toContain('<output_contract>');
+  });
+
+  it('applies editor writing options from the action payload', async () => {
+    const hooks = collectHooks();
+    const action = hooks.get('plugin:typecho-plugin-scribe:action')![0];
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(
+      'data: {"choices":[{"delta":{"content":"正文"}}]}\n\ndata: [DONE]\n\n',
+      {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await action({ handled: false }, {
+      action: 'generate',
+      payload: {
+        contentType: 'post',
+        title: 'LLM 写作实践',
+        writingOptions: {
+          outputLanguage: 'zh-CN',
+          targetAudience: '前端开发者',
+          lengthPreset: 'concise',
+          factPolicy: 'assumptive',
+          userPrompt: '避免营销腔。',
+          includeBodyAssets: true,
+          stylePostCount: '1',
+        },
+      },
+      options: {
+        siteUrl: 'https://blog.example',
+        'plugin:typecho-plugin-scribe': JSON.stringify({
+          endpoint: 'https://llm.example/v1',
+          apiKey: 'test-key',
+          model: 'demo-model',
+        }),
+      },
+    });
+
+    expect(result.handled).toBe(true);
+    expect(result.success).toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith('https://llm.example/v1/chat/completions', expect.any(Object));
+
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const body = JSON.parse(String(request.body));
+    expect(body.messages[1].content).toContain('输出语言：固定使用：zh-CN');
+    expect(body.messages[1].content).toContain('目标读者：前端开发者');
+    expect(body.messages[1].content).toContain('篇幅策略：偏短');
+    expect(body.messages[1].content).toContain('事实策略：允许基于常识做低风险推断');
+    expect(body.messages[1].content).toContain('避免营销腔。');
+    expect(body.messages[1].content).toContain('<assets>');
   });
 });

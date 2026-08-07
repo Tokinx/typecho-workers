@@ -20,21 +20,27 @@ Typecho-CF AI 写作助手插件，接入 OpenAI 兼容 LLM，在编辑器中生
 | `model` | text | `glm-4.7-flash` | 模型名称 |
 | `temperature` | text | `0.7` | 生成创造性控制 |
 | `maxTokens` | text | `32000` | 单次最大输出 Token 数 |
-| `stylePostCount` | text | `5` | 风格参考文章数，0 关闭 |
-| `outputLanguage` | select | `auto` | 输出语言：自动/简体中文/繁体中文/English/日本語/한국어 |
-| `targetAudience` | text | — | 目标读者描述，留空由模型推断 |
-| `lengthPreset` | select | `balanced` | 篇幅策略：偏短/标准/深入 |
-| `factPolicy` | select | `conservative` | 事实策略：保守/允许低风险常识推断 |
-| `userPrompt` | textarea | — | 额外写作要求，每次请求附带 |
-| `includeBodyAssets` | select | 关闭 | 发送正文图片和附件给模型 |
+
+## 编辑器写作设置
+
+编辑器 AI 菜单内置以下设置项，并在当前浏览器通过 `localStorage` 记忆：
+
+- User Prompt：textarea
+- 输出语言：select（自动/简体中文/繁体中文/English/日本語/한국어）
+- 高级设置（默认折叠）：
+  - 参考历史文章：0-不参考 / 5（默认）/ 10
+  - 目标读者：input，默认空
+  - 篇幅策略：偏短 / 标准（默认）/ 深入
+  - 事实策略：保守（默认）/ 允许低风险常识推断
+  - 发送正文图片和附件：checkbox，默认不选中
 
 ## 工作流程
 
 ```
 配置保存
   → plugin:config:beforeSave hook 触发
-  → 校验 endpoint + apiKey + model（通过 /models API）
-  → 失败则阻止保存并返回错误信息
+  → 校验 endpoint 格式、必填项和数值范围
+  → 保存配置；模型可用性在用户调用 AI 写作时反馈
 
 编辑器页面加载
   → admin:writePost:bottom / admin:writePage:bottom hook 注入 AI 按钮 UI
@@ -43,8 +49,8 @@ Typecho-CF AI 写作助手插件，接入 OpenAI 兼容 LLM，在编辑器中生
 
 用户点击操作
   → plugin:<id>:action hook 触发（generate/polish/correct）
-  → 读取风格样本（最近 N 篇已发布文章）
-  → 构建 system prompt（含风格样本、输出语言、目标读者、篇幅、事实策略等）
+  → 读取编辑器写作设置与风格样本（最近 N 篇已发布文章）
+  → 构建 system prompt（含写作设置、风格样本、附件资料等）
   → 调用 LLM（stream 模式），逐步返回生成内容
   → 将结果写入编辑器
 ```
@@ -55,7 +61,7 @@ Typecho-CF AI 写作助手插件，接入 OpenAI 兼容 LLM，在编辑器中生
 |------|------|------|
 | `admin:writePost:bottom` | filter | 文章编辑器底部注入 AI 操作按钮 |
 | `admin:writePage:bottom` | filter | 页面编辑器底部注入 AI 操作按钮 |
-| `plugin:config:beforeSave` | filter | 保存前验证 LLM endpoint 和 model 可用性 |
+| `plugin:config:beforeSave` | filter | 保存前校验 LLM 配置格式（模型可用性在调用时反馈） |
 | `plugin:<id>:action` | action | 处理 generate/polish/correct 操作 |
 
 ## 依赖

@@ -40,6 +40,17 @@ interface WriterPayload {
   body?: string;
   cid?: number | string;
   attachmentIds?: Array<number | string>;
+  writingOptions?: WriterWritingOptions;
+}
+
+interface WriterWritingOptions {
+  stylePostCount?: string | number;
+  outputLanguage?: string;
+  targetAudience?: string;
+  lengthPreset?: LengthPreset;
+  factPolicy?: FactPolicy;
+  userPrompt?: string;
+  includeBodyAssets?: string | boolean;
 }
 
 interface PluginActionResult {
@@ -94,14 +105,6 @@ type UserContentPart =
   | { type: 'text'; text: string }
   | { type: 'image_url'; image_url: { url: string } };
 
-interface ModelInfo {
-  id?: string;
-}
-
-interface ModelsResponse {
-  data?: ModelInfo[];
-}
-
 const PLUGIN_ID = 'typecho-plugin-scribe';
 
 const DEFAULTS: ScribeConfig = {
@@ -119,8 +122,9 @@ const DEFAULTS: ScribeConfig = {
   includeBodyAssets: '0',
 };
 
-const VALIDATION_TIMEOUT_MS = 3500;
-const LLM_REQUEST_TIMEOUT_MS = 60_000;
+// Keep the LLM request timeout below the generic plugin-action timeout so a
+// slow provider surfaces Scribe's specific error instead of a generic 500.
+const LLM_REQUEST_TIMEOUT_MS = 55_000;
 const SYSTEM_PROMPT = [
   '你是 Typecho-CF 的资深内容编辑助手。',
   '你的目标是帮助作者生成、润色或纠错可直接保存的正文，而不是回答关于写作过程的问题。',
@@ -164,6 +168,31 @@ function normalizeFactPolicy(value: unknown): FactPolicy {
   return normalizeEnum(value, FACT_POLICIES, 'conservative');
 }
 
+function normalizeOutputLanguage(value: unknown): string {
+  return normalizeEnum(String(value || DEFAULTS.outputLanguage), OUTPUT_LANGUAGES, DEFAULTS.outputLanguage);
+}
+
+function normalizeIncludeBodyAssets(value: unknown): string {
+  if (value === true || value === 1 || value === '1') return '1';
+  if (value === false || value === 0 || value === '0') return '0';
+  return String(value || DEFAULTS.includeBodyAssets).trim();
+}
+
+function applyWritingOptions(config: ScribeConfig, options?: WriterWritingOptions): ScribeConfig {
+  if (!options) return config;
+
+  return {
+    ...config,
+    ...(options.stylePostCount !== undefined ? { stylePostCount: String(options.stylePostCount).trim() } : {}),
+    ...(options.outputLanguage !== undefined ? { outputLanguage: normalizeOutputLanguage(options.outputLanguage) } : {}),
+    ...(options.targetAudience !== undefined ? { targetAudience: String(options.targetAudience).trim() } : {}),
+    ...(options.lengthPreset !== undefined ? { lengthPreset: normalizeLengthPreset(options.lengthPreset) } : {}),
+    ...(options.factPolicy !== undefined ? { factPolicy: normalizeFactPolicy(options.factPolicy) } : {}),
+    ...(options.userPrompt !== undefined ? { userPrompt: String(options.userPrompt).trim() } : {}),
+    ...(options.includeBodyAssets !== undefined ? { includeBodyAssets: normalizeIncludeBodyAssets(options.includeBodyAssets) } : {}),
+  };
+}
+
 function getConfig(options?: Record<string, unknown>): ScribeConfig {
   return normalizeConfig({
     ...DEFAULTS,
@@ -173,14 +202,6 @@ function getConfig(options?: Record<string, unknown>): ScribeConfig {
 
 function buildChatCompletionsUrl(endpoint: string): string {
   return `${endpoint.replace(/\/+$/, '')}/chat/completions`;
-}
-
-function buildModelsUrl(endpoint: string): string {
-  return `${endpoint.replace(/\/+$/, '')}/models`;
-}
-
-function buildModelUrl(endpoint: string, model: string): string {
-  return `${buildModelsUrl(endpoint)}/${encodeURIComponent(model)}`;
 }
 
 function normalizeText(text: string): string {
@@ -357,49 +378,6 @@ function validationHeaders(config: ScribeConfig): HeadersInit {
   };
 }
 
-async function assertModelsResponse(response: Response, config: ScribeConfig): Promise<void> {
-  if (!response.ok) {
-    const suffix = await readErrorSnippet(response);
-    if (response.status === 401 || response.status === 403) {
-      throw new Error(`API Key 无效或无权限${suffix}`);
-    }
-    if (response.status === 404) {
-      throw new Error(`模型不存在或接口地址不正确${suffix}`);
-    }
-    throw new Error(`LLM 配置校验失败 (${response.status})${suffix}`);
-  }
-
-  const data = await response.json().catch(() => null) as ModelsResponse | ModelInfo | null;
-  if (Array.isArray((data as ModelsResponse | null)?.data)) {
-    const exists = (data as ModelsResponse).data?.some(item => item.id === config.model);
-    if (!exists) {
-      throw new Error(`模型不存在：${config.model}`);
-    }
-  }
-}
-
-async function validateModelAccess(config: ScribeConfig): Promise<void> {
-  const modelResponse = await fetchWithTimeout(buildModelUrl(config.endpoint, config.model), {
-    method: 'GET',
-    headers: validationHeaders(config),
-  });
-
-  if (modelResponse.ok) {
-    return;
-  }
-
-  if (![404, 405].includes(modelResponse.status)) {
-    await assertModelsResponse(modelResponse, config);
-    return;
-  }
-
-  const listResponse = await fetchWithTimeout(buildModelsUrl(config.endpoint), {
-    method: 'GET',
-    headers: validationHeaders(config),
-  });
-  await assertModelsResponse(listResponse, config);
-}
-
 async function validateConfig(settings?: Record<string, unknown>): Promise<ScribeConfig> {
   const config = normalizeConfig(settings);
   if (!config.endpoint || !config.apiKey || !config.model) {
@@ -428,7 +406,7 @@ async function validateConfig(settings?: Record<string, unknown>): Promise<Scrib
 
   const stylePostCount = Number(config.stylePostCount);
   if (!Number.isInteger(stylePostCount) || stylePostCount < 0 || stylePostCount > 20) {
-    throw new Error('风格参考文章数必须是 0 到 20 之间的整数');
+    throw new Error('参考历史文章必须是 0 到 20 之间的整数');
   }
   if (!['0', '1'].includes(config.includeBodyAssets)) {
     throw new Error('发送正文图片和附件配置不正确');
@@ -437,8 +415,8 @@ async function validateConfig(settings?: Record<string, unknown>): Promise<Scrib
   assertValid(config.lengthPreset, LENGTH_PRESETS, '篇幅策略');
   assertValid(config.factPolicy, FACT_POLICIES, '事实策略');
 
-  await validateModelAccess(config);
-
+  // Model availability is checked when the writer action runs. Blocking admin
+  // saves on provider latency makes otherwise valid settings impossible to save.
   return config;
 }
 
@@ -787,7 +765,8 @@ const PAGE_EDITOR_HTML = editorHtml('page');
 function editorHtml(contentType: ContentType): string {
   return `
 <style>
-#wmd-scribe-button span {
+#wmd-scribe-button .typecho-scribe-toolbar-icon,
+.typecho-scribe-fallback-btn .typecho-scribe-toolbar-icon {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -804,14 +783,24 @@ function editorHtml(contentType: ContentType): string {
   opacity: .5;
   cursor: default;
 }
+#wmd-scribe-button .typecho-scribe-menu span {
+  display: unset;
+  width: unset;
+  height: unset;
+}
 
 .typecho-scribe-menu {
   display: none;
   position: absolute;
-  top: 24px;
+  top: 28px;
   left: 0;
-  gap: 4px;
-  padding: 4px;
+  width: 272px;
+  max-height: min(560px, calc(100vh - 160px));
+  overflow-y: auto;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 8px;
   background: #fff;
   border: 1px solid #d9d9d9;
   border-radius: 3px;
@@ -825,14 +814,7 @@ function editorHtml(contentType: ContentType): string {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 0;
-  border-radius: 2px;
-  background: transparent;
-  color: #555;
-  cursor: pointer;
+  gap: 4px;
 }
 .typecho-scribe-menu-button svg {
   flex-shrink: 0;
@@ -843,9 +825,89 @@ function editorHtml(contentType: ContentType): string {
   color: #222;
   outline: none;
 }
+.typecho-scribe-menu-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  border-top: 1px dashed #d9d9d9;
+  padding-top: 8px;
+}
 .typecho-scribe-menu-button[aria-disabled="true"] {
   opacity: .5;
   cursor: default;
+}
+
+.typecho-scribe-writing-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.typecho-scribe-setting {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.typecho-scribe-setting > label {
+  font-size: 12px;
+  color: #555;
+}
+.typecho-scribe-setting textarea,
+.typecho-scribe-setting input[type="text"],
+.typecho-scribe-setting select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #d9d9d9;
+  border-radius: 2px;
+  background: #fff;
+  color: #333;
+  font: 13px/1.5 inherit;
+}
+.typecho-scribe-setting textarea {
+  min-height: 64px;
+  padding: 5px 7px;
+  resize: vertical;
+}
+.typecho-scribe-setting input[type="text"] {
+  height: 28px;
+  padding: 4px 7px;
+}
+.typecho-scribe-setting select {
+  height: 28px;
+  padding: 2px 6px;
+}
+.typecho-scribe-setting textarea:focus,
+.typecho-scribe-setting input[type="text"]:focus,
+.typecho-scribe-setting select:focus {
+  border-color: #467b96;
+  outline: none;
+}
+.typecho-scribe-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #333;
+  cursor: pointer;
+}
+.typecho-scribe-advanced {
+  border-top: 1px dashed #d9d9d9;
+  padding-top: 8px;
+}
+.typecho-scribe-advanced summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: #666;
+  user-select: none;
+}
+.typecho-scribe-advanced[open] summary {
+  color: #222;
+}
+.typecho-scribe-advanced-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 8px;
 }
 
 .typecho-scribe-overlay {
@@ -958,15 +1020,92 @@ function editorHtml(contentType: ContentType): string {
     notice.scrollIntoView({ block: 'start', behavior: 'smooth' });
   }
 
-  var SCRIBE_ICON = '<span aria-hidden="true">AI</span>';
+  var SCRIBE_ICON = '<span class="typecho-scribe-toolbar-icon" aria-hidden="true">AI</span>';
   var MODE_ICONS = {
-    generate: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>',
-    polish: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
-    correct: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 10 2 2 4-4"/><rect width="20" height="20" x="2" y="2" rx="4" opacity=".25"/><path d="M20.5 2.5 15 20 9 17l-5.5 3L6 14Z"/></svg>'
+    generate: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>',
+    polish: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
+    correct: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 10 2 2 4-4"/><rect width="20" height="20" x="2" y="2" rx="4" opacity=".25"/><path d="M20.5 2.5 15 20 9 17l-5.5 3L6 14Z"/></svg>'
   };
   var scribeButtons = [];
   var MODE_LABELS = { generate: '生成', polish: '润色', correct: '纠错' };
-  var MODE_TITLES = { generate: 'AI 生成', polish: 'AI 润色', correct: 'AI 纠错' };
+  var WRITING_STORAGE_KEY = 'typecho-scribe-writing-settings';
+  var WRITING_DEFAULTS = {
+    userPrompt: '',
+    outputLanguage: 'auto',
+    stylePostCount: '5',
+    targetAudience: '',
+    lengthPreset: 'balanced',
+    factPolicy: 'conservative',
+    includeBodyAssets: false
+  };
+  var OUTPUT_LANGUAGE_OPTIONS = ['auto', 'zh-CN', 'zh-TW', 'en', 'ja', 'ko'];
+  var STYLE_POST_COUNT_OPTIONS = ['0', '5', '10'];
+  var LENGTH_PRESET_OPTIONS = ['concise', 'balanced', 'detailed'];
+  var FACT_POLICY_OPTIONS = ['conservative', 'assumptive'];
+
+  function validStoredValue(value, options, fallback) {
+    return options.indexOf(String(value)) >= 0 ? String(value) : fallback;
+  }
+
+  function loadWritingSettings() {
+    var defaults = Object.assign({}, WRITING_DEFAULTS);
+    try {
+      var parsed = JSON.parse(window.localStorage.getItem(WRITING_STORAGE_KEY) || '{}');
+      if (!parsed || typeof parsed !== 'object') return defaults;
+      return {
+        userPrompt: typeof parsed.userPrompt === 'string' ? parsed.userPrompt : defaults.userPrompt,
+        outputLanguage: validStoredValue(parsed.outputLanguage, OUTPUT_LANGUAGE_OPTIONS, defaults.outputLanguage),
+        stylePostCount: validStoredValue(parsed.stylePostCount, STYLE_POST_COUNT_OPTIONS, defaults.stylePostCount),
+        targetAudience: typeof parsed.targetAudience === 'string' ? parsed.targetAudience : defaults.targetAudience,
+        lengthPreset: validStoredValue(parsed.lengthPreset, LENGTH_PRESET_OPTIONS, defaults.lengthPreset),
+        factPolicy: validStoredValue(parsed.factPolicy, FACT_POLICY_OPTIONS, defaults.factPolicy),
+        includeBodyAssets: parsed.includeBodyAssets === true
+      };
+    } catch (error) {
+      return defaults;
+    }
+  }
+
+  function saveWritingSettings(settings) {
+    try {
+      window.localStorage.setItem(WRITING_STORAGE_KEY, JSON.stringify(settings));
+    } catch (error) {
+      // localStorage may be unavailable in hardened admin contexts.
+    }
+  }
+
+  function collectWritingSettings(container) {
+    var settings = loadWritingSettings();
+    if (!container) return settings;
+
+    function fieldValue(name, fallback) {
+      var field = container.querySelector('[data-scribe-setting="' + name + '"]');
+      return field ? field.value : fallback;
+    }
+
+    var checkbox = container.querySelector('[data-scribe-setting="includeBodyAssets"]');
+    return {
+      userPrompt: fieldValue('userPrompt', settings.userPrompt),
+      outputLanguage: validStoredValue(fieldValue('outputLanguage', settings.outputLanguage), OUTPUT_LANGUAGE_OPTIONS, settings.outputLanguage),
+      stylePostCount: validStoredValue(fieldValue('stylePostCount', settings.stylePostCount), STYLE_POST_COUNT_OPTIONS, settings.stylePostCount),
+      targetAudience: fieldValue('targetAudience', settings.targetAudience),
+      lengthPreset: validStoredValue(fieldValue('lengthPreset', settings.lengthPreset), LENGTH_PRESET_OPTIONS, settings.lengthPreset),
+      factPolicy: validStoredValue(fieldValue('factPolicy', settings.factPolicy), FACT_POLICY_OPTIONS, settings.factPolicy),
+      includeBodyAssets: checkbox ? checkbox.checked : settings.includeBodyAssets
+    };
+  }
+
+  function applyWritingSettings(root, settings) {
+    if (!root) return;
+    root.querySelectorAll('[data-scribe-setting]').forEach(function(field) {
+      var name = field.getAttribute('data-scribe-setting');
+      if (name === 'includeBodyAssets') {
+        field.checked = settings.includeBodyAssets === true;
+        return;
+      }
+      if (settings[name] !== undefined) field.value = settings[name];
+    });
+  }
 
   function modeLabel(mode) {
     return MODE_LABELS[mode] || MODE_LABELS.generate;
@@ -1221,6 +1360,7 @@ function editorHtml(contentType: ContentType): string {
     var csrf = document.querySelector('input[name="_"]');
     var cid = document.querySelector('input[name="cid"]');
     if (!box || !title || !text || !csrf) return;
+    var menu = button ? button.closest('.typecho-scribe-menu') : null;
 
     var oldText = text.value || '';
     var hasText = oldText.trim() !== '';
@@ -1254,7 +1394,8 @@ function editorHtml(contentType: ContentType): string {
             cid: cid ? cid.value : '',
             attachmentIds: Array.prototype.slice.call(document.querySelectorAll('input[name="attachment[]"]')).map(function(input) {
               return input.value || '';
-            })
+            }),
+            writingOptions: collectWritingSettings(menu || box)
           }
         })
       });
@@ -1297,8 +1438,8 @@ function editorHtml(contentType: ContentType): string {
   function createMenuButton(box, mode, title) {
     var button = document.createElement('button');
     button.type = 'button';
-    button.className = 'typecho-scribe-menu-button';
-    button.innerHTML = MODE_ICONS[mode] || '';
+    button.className = 'btn typecho-scribe-menu-button';
+    button.innerHTML = (MODE_ICONS[mode] || '') + '<span>' + title + '</span>';
     button.title = title;
     button.setAttribute('aria-label', title);
     button.setAttribute('role', 'menuitem');
@@ -1312,14 +1453,91 @@ function editorHtml(contentType: ContentType): string {
     return button;
   }
 
+  function createWritingSettings(box) {
+    var settings = document.createElement('div');
+    settings.className = 'typecho-scribe-writing-settings';
+    settings.innerHTML = [
+      '<div class="typecho-scribe-setting">',
+      '<label for="typecho-scribe-user-prompt">User Prompt</label>',
+      '<textarea id="typecho-scribe-user-prompt" data-scribe-setting="userPrompt" rows="3"></textarea>',
+      '</div>',
+      '<div class="typecho-scribe-setting">',
+      '<label for="typecho-scribe-output-language">输出语言</label>',
+      '<select id="typecho-scribe-output-language" data-scribe-setting="outputLanguage">',
+      '<option value="auto">自动判断</option>',
+      '<option value="zh-CN">简体中文</option>',
+      '<option value="zh-TW">繁体中文</option>',
+      '<option value="en">English</option>',
+      '<option value="ja">日本語</option>',
+      '<option value="ko">한국어</option>',
+      '</select>',
+      '</div>',
+      '<details class="typecho-scribe-advanced">',
+      '<summary>高级设置</summary>',
+      '<div class="typecho-scribe-advanced-fields">',
+      '<div class="typecho-scribe-setting">',
+      '<label for="typecho-scribe-style-post-count">参考历史文章</label>',
+      '<select id="typecho-scribe-style-post-count" data-scribe-setting="stylePostCount">',
+      '<option value="0">不参考</option>',
+      '<option value="5">5</option>',
+      '<option value="10">10</option>',
+      '</select>',
+      '</div>',
+      '<div class="typecho-scribe-setting">',
+      '<label for="typecho-scribe-target-audience">目标读者</label>',
+      '<input type="text" id="typecho-scribe-target-audience" data-scribe-setting="targetAudience">',
+      '</div>',
+      '<div class="typecho-scribe-setting">',
+      '<label for="typecho-scribe-length-preset">篇幅策略</label>',
+      '<select id="typecho-scribe-length-preset" data-scribe-setting="lengthPreset">',
+      '<option value="concise">偏短</option>',
+      '<option value="balanced">标准</option>',
+      '<option value="detailed">深入</option>',
+      '</select>',
+      '</div>',
+      '<div class="typecho-scribe-setting">',
+      '<label for="typecho-scribe-fact-policy">事实策略</label>',
+      '<select id="typecho-scribe-fact-policy" data-scribe-setting="factPolicy">',
+      '<option value="conservative">实事求是</option>',
+      '<option value="assumptive">头脑风暴</option>',
+      '</select>',
+      '</div>',
+      '<div class="typecho-scribe-setting">',
+      '<label class="typecho-scribe-checkbox">',
+      '<input type="checkbox" data-scribe-setting="includeBodyAssets">',
+      '<span>发送正文图片和附件</span>',
+      '</label>',
+      '</div>',
+      '</div>',
+      '</details>'
+    ].join('');
+
+    function persist(event) {
+      if (event.target && event.target.hasAttribute('data-scribe-setting')) {
+        saveWritingSettings(collectWritingSettings(settings));
+      }
+    }
+    settings.addEventListener('input', persist);
+    settings.addEventListener('change', persist);
+    applyWritingSettings(settings, loadWritingSettings());
+    return settings;
+  }
+
   function createScribeMenu(box) {
     var menu = document.createElement('div');
     menu.className = 'typecho-scribe-menu';
     menu.setAttribute('role', 'menu');
     menu.setAttribute('aria-hidden', 'true');
-    Object.keys(MODE_TITLES).forEach(function(mode) {
-      menu.appendChild(createMenuButton(box, mode, MODE_TITLES[mode]));
+    menu.addEventListener('click', function(event) {
+      event.stopPropagation();
     });
+    var actions = document.createElement('div');
+    actions.className = 'typecho-scribe-menu-actions';
+    Object.keys(MODE_LABELS).forEach(function(mode) {
+      actions.appendChild(createMenuButton(box, mode, MODE_LABELS[mode]));
+    });
+    menu.appendChild(createWritingSettings(box));
+    menu.appendChild(actions);
     return menu;
   }
 
@@ -1327,10 +1545,10 @@ function editorHtml(contentType: ContentType): string {
     var item = document.createElement('li');
     item.id = 'wmd-scribe-button';
     item.className = 'wmd-button typecho-scribe-toolbar-button typecho-scribe-menu-trigger';
-    item.title = 'AI 写作';
+    item.title = '写作';
     item.tabIndex = 0;
     item.setAttribute('role', 'button');
-    item.setAttribute('aria-label', 'AI 写作');
+    item.setAttribute('aria-label', '写作');
     item.setAttribute('aria-haspopup', 'menu');
     item.setAttribute('aria-expanded', 'false');
     item.innerHTML = SCRIBE_ICON;
@@ -1362,8 +1580,8 @@ function editorHtml(contentType: ContentType): string {
     button.type = 'button';
     button.className = 'btn btn-xs typecho-scribe-fallback-btn';
     button.innerHTML = SCRIBE_ICON;
-    button.title = 'AI 写作';
-    button.setAttribute('aria-label', 'AI 写作');
+    button.title = '写作';
+    button.setAttribute('aria-label', '写作');
     button.setAttribute('aria-haspopup', 'menu');
     button.setAttribute('aria-expanded', 'false');
     wrapper.appendChild(button);
@@ -1412,7 +1630,10 @@ function editorHtml(contentType: ContentType): string {
   } else {
     initScribe();
   }
-  document.addEventListener('click', closeScribeMenus);
+  document.addEventListener('click', function(event) {
+    if (event.target && event.target.closest && event.target.closest('.typecho-scribe-menu')) return;
+    closeScribeMenus();
+  });
 })();
 </script>`;
 }
@@ -1462,7 +1683,7 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
       if (!['generate', 'polish', 'correct'].includes(action)) return result;
 
       try {
-        const config = getConfig(extra?.options);
+        const config = applyWritingOptions(getConfig(extra?.options), extra?.payload?.writingOptions);
         const payload = extra?.payload || {};
         const siteUrl = typeof extra?.options?.siteUrl === 'string' ? extra.options.siteUrl : undefined;
         const [styleSamples, assets] = await Promise.all([
