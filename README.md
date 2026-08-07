@@ -1,8 +1,6 @@
 # Typecho-Workers
 
-[English](README.en.md)
-
-基于 [Typecho](https://typecho.org) 完整重写的现代博客系统，运行在 **Astro + Cloudflare Workers + D1** 之上。保留 Typecho 数据库表结构，支持从 PHP 版 Typecho 直接迁移数据。
+基于 [Typecho](https://typecho.org) 完整重写的现代博客系统，运行在 **Astro + Cloudflare Workers + D1** 之上。保留 Typecho 核心表结构，支持从 PHP 版 Typecho 直接迁移数据。
 
 [![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Tokinx/typecho-workers)
 
@@ -14,7 +12,7 @@
 
 **管理后台**：文章 & 页面编辑管理、评论审核、媒体管理（R2 拖放上传）、用户管理（5 种角色）、主题切换、插件管理（启用/禁用/配置）、全站设置、安装向导
 
-**系统**：主题系统（npm 包分发）、插件系统（Hook 机制，50+ 挂载点）、PHP 版 Typecho 数据迁移工具、PBKDF2-SHA256 认证、CSRF 防护、安全响应头、R2 上传类型校验
+**系统**：主题系统（npm 包分发）、插件系统（Hook 机制，68 个挂载点）、可选 Edge Cache 插件（Cache API + KV + D1 三级缓存）、PHP 版 Typecho 数据迁移工具、PBKDF2-SHA256 认证、CSRF 防护、安全响应头、R2 上传类型校验
 
 ---
 
@@ -209,7 +207,7 @@ bun run db:migrate:typecho -- \
 
 ### 迁移后重置密码
 
-密码哈希算法不兼容（PHP phpass → PBKDF2-SHA256，600,000 次迭代 + 16B salt），迁移后需重置密码：
+密码哈希算法不兼容（PHP phpass → PBKDF2-SHA256，默认 600,000 次迭代、可按部署配置 + 16B salt），迁移后需重置密码：
 
 ```bash
 # 本地
@@ -307,7 +305,7 @@ bun run db:migrate:wordpress -- \
 
 | 方面 | 状态 |
 |------|------|
-| 数据库结构 | ✅ 7 张核心表兼容；运行时会幂等补齐登录限速和密码重置辅助表 |
+| 数据库结构 | ✅ 7 张核心表兼容；运行时会幂等补齐登录限速、密码重置和 Edge Cache L3 缓存表（typecho_db_cache） |
 | 默认主题样式 | ✅ CSS & HTML 结构保持一致 |
 | URL 结构 | ✅ 路由规则与 Typecho 默认配置一致 |
 | 密码哈希 | ⚠️ 迁移后需重置密码（算法不同） |

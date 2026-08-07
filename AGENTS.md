@@ -27,7 +27,7 @@
 | 数据库 | Cloudflare D1 (SQLite) | — |
 | ORM | Drizzle ORM | 0.45.x |
 | 文件存储 | Cloudflare R2 | — |
-| 密码哈希 | PBKDF2-SHA256 | 600,000 迭代 + 16B salt（旧 100k hash 自动重哈希） |
+| 密码哈希 | PBKDF2-SHA256 | 默认 600,000 迭代（可配置 50,000–600,000）+ 16B salt；可选 Pepper |
 | 测试 | Vitest | 4.x |
 | 语言 | TypeScript | 7.x |
 
@@ -39,11 +39,11 @@
 
 ```
 请求 → src/middleware.ts
+        ├─ early-request 外层（Edge Cache / 共享数据缓存，仅公开 GET，跳过 admin/api/静态路径；未审核评论 Cookie 只读）
         ├─ 安装检测（typecho_options 表不存在 → /install）
+        ├─ 加载 options + 激活插件 + syncEarlyRequestProviders
         ├─ 分页 URL 重写（/page/N/ → 基础路径 + locals._page）
-        ├─ 加载 options + 激活插件
         ├─ route:request filter（插件自定义路由）
-        ├─ 边缘缓存（Cache API，跳过已登录/admin/api 路径）
         └─ 固定链接重写（post/page/category pattern → 内置路由）
      → src/lib/context.ts
         ├─ 初始化 DB 连接
@@ -59,24 +59,27 @@
 ### 3.2 模块依赖图
 
 ```
-src/middleware.ts       — 请求入口，安装检测，缓存，URL 重写
+src/middleware.ts       — 请求入口，安装检测，early-request 外层，URL 重写
+  ├─ src/lib/early-request.ts — early-request provider 注册表 + L0 共享快照/失效
+  ├─ src/lib/query-cache.ts   — 查询读模型缓存（L0 → provider → fallback）
+  ├─ src/lib/isolate-boot.ts  — per-isolate 建表/索引启动检查
   ├─ src/lib/plugin.ts  — 插件注册表 + Hook 事件总线（核心）
   ├─ src/lib/options.ts — 站点配置 CRUD + computeUrls
-  ├─ src/lib/cache.ts   — 选项查询缓存（module-scope Map）
+  ├─ src/lib/cache.ts   — 缓存域定义 + PUBLIC_HTML_HEADER + 失效通知
   └─ src/db/index.ts    — Drizzle DB 实例工厂
 
 src/lib/context.ts      — 请求上下文（DB / options / user / CSRF）
+  ├─ src/lib/options.ts — loadOptions / computeUrls
   ├─ src/lib/auth.ts    — PBKDF2 密码哈希 + Session Token + CSRF
-  ├─ src/lib/plugin.ts  — setActivatedPlugins / doHook
-  └─ src/lib/cache.ts
+  └─ src/lib/plugin.ts  — setActivatedPlugins / doHook
 
-src/lib/plugin.ts       — 插件系统核心（~670 行）
+src/lib/plugin.ts       — 插件系统核心（826 行）
   ├─ 插件注册表（Map<id, PluginInfo>）
   ├─ Hook 注册表（Map<HookPoint, HookRegistration[]>）
   ├─ doHook() — call 钩子（副作用，无返回值）
   ├─ applyFilter() — filter 钩子（链式变换，抛异常中断）
   ├─ applyFilterSafely() — filter 钩子（吞异常，展示用）
-  └─ HookPoints 常量 — 50+ 挂载点定义
+  └─ HookPoints 常量 — 68 个挂载点定义
 
 src/lib/theme.ts        — 主题系统
 src/integrations/theme-loader.ts   — 构建时发现主题包 → 虚拟模块
@@ -90,7 +93,7 @@ src/lib/constants.ts   — 跨模块常量（密码最小长度、slug 后缀上
 
 ## 4. 数据库
 
-### 4.1 表结构（9 张表；7 张核心表与 PHP Typecho 兼容）
+### 4.1 表结构（10 张表；7 张核心表与 PHP Typecho 兼容）
 
 | 表名 | 用途 | 主键 |
 |------|------|------|
@@ -103,6 +106,7 @@ src/lib/constants.ts   — 跨模块常量（密码最小长度、slug 后缀上
 | `typecho_fields` | 扩展字段 | (cid, name) |
 | `typecho_login_failures` | 登录限速（D1 持久化） | ip |
 | `typecho_password_reset_requests` | 密码重置请求（限速 + 一次性令牌哈希） | email |
+| `typecho_db_cache` | Edge Cache L3 数据缓存（D1-backed KV） | cacheKey |
 
 **不可变约束**：
 - 表名必须保持 `typecho_*` 前缀，**不可重命名**
@@ -144,6 +148,7 @@ src/lib/constants.ts   — 跨模块常量（密码最小长度、slug 后缀上
 |---------|------|------|
 | `DB` | D1 | 数据库 `typecho-db` |
 | `BUCKET` | R2 | 文件存储 `typecho-uploads` |
+| `TYPECHO_CACHE` | KV | 可选；启用 Edge Cache 插件时的 L2 缓存 |
 
 ### 5.1 环境变量访问
 
@@ -235,6 +240,7 @@ src/pages/admin/plugin/[slug].astro  — 通用插件页面容器
 WebDAV 插件的文件管理器是完整参考实现：`admin:page` 返回包含 CRUD UI 的 HTML + 内联 JS，`admin:footer` 注入导航菜单项。
 
 **关键规则**：
+- `admin:page` 是 `[slug].astro` 使用的 filter 风格注入点，但不属于 `HookPoints` 常量，因此不计入 6.6 的 68 个 Hook 点
 - `[slug].astro` 使用 `applyFilterSafely`（不是 `applyFilter`），单个插件异常不会导致整页 500
 - 插件通过 `admin:footer` hook 向导航栏注入菜单入口（JSON 注入 + JS DOM 操作）
 - 插件返回的 HTML 中所有用户数据必须转义（参考 WebDAV 中的 `E()` 辅助函数）
@@ -243,16 +249,16 @@ WebDAV 插件的文件管理器是完整参考实现：`admin:page` 返回包含
 
 - npm 包的 `package.json` 的 `keywords` 必须同时包含 `"typecho"` 和 `"plugin"`
 - 由 `src/integrations/plugin-loader.ts` 在构建时发现并注入
-- 本地插件放在 `src/plugins/<name>/`，需在根 `package.json` 添加 file 依赖
+- 本地插件放在 `src/plugins/<name>/`，根 `package.json` 的 `workspaces` 已包含 `src/plugins/*`，依赖使用 `workspace:*`
 - 入口优先发现 `index.ts`，其次 `index.js` / `index.mjs` / `plugin.ts` / `plugin.js`
 
-### 6.6 完整 Hook 点（50+）
+### 6.6 完整 Hook 点（68）
 
 **call 类型**：
 `system:begin`, `system:end`, `admin:header`, `admin:footer`, `admin:navBar`, `admin:begin`, `admin:end`, `admin:writePost:option`, `admin:writePost:advanceOption`, `admin:writePost:bottom`, `admin:writePage:option`, `admin:writePage:advanceOption`, `admin:writePage:bottom`, `admin:profile:bottom`, `post:finishPublish`, `post:finishSave`, `post:delete`, `post:finishDelete`, `page:finishPublish`, `page:finishSave`, `page:delete`, `page:finishDelete`, `feedback:finishComment`, `feedback:reply`, `comment:action`, `user:login`, `user:loginSucceed`, `user:loginFail`, `user:logout`, `user:finishRegister`, `upload:beforeUpload`, `upload:upload`, `upload:delete`
 
 **filter 类型**：
-`route:request`, `admin:page`, `admin:loginHead`, `admin:loginForm`, `archive:select`, `archive:header`, `archive:footer`, `archive:indexHandle`, `archive:singleHandle`, `archive:categoryHandle`, `archive:tagHandle`, `archive:searchHandle`, `archive:handleInit`, `archive:beforeRender`, `archive:afterRender`, `content:filter`, `content:title`, `content:excerpt`, `content:markdown`, `content:content`, `comment:filter`, `comment:content`, `comment:markdown`, `post:write`, `page:write`, `feedback:comment`, `feed:item`, `feed:generate`, `widget:sidebar`, `user:register`, `plugin:config:beforeSave`, `csp:directives`
+`route:request`, `admin:loginHead`, `admin:loginForm`, `admin:managePosts:titleActions`, `archive:select`, `archive:header`, `archive:footer`, `archive:indexHandle`, `archive:singleHandle`, `archive:categoryHandle`, `archive:tagHandle`, `archive:searchHandle`, `archive:handleInit`, `archive:beforeRender`, `archive:afterRender`, `content:filter`, `content:title`, `content:excerpt`, `content:markdown`, `content:content`, `comment:filter`, `comment:content`, `comment:markdown`, `comment:allowContent`, `comment:avatarMap`, `post:write`, `page:write`, `feedback:comment`, `feed:item`, `feed:generate`, `widget:sidebar`, `user:register`, `plugin:config:beforeSave`, `csp:directives`, `mail:send`
 
 ### 6.7 新增 Hook 点步骤
 
@@ -296,11 +302,12 @@ WebDAV 插件的文件管理器是完整参考实现：`admin:page` 返回包含
 ### 8.1 密码哈希
 
 - 算法：PBKDF2-SHA256
-- 迭代次数：600,000（G1，2024 年 OWASP 建议）
+- 默认迭代次数：600,000（G1，2024 年 OWASP 建议）；`PBKDF2_ITERATIONS` 可显式配置并 clamp 到 [50,000, 600,000]
 - Salt 长度：16 字节
 - 存储格式：`$PBKDF2$iterations$salt$hash`
+- 配置 `PASSWORD_PEPPER` 时先用 HMAC-SHA256 预哈希密码，存储格式为 `$PBKDF2P$iterations$salt$hash`
 - 位于 `src/lib/auth.ts`
-- `passwordHashNeedsRehash(hash)` 检测旧 100k hash；`/api/users/login` 命中时机会式重哈希为 600k
+- `passwordHashNeedsRehash(hash)` 检测低于当前迭代数的旧 hash（如旧 100k）；启用 Pepper 后，无 Pepper 的 `$PBKDF2$` 也会标记重哈希；登录命中时机会式重哈希为当前配置
 
 ### 8.2 Session Token
 
@@ -308,7 +315,7 @@ WebDAV 插件的文件管理器是完整参考实现：`admin:page` 返回包含
 - 存储于 Cookie：`__typecho_uid` 和 `__typecho_authCode`
 - 每次请求由 `src/lib/context.ts` 的 `createContext()` 验证
 - Cookie 的 `Secure` 标志由 `shouldUseSecureCookie(request)` 决定（HTTPS / `x-forwarded-proto: https` 时设为 true）
-- 边缘缓存只对没有任一认证 Cookie 的请求生效（`hasAuthCookies` 闸门，避免登录态被缓存命中）
+- 前台 HTML 与登录态解耦，`__typecho_uid` / `__typecho_authCode` 可命中并写入公共页面缓存；带 `__typecho_unapproved_comment` Cookie 的请求只读，带 `Authorization` 或 `Cache-Control: no-cache/no-store` 的请求绕过缓存
 
 ### 8.3 CSRF 保护
 
@@ -353,7 +360,7 @@ WebDAV 插件的文件管理器是完整参考实现：`admin:page` 返回包含
 
 - `src/pages/api/install.ts` 的 install POST 在没有 `INSTALL_TOKEN` 密钥时输出 warning 并保留旧的「首位请求者获胜」语义（兼容现存部署）
 - 强烈建议运行 `wrangler secret put INSTALL_TOKEN` 之后再发起首次安装，避免抢注
-- 安装表单使用 `<input name="installToken">` 提交，服务端用 `timingSafeEqualString` 校验
+- 安装表单使用 `<input name="installToken">` 提交，服务端用 `timeSafeEqual` 校验
 
 
 
@@ -373,7 +380,7 @@ WebDAV 插件的文件管理器是完整参考实现：`admin:page` 返回包含
 - 副作用类管理操作禁止响应 GET（`delete-spam` 等），统一走 POST + CSRF
 - 公共归档（首页/分类/标签/作者/搜索）必须过滤 `created > now()` 的将来贴（G7-5）
 - 评论 / 注册 / 登录 等公共 POST 必须做 Origin 同源校验（参考 `isSameOriginRequest`）
-- 搜索 LIKE 必须套 `[2,50]` 字符护栏：长度不在范围内时短路 `1=0`（G4-5）
+- 搜索关键字先 trim，再截断完整 `%keyword%` LIKE pattern 到 50 UTF-8 bytes；截断后不足 2 字符时短路 `1=0`（G4-5）
 - Feed 路由的条数受 `options.feedItems` 控制并 clamp 到 `[5,50]`（G7-7）；description 始终走 excerpt，content:encoded 仅在 `feedFullText` 开启时才输出（G7-6）
 
 ### 9.2 管理后台页面
@@ -385,9 +392,10 @@ WebDAV 插件的文件管理器是完整参考实现：`admin:page` 返回包含
 
 Cloudflare Workers 是单线程单 isolate，以下模块级变量是安全的：
 - `src/lib/plugin.ts`：`pluginRegistry`、`hookRegistry`（构建时写入，运行时只读；`pendingPluginInits` 用于懒初始化）
-- `src/lib/cache.ts`：options 查询缓存
+- `src/lib/early-request.ts`：`providerLoaders`、`pendingProviders`、`sharedSnapshots`、`pendingSharedLoads`、`sharedSnapshotGenerations`、`sharedScopeIds` / `nextSharedScopeId`
+- `src/lib/cache.ts`：`cachedVersion`、`cachedVersionAt`（cacheVersion 短 TTL 内存 memo）
+- `src/lib/isolate-boot.ts`：`databaseReadyPassed`、`tableCheckPassed`、`passwordResetSchemaPassed`、`indexEnsurePassed` 及对应 pending promise
 - `src/lib/login-rate-limit.ts`：登录限流（D1 持久化） + 上传限流（`trackSlidingWindow`，内存级滑动窗口）
-- `src/middleware.ts`：`regexCache`、`tableCheckPassed`、`indexCheckPassed`
 
 ### 9.4 插件配置表单类型
 
@@ -462,7 +470,7 @@ src/
 ├── middleware.ts                    # 请求入口
 ├── db/
 │   ├── index.ts                     # Drizzle DB 工厂
-│   └── schema.ts                    # 9 张表定义
+│   └── schema.ts                    # 10 张表定义
 ├── lib/
 │   ├── plugin.ts                    # 插件系统核心（Hook 总线）
 │   ├── theme.ts                     # 主题系统
@@ -470,10 +478,13 @@ src/
 │   ├── client-ip.ts                 # 统一客户端 IP 提取
 │   ├── content-visibility.ts        # 公共内容可见性规则
 │   ├── permalink-pattern.ts         # 固定链接渲染/匹配统一语法
+│   ├── isolate-boot.ts              # per-isolate 建表/索引启动检查
 │   ├── auth.ts                      # 密码哈希 + Session + CSRF
 │   ├── admin-auth.ts                # 管理后台认证中间件 + 安全重定向
 │   ├── options.ts                   # 站点配置 CRUD
-│   ├── cache.ts                     # 选项缓存 + 边缘缓存清除
+│   ├── early-request.ts             # early-request provider 注册表 + L0 共享快照
+│   ├── query-cache.ts               # 查询读模型缓存
+│   ├── cache.ts                     # 缓存域定义 + PUBLIC_HTML_HEADER + 失效通知
 │   ├── schema-sql.ts                # 建表 SQL 反射生成
 │   ├── sidebar.ts                   # 侧边栏/导航数据加载
 │   ├── theme-props.ts               # 主题 Props 类型定义
@@ -496,8 +507,10 @@ src/
 ├── plugins/                         # 内置插件（工作区包）
 │   ├── README.md                    # 插件开发完整规范
 │   ├── typecho-plugin-antispam/     # 反垃圾评论（参考基础插件）
+│   ├── typecho-plugin-cache/        # Edge Cache：L1/L2/L3 + 数据缓存 + CDN 改写
 │   ├── typecho-plugin-webdav/       # WebDAV 协议 + 文件管理器（参考高级插件）
-│   ├── typecho-plugin-mailer/         # 邮件通知（多渠道 HTTP API + 测试发送）
+│   ├── typecho-plugin-mailer/       # 邮件通知（多渠道 HTTP API + 测试发送）
+│   ├── typecho-plugin-notes/        # 笔记内容类型与时间线
 │   ├── typecho-plugin-turnstile/    # Cloudflare Turnstile 人机验证
 │   ├── typecho-plugin-scribe/       # AI 写作辅助
 │   └── typecho-plugin-wechat-publisher/ # 微信公众号发布
@@ -507,9 +520,13 @@ tests/
 ├── setup.ts                         # 全局测试 setup
 ├── helpers.ts                       # 测试工具函数 (createTestDb, seedAdmin, makeAuthCookie)
 ├── __mocks__/cloudflare-workers.ts  # cloudflare:workers stub + caches mock
-├── unit/                            # 单元测试 (33 个文件)
-└── integration/                     # 集成测试 (29 个文件)
+├── unit/                            # 单元测试 (60 个文件)
+└── integration/                     # 集成测试 (37 个文件)
 scripts/
+├── generate-wrangler-config.ts      # build:cloudflare 前生成被忽略的 wrangler.toml
 ├── migrate.ts                       # PHP Typecho 数据迁移
+├── migrate-wordpress.ts             # WordPress WXR 数据迁移
 └── reset-password.ts                # 密码重置工具
 ```
+
+另：`src/lib` 与 `src/plugins` 下共有 10 个测试文件，全部测试文件数为 107。

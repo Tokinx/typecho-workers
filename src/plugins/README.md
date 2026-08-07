@@ -2,8 +2,6 @@
 
 > 本文档是 Typecho-Workers 插件开发的完整参考。以 `typecho-plugin-antispam/` 目录为示例。
 
-[English](README.en.md)
-
 ---
 
 ## 目录结构
@@ -161,7 +159,9 @@ addHook('feedback:comment', pluginId, async (commentData: { _rejected?: string }
 
 ---
 
-## 完整 Hook 参考
+## 常用 Hook 参考
+
+> 完整 Hook 点清单以 [AGENTS.md](../../AGENTS.md) 的 6.6 为准。
 
 ### call 类型（副作用，无需返回值）
 
@@ -314,7 +314,7 @@ import { schema } from 'typecho/db';
 ### 本地开发（工作区包）
 
 1. 将插件目录放在 `src/plugins/` 下
-2. 在根 `package.json` 的 `dependencies` 中添加 `"<packageName>": "file:src/plugins/<packageName>"`
+2. 在根 `package.json` 的 `dependencies` 中添加 `"<packageName>": "workspace:*"`（根 `workspaces` 已包含 `src/plugins/*`）
 3. 运行 `bun install`
 4. 重新执行 `bun run build`
 

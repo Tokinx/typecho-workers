@@ -2,8 +2,6 @@
 
 > 本文档是 Typecho-Workers 主题开发的完整参考。以 `typecho-theme-warm/` 目录为默认主题示例。
 
-[English](README.en.md)
-
 ---
 
 ## 目录结构
