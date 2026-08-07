@@ -15,7 +15,7 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "dev": "astro dev --force",
+    "dev": "astro dev stop 2>/dev/null || true; rm -rf node_modules/.vite; astro dev",
     "build": "astro build",
     "generate:cloudflare-config": "bun run scripts/generate-wrangler-config.ts",
     "build:cloudflare": "bun run generate:cloudflare-config && astro build",

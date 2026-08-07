@@ -34,5 +34,11 @@ export default defineConfig({
     resolve: {
       alias: sharedAliases,
     },
+    optimizeDeps: {
+      // 预包含懒发现的依赖，避免首次启动时触发第二次优化 pass。
+      // 第二次 pass 会全量重发依赖文件，而 workerd runner 仍引用首次 pass
+      // 的旧 URL，导致 "The file does not exist at .../deps_ssr/xxx.js" 崩溃。
+      include: ['astro/assets/services/noop'],
+    },
   },
 });
