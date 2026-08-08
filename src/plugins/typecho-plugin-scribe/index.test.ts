@@ -51,13 +51,75 @@ describe('typecho-plugin-scribe', () => {
     expect(postHtml).toContain('data-scribe-setting="lengthPreset"');
     expect(postHtml).toContain('data-scribe-setting="factPolicy"');
     expect(postHtml).toContain('data-scribe-setting="includeBodyAssets"');
+    // 高级设置两列 grid 布局，checkbox 项跨两列
+    expect(postHtml).toContain('grid-template-columns: 1fr 1fr');
+    expect(postHtml).toContain('.typecho-scribe-advanced-fields .typecho-scribe-setting-wide');
+    expect(postHtml).toContain('typecho-scribe-setting typecho-scribe-setting-wide');
     expect(postHtml).toContain("menu.addEventListener('click', function(event) {");
+    expect(postHtml).toContain(
+      "      if (event.target && event.target.closest && event.target.closest('.typecho-scribe-menu')) return;",
+    );
     expect(postHtml).toContain('参考历史文章');
     expect(postHtml).toContain('<option value="0">不参考</option>');
     expect(postHtml).toContain('<option value="5">5</option>');
     expect(postHtml).toContain('<option value="10">10</option>');
     expect(postHtml).not.toContain('<option value="1">1</option>');
     expect(pageHtml).toContain('data-content-type="page"');
+  });
+
+  it('injects a preview modal with streaming output, follow-up input, and confirm/cancel actions', () => {
+    const hooks = collectHooks();
+    const postHtml = hooks.get('admin:writePost:bottom')![0]('');
+
+    expect(postHtml).toContain('typecho-scribe-modal');
+    expect(postHtml).toContain('typecho-scribe-modal-preview');
+    expect(postHtml).toContain('typecho-scribe-modal-followup-input');
+    expect(postHtml).toContain('输入调整要求，发送后 AI 将结合原文与当前结果继续调整');
+    expect(postHtml).toContain('Enter 发送 · Shift+Enter 换行');
+    expect(postHtml).toContain("event.key === 'Enter' && !event.shiftKey");
+    expect(postHtml).toContain('>取消</button>');
+    expect(postHtml).toContain('>确定</button>');
+    expect(postHtml).toContain('typecho-scribe-modal-status');
+    expect(postHtml).toContain('closePreviewModal(true)');
+    expect(postHtml).toContain('action: previewState.followUpPrompt ? \'continue\' : previewState.mode');
+    expect(postHtml).toContain('payload.originalBody = previewState.oldText;');
+    expect(postHtml).toContain('payload.followUpPrompt = previewState.followUpPrompt;');
+  });
+
+  it('injects write/preview/compare tabs and an editable write textarea into the modal', () => {
+    const hooks = collectHooks();
+    const postHtml = hooks.get('admin:writePost:bottom')![0]('');
+
+    expect(postHtml).toContain('data-scribe-tab="write"');
+    expect(postHtml).toContain('data-scribe-tab="preview"');
+    expect(postHtml).toContain('data-scribe-tab="compare"');
+    expect(postHtml).toContain('typecho-scribe-modal-write');
+    expect(postHtml).toContain('typecho-scribe-modal-compare-original');
+    expect(postHtml).toContain('typecho-scribe-modal-compare-generated');
+    expect(postHtml).toContain('typecho-scribe-modal-compare-label');
+    // 预览与比对容器复用 #wmd-preview 排版（wmd-preview class）
+    expect(postHtml).toContain('typecho-scribe-modal-preview wmd-preview');
+    expect(postHtml).toContain('typecho-scribe-modal-compare-content wmd-preview');
+    expect(postHtml).toContain('setModalTab(button.getAttribute(\'data-scribe-tab\') || \'write\')');
+    expect(postHtml).toContain('previewState.userEdited = true;');
+    expect(postHtml).toContain('renderModalViews();');
+    expect(postHtml).toContain('window.HyperDown && window.DOMPurify');
+    expect(postHtml).toContain('converter.enableHtml(true);');
+    expect(postHtml).toContain('window.DOMPurify.sanitize(converter.makeHtml(source)');
+    // 模板字符串内的正则必须用双反斜杠，避免 \n 被解释为真实换行导致语法错误
+    expect(postHtml).toContain("escapeHtmlText(source).replace(/\\n/g, '<br>')");
+  });
+
+  it('emits browser-executable inline scripts (no template-literal escape regressions)', () => {
+    const hooks = collectHooks();
+    const postHtml = hooks.get('admin:writePost:bottom')![0]('');
+
+    // 将内联脚本交给运行时解析，捕获 \n 被模板字符串解释为换行之类的语法错误。
+    const scripts = [...postHtml.matchAll(/<script is:inline>([\s\S]*?)<\/script>/g)].map(m => m[1]);
+    expect(scripts.length).toBeGreaterThan(0);
+    for (const source of scripts) {
+      expect(() => new Function(source)).not.toThrow();
+    }
   });
 
   it('keeps the connection-only plugin config and reads editor settings from the mounted menu', () => {
@@ -72,8 +134,7 @@ describe('typecho-plugin-scribe', () => {
       'model',
       'temperature',
     ]);
-    expect(postHtml).toContain("var menu = button ? button.closest('.typecho-scribe-menu') : null;");
-    expect(postHtml).toContain('writingOptions: collectWritingSettings(menu || box)');
+    expect(postHtml).toContain("writingOptions: collectWritingSettings(previewState.box.querySelector('.typecho-scribe-menu') || previewState.box)");
     expect(postHtml).toContain('saveWritingSettings(collectWritingSettings(settings))');
   });
 
@@ -127,6 +188,36 @@ describe('typecho-plugin-scribe', () => {
     });
   });
 
+  it('accepts max tokens up to 512K and rejects values beyond the cap', async () => {
+    const hooks = collectHooks();
+    const validate = hooks.get('plugin:config:beforeSave')![0];
+
+    const ok = await validate({ success: true, settings: {} }, {
+      pluginId: 'typecho-plugin-scribe',
+      settings: {
+        endpoint: 'https://llm.example/v1',
+        apiKey: 'test-key',
+        model: 'demo-model',
+        maxTokens: '512000',
+      },
+    });
+    expect(ok).toMatchObject({ success: true, settings: { maxTokens: '512000' } });
+
+    const rejected = await validate({ success: true, settings: {} }, {
+      pluginId: 'typecho-plugin-scribe',
+      settings: {
+        endpoint: 'https://llm.example/v1',
+        apiKey: 'test-key',
+        model: 'demo-model',
+        maxTokens: '512001',
+      },
+    });
+    expect(rejected).toMatchObject({
+      success: false,
+      error: 'max tokens 必须是 128 到 512000 之间的整数',
+    });
+  });
+
   it('saves connection settings without blocking on live model validation', async () => {
     const hooks = collectHooks();
     const validate = hooks.get('plugin:config:beforeSave')![0];
@@ -159,6 +250,94 @@ describe('typecho-plugin-scribe', () => {
     const original = { handled: false };
 
     await expect(action(original, { action: 'unknown', payload: {} })).resolves.toBe(original);
+  });
+
+  it('grants contributor access to generate, polish, correct, and continue actions', () => {
+    const hooks = collectHooks();
+    const auth = hooks.get('plugin:typecho-plugin-scribe:action:auth')![0];
+
+    expect(auth('administrator', { action: 'generate' })).toBe('contributor');
+    expect(auth('administrator', { action: 'polish' })).toBe('contributor');
+    expect(auth('administrator', { action: 'correct' })).toBe('contributor');
+    expect(auth('administrator', { action: 'continue' })).toBe('contributor');
+    expect(auth('administrator', { action: 'unknown' })).toBe('administrator');
+  });
+
+  it('rejects continue actions without a follow-up prompt', async () => {
+    const hooks = collectHooks();
+    const action = hooks.get('plugin:typecho-plugin-scribe:action')![0];
+
+    const result = await action({ handled: false }, {
+      action: 'continue',
+      payload: {
+        contentType: 'post',
+        title: 'LLM 写作实践',
+        body: '当前结果',
+        originalBody: '原文',
+      },
+      options: {
+        'plugin:typecho-plugin-scribe': JSON.stringify({
+          endpoint: 'https://llm.example/v1',
+          apiKey: 'test-key',
+          model: 'demo-model',
+        }),
+      },
+    });
+
+    expect(result).toMatchObject({
+      handled: true,
+      success: false,
+      error: '缺少调整要求',
+    });
+  });
+
+  it('submits the original text, current result, and follow-up prompt together for continue actions', async () => {
+    const hooks = collectHooks();
+    const action = hooks.get('plugin:typecho-plugin-scribe:action')![0];
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(
+      'data: {"choices":[{"delta":{"content":"调整后正文"}}]}\n\ndata: [DONE]\n\n',
+      {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await action({ handled: false }, {
+      action: 'continue',
+      payload: {
+        contentType: 'post',
+        title: 'LLM 写作实践',
+        body: 'AI 生成的当前结果',
+        originalBody: '编辑器的原始正文',
+        followUpPrompt: '请压缩到三段以内',
+      },
+      options: {
+        siteUrl: 'https://blog.example',
+        'plugin:typecho-plugin-scribe': JSON.stringify({
+          endpoint: 'https://llm.example/v1',
+          apiKey: 'test-key',
+          model: 'demo-model',
+        }),
+      },
+    });
+
+    expect(result.handled).toBe(true);
+    expect(result.success).toBe(true);
+    expect(result.response).toBeInstanceOf(Response);
+    expect(fetchMock).toHaveBeenCalledWith('https://llm.example/v1/chat/completions', expect.any(Object));
+
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const body = JSON.parse(String(request.body));
+    expect(body.stream).toBe(true);
+    const userContent = String(body.messages[1].content);
+    expect(userContent).toContain('<original_draft>');
+    expect(userContent).toContain('编辑器的原始正文');
+    expect(userContent).toContain('<current_result>');
+    expect(userContent).toContain('AI 生成的当前结果');
+    expect(userContent).toContain('<user_adjustment>');
+    expect(userContent).toContain('请压缩到三段以内');
+    expect(userContent).toContain('调整后的完整');
   });
 
   it('handles generation action with a clear configuration error', async () => {

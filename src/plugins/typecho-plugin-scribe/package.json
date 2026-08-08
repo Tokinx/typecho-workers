@@ -44,7 +44,8 @@
         "maxTokens": {
           "type": "text",
           "label": "最大输出 Token",
-          "default": "32000"
+          "default": "32000",
+          "description": "上限 512000，受服务商模型支持上限约束"
         }
       }
     }

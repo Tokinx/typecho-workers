@@ -19,7 +19,7 @@ Typecho-CF AI 写作助手插件，接入 OpenAI 兼容 LLM，在编辑器中生
 | `apiKey` | password | — | LLM 服务商 API Key |
 | `model` | text | `glm-4.7-flash` | 模型名称 |
 | `temperature` | text | `0.7` | 生成创造性控制 |
-| `maxTokens` | text | `32000` | 单次最大输出 Token 数 |
+| `maxTokens` | text | `32000` | 单次最大输出 Token 数（上限 512K / 512000） |
 
 ## 编辑器写作设置
 
@@ -48,11 +48,21 @@ Typecho-CF AI 写作助手插件，接入 OpenAI 兼容 LLM，在编辑器中生
   → 发送时收集标题、正文、附件 ID
 
 用户点击操作
+  → 弹出独立预览窗口（编辑器正文不受影响）
   → plugin:<id>:action hook 触发（generate/polish/correct）
   → 读取编辑器写作设置与风格样本（最近 N 篇已发布文章）
   → 构建 system prompt（含写作设置、风格样本、附件资料等）
-  → 调用 LLM（stream 模式），逐步返回生成内容
-  → 将结果写入编辑器
+  → 调用 LLM（stream 模式），AI 结果流式实时显示在预览窗口
+
+继续调整
+  → 在预览窗口下方输入调整要求，点击「发送调整」
+  → plugin:<id>:action hook 触发（continue）
+  → 将编辑器原文、当前 AI 结果与调整要求一并提交给 LLM
+  → 调整结果流式替换预览内容，可多次迭代调整
+
+确认插入
+  → 预览确认无误后点击「确定」，最终结果才写入编辑器
+  → 取消 / 关闭窗口则编辑器正文保持原样
 ```
 
 ## 注册的 Hook
@@ -62,7 +72,7 @@ Typecho-CF AI 写作助手插件，接入 OpenAI 兼容 LLM，在编辑器中生
 | `admin:writePost:bottom` | filter | 文章编辑器底部注入 AI 操作按钮 |
 | `admin:writePage:bottom` | filter | 页面编辑器底部注入 AI 操作按钮 |
 | `plugin:config:beforeSave` | filter | 保存前校验 LLM 配置格式（模型可用性在调用时反馈） |
-| `plugin:<id>:action` | action | 处理 generate/polish/correct 操作 |
+| `plugin:<id>:action` | action | 处理 generate/polish/correct/continue 操作 |
 
 ## 依赖
 

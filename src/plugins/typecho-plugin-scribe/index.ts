@@ -4,7 +4,7 @@ import type { Database } from 'typecho/db';
 import { schema } from 'typecho/db';
 import { and, desc, eq, inArray, or } from 'drizzle-orm';
 
-type WriterMode = 'generate' | 'polish' | 'correct';
+type WriterMode = 'generate' | 'polish' | 'correct' | 'continue';
 type ContentType = 'post' | 'page';
 type LengthPreset = 'concise' | 'balanced' | 'detailed';
 type FactPolicy = 'conservative' | 'assumptive';
@@ -41,6 +41,9 @@ interface WriterPayload {
   cid?: number | string;
   attachmentIds?: Array<number | string>;
   writingOptions?: WriterWritingOptions;
+  // continue 模式专用：编辑器原文与用户追加的调整要求
+  originalBody?: string;
+  followUpPrompt?: string;
 }
 
 interface WriterWritingOptions {
@@ -125,8 +128,10 @@ const DEFAULTS: ScribeConfig = {
 // Keep the LLM request timeout below the generic plugin-action timeout so a
 // slow provider surfaces Scribe's specific error instead of a generic 500.
 const LLM_REQUEST_TIMEOUT_MS = 55_000;
+// 单次最大输出 Token 上限（512K = 512000）
+const MAX_OUTPUT_TOKENS = 512_000;
 const SYSTEM_PROMPT = [
-  '你是 Typecho-CF 的资深内容编辑助手。',
+  '你是一位资深内容编辑助手。',
   '你的目标是帮助作者生成、润色或纠错可直接保存的正文，而不是回答关于写作过程的问题。',
   '先在内部完成任务理解、风格归纳、结构规划和事实风险检查，但不要输出分析过程、计划、检查清单或解释。',
   '严格遵守用户提供的标题、已有正文、站点风格样本、附件资料和管理员写作要求。',
@@ -262,6 +267,11 @@ const MODE_INSTRUCTIONS: Record<WriterMode, (label: string) => string[]> = {
   generate: (label) => [`根据标题和上下文生成一篇完整${label}正文。`, '不要重复输出标题。', '先组织清晰结构，再输出正文。'],
   polish: (label) => [`润色下面这篇${label}，输出润色后的完整正文。`, '重点提升表达清晰度、段落节奏、结构衔接和可读性。', '不得改变原文核心观点、事实、语气边界或 Markdown 语义。'],
   correct: (label) => [`校对这篇${label}，输出校对后的完整正文。`, '修正错别字、语法错误、标点不当、事实矛盾和逻辑断裂。', '保留原文风格、结构、观点和语气，不添加新内容或做润色式改写。'],
+  continue: (label) => [
+    `根据 <user_adjustment> 中的调整要求，结合 <original_draft> 中的原文和 <current_result> 中的当前结果，输出调整后的完整${label}正文。`,
+    '不得改变原文核心观点与事实，仅落实用户的调整要求。',
+    '直接输出调整后的完整正文，不要解释改动了什么。',
+  ],
 };
 
 function buildModeInstruction(mode: WriterMode, typeLabel: string): string {
@@ -306,6 +316,18 @@ function buildAssetsContext(assets: ContentAsset[]): string {
   }).join('\n\n');
 }
 
+function buildContinueDraftBlock(payload: WriterPayload, typeLabel: string, title: string): string {
+  return [
+    xmlBlock('original_draft', [
+      `content_type: ${typeLabel}`,
+      `title: ${title}`,
+      payload.originalBody ? `body:\n${payload.originalBody}` : 'body: 无',
+    ].join('\n')),
+    xmlBlock('current_result', payload.body || '无'),
+    xmlBlock('user_adjustment', payload.followUpPrompt || '无'),
+  ].join('\n\n');
+}
+
 function buildPrompt(
   mode: WriterMode,
   payload: WriterPayload,
@@ -319,16 +341,20 @@ function buildPrompt(
   const styleContext = buildStyleContext(styleSamples);
   const configuredUserPrompt = buildConfiguredUserPrompt(config);
 
+  const draftBlock = mode === 'continue'
+    ? buildContinueDraftBlock(payload, typeLabel, title)
+    : xmlBlock('draft', [
+        `content_type: ${typeLabel}`,
+        `title: ${title}`,
+        body ? `body:\n${body}` : 'body: 无',
+      ].join('\n'));
+
   return [
     xmlBlock('style_samples', styleContext),
     xmlBlock('writing_profile', buildWritingProfile(config)),
     xmlBlock('admin_requirements', configuredUserPrompt),
     shouldIncludeBodyAssets(config) ? xmlBlock('assets', buildAssetsContext(assets)) : '',
-    xmlBlock('draft', [
-      `content_type: ${typeLabel}`,
-      `title: ${title}`,
-      body ? `body:\n${body}` : 'body: 无',
-    ].join('\n')),
+    draftBlock,
     xmlBlock('task', buildModeInstruction(mode, typeLabel)),
     xmlBlock('output_contract', buildOutputContract(mode)),
   ].filter(Boolean).join('\n\n');
@@ -400,8 +426,8 @@ async function validateConfig(settings?: Record<string, unknown>): Promise<Scrib
   }
 
   const maxTokens = Number(config.maxTokens);
-  if (!Number.isInteger(maxTokens) || maxTokens < 128 || maxTokens > 32000) {
-    throw new Error('max tokens 必须是 128 到 32000 之间的整数');
+  if (!Number.isInteger(maxTokens) || maxTokens < 128 || maxTokens > MAX_OUTPUT_TOKENS) {
+    throw new Error(`max tokens 必须是 128 到 ${MAX_OUTPUT_TOKENS} 之间的整数`);
   }
 
   const stylePostCount = Number(config.stylePostCount);
@@ -904,55 +930,217 @@ function editorHtml(contentType: ContentType): string {
   color: #222;
 }
 .typecho-scribe-advanced-fields {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 10px;
   padding-top: 8px;
 }
+.typecho-scribe-advanced-fields .typecho-scribe-setting-wide {
+  grid-column: 1 / -1;
+}
 
-.typecho-scribe-overlay {
+.typecho-scribe-modal {
   display: none;
-  position: absolute;
+  position: fixed;
   inset: 0;
+  z-index: 1000;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.85);
-  z-index: 10;
-  border-radius: 3px;
+  padding: 20px;
+  background: rgba(0, 0, 0, .45);
 }
-.typecho-scribe-overlay[aria-hidden="false"] {
+.typecho-scribe-modal[aria-hidden="false"] {
   display: flex;
 }
-
-.typecho-scribe-loader {
+.typecho-scribe-modal-dialog {
   display: flex;
   flex-direction: column;
+  box-sizing: border-box;
+  width: min(860px, 100%);
+  max-height: calc(100vh - 40px);
+  background: #fff;
+  border-radius: 4px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .25);
+}
+.typecho-scribe-modal-header {
+  display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #e5e5e5;
 }
-
-.typecho-scribe-loader-spinner {
-  width: 32px;
-  height: 32px;
-  border: 3px solid #e0e0e0;
-  border-top-color: #467b96;
-  border-radius: 50%;
-  animation: typecho-scribe-spin 0.8s linear infinite;
+.typecho-scribe-modal-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #222;
 }
-
-@keyframes typecho-scribe-spin {
-  to { transform: rotate(360deg); }
+.typecho-scribe-modal-tabs {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
 }
-
-.typecho-scribe-loader-text {
+.typecho-scribe-modal-tab {
+  border: 0;
+  background: none;
+  padding: 4px 10px;
   font-size: 13px;
+  line-height: 1;
+  color: #666;
+  cursor: pointer;
+  border-radius: 2px;
+}
+.typecho-scribe-modal-tab:hover,
+.typecho-scribe-modal-tab:focus {
+  background: #f0f0f0;
+  color: #222;
+  outline: none;
+}
+.typecho-scribe-modal-tab.active {
+  background: #467b96;
+  color: #fff;
+}
+.typecho-scribe-modal-close {
+  border: 0;
+  background: none;
+  padding: 2px 8px;
+  font-size: 20px;
+  line-height: 1;
+  color: #888;
+  cursor: pointer;
+}
+.typecho-scribe-modal-close:hover {
+  color: #333;
+}
+.typecho-scribe-modal-body {
+  position: relative;
+  flex: 0 0 auto;
+  height: 42vh;
+  min-height: 200px;
+  margin: 12px 16px 0;
+}
+.typecho-scribe-modal-write {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  resize: none;
+  padding: 14px 16px;
+  border: 1px solid #e5e5e5;
+  border-radius: 3px;
+  background: #fff;
+  color: #333;
+  font: 13px/1.7 inherit;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.typecho-scribe-modal-write:focus {
+  border-color: #467b96;
+  outline: none;
+}
+.typecho-scribe-modal-preview {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  padding: 14px 16px;
+  border: 1px solid #e5e5e5;
+  border-radius: 3px;
+  background: #fff;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #333;
+}
+.typecho-scribe-modal-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  height: 100%;
+}
+.typecho-scribe-modal-compare-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid #e5e5e5;
+  border-radius: 3px;
+  background: #fff;
+  overflow: hidden;
+}
+.typecho-scribe-modal-compare-label {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: #666;
+  border-bottom: 1px solid #e5e5e5;
+  background: #fafafa;
+  user-select: none;
+}
+.typecho-scribe-modal-compare-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 12px;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #333;
+}
+.typecho-scribe-modal-compare-content.typecho-scribe-modal-compare-empty {
+  color: #999;
+}
+.typecho-scribe-tab-hidden {
+  display: none !important;
+}
+.typecho-scribe-modal-followup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 16px;
+}
+.typecho-scribe-modal-followup-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 56px;
+  max-height: 120px;
+  padding: 6px 8px;
+  border: 1px solid #d9d9d9;
+  border-radius: 2px;
+  resize: vertical;
+  background: #fff;
+  color: #333;
+  font: 13px/1.5 inherit;
+}
+.typecho-scribe-modal-followup-input:focus {
+  border-color: #467b96;
+  outline: none;
+}
+.typecho-scribe-modal-followup-input::placeholder {
+  color: #999;
+}
+.typecho-scribe-modal-followup-hint {
+  font-size: 12px;
+  color: #999;
+  user-select: none;
+}
+.typecho-scribe-modal-status {
+  flex: 1;
+  font-size: 12px;
   color: #666;
 }
-
-.typecho-scribe-locked {
-  overflow: hidden !important;
-  resize: none;
-  pointer-events: none;
+.typecho-scribe-modal-status-error {
+  color: #c33;
+}
+.typecho-scribe-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid #e5e5e5;
+}
+.typecho-scribe-modal-confirm[disabled] {
+  opacity: .5;
+  cursor: default;
 }
 
 .typecho-scribe-fallback-btn svg {
@@ -964,10 +1152,40 @@ function editorHtml(contentType: ContentType): string {
 <div class="typecho-scribe" data-content-type="${contentType}" hidden>
   <span class="typecho-scribe-fallback-actions"></span>
 </div>
-<div class="typecho-scribe-overlay" role="status" aria-live="polite" aria-hidden="true">
-  <div class="typecho-scribe-loader">
-    <span class="typecho-scribe-loader-spinner" aria-hidden="true"></span>
-    <span class="typecho-scribe-loader-text">AI 正在生成...</span>
+<div class="typecho-scribe-modal" aria-hidden="true">
+  <div class="typecho-scribe-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="typecho-scribe-modal-title">
+    <div class="typecho-scribe-modal-header">
+      <span class="typecho-scribe-modal-title" id="typecho-scribe-modal-title">AI 预览</span>
+      <div class="typecho-scribe-modal-tabs" role="tablist" aria-label="预览模式">
+        <button type="button" class="typecho-scribe-modal-tab active" data-scribe-tab="write" role="tab" aria-selected="true">撰写</button>
+        <button type="button" class="typecho-scribe-modal-tab" data-scribe-tab="preview" role="tab" aria-selected="false">预览</button>
+        <button type="button" class="typecho-scribe-modal-tab" data-scribe-tab="compare" role="tab" aria-selected="false">比对</button>
+      </div>
+      <button type="button" class="typecho-scribe-modal-close" aria-label="关闭预览">&times;</button>
+    </div>
+    <div class="typecho-scribe-modal-body">
+      <textarea class="typecho-scribe-modal-write mono" spellcheck="false" aria-label="AI 生成内容"></textarea>
+      <div class="typecho-scribe-modal-preview wmd-preview typecho-scribe-tab-hidden" role="status" aria-live="polite"></div>
+      <div class="typecho-scribe-modal-compare typecho-scribe-tab-hidden">
+        <div class="typecho-scribe-modal-compare-pane">
+          <div class="typecho-scribe-modal-compare-label">原文</div>
+          <div class="typecho-scribe-modal-compare-content wmd-preview typecho-scribe-modal-compare-original"></div>
+        </div>
+        <div class="typecho-scribe-modal-compare-pane">
+          <div class="typecho-scribe-modal-compare-label">AI 生成</div>
+          <div class="typecho-scribe-modal-compare-content wmd-preview typecho-scribe-modal-compare-generated"></div>
+        </div>
+      </div>
+    </div>
+    <div class="typecho-scribe-modal-followup">
+      <textarea class="typecho-scribe-modal-followup-input" placeholder="输入调整要求，发送后 AI 将结合原文与当前结果继续调整，结果实时显示在上方"></textarea>
+      <span class="typecho-scribe-modal-followup-hint">Enter 发送 · Shift+Enter 换行</span>
+    </div>
+    <div class="typecho-scribe-modal-footer">
+      <div class="typecho-scribe-modal-status" role="status" aria-live="polite"></div>
+      <button type="button" class="btn typecho-scribe-modal-cancel">取消</button>
+      <button type="button" class="btn primary typecho-scribe-modal-confirm" disabled>确定</button>
+    </div>
   </div>
 </div>
 <script is:inline>
@@ -1111,35 +1329,159 @@ function editorHtml(contentType: ContentType): string {
     return MODE_LABELS[mode] || MODE_LABELS.generate;
   }
 
-  function setBusy(text, button, busy, label) {
-    var toolbar = document.getElementById('wmd-button-row');
-    var editarea = document.getElementById('wmd-editarea') || (text ? text.parentElement : null);
-    var overlay = document.querySelector('.typecho-scribe-overlay');
-    var overlayText = document.querySelector('.typecho-scribe-loader-text');
-    if (toolbar) {
-      toolbar.classList.toggle('typecho-scribe-busy', busy);
-    }
-    if (overlay) {
-      if (busy && editarea && overlay.parentNode !== editarea) {
-        editarea.appendChild(overlay);
+  var previewState = {
+    open: false,
+    box: null,
+    mode: 'generate',
+    tab: 'write',
+    oldText: '',
+    currentText: '',
+    followUpPrompt: '',
+    streaming: false,
+    error: false,
+    userEdited: false,
+    controller: null
+  };
+
+  function escapeHtmlText(text) {
+    return String(text == null ? '' : text)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function renderMarkdown(text) {
+    var source = String(text == null ? '' : text);
+    if (!source) return '<p class="typecho-scribe-modal-compare-empty">（无内容）</p>';
+    if (window.HyperDown && window.DOMPurify) {
+      try {
+        var converter = new window.HyperDown();
+        converter.enableHtml(true);
+        converter.enableLine(true);
+        return window.DOMPurify.sanitize(converter.makeHtml(source), { USE_PROFILES: { html: true } });
+      } catch (error) {
+        // Fall through to plain-text rendering.
       }
-      overlay.setAttribute('aria-hidden', busy ? 'false' : 'true');
     }
-    if (overlayText && label) {
-      overlayText.textContent = busy ? 'AI 正在' + label + '...' : 'AI 正在生成...';
-    }
-    if (busy) closeScribeMenus();
-    scribeButtons.forEach(function(control) {
-      control.setAttribute('aria-disabled', busy ? 'true' : 'false');
+    return '<p>' + escapeHtmlText(source).replace(/\\n/g, '<br>') + '</p>';
+  }
+
+  function setModalTab(tab) {
+    previewState.tab = tab;
+    var modal = document.querySelector('.typecho-scribe-modal');
+    if (!modal) return;
+    modal.querySelectorAll('.typecho-scribe-modal-tab').forEach(function(button) {
+      var isActive = button.getAttribute('data-scribe-tab') === tab;
+      button.classList.toggle('active', isActive);
+      button.setAttribute('aria-selected', isActive ? 'true' : 'false');
     });
-    if (button) {
-      button.setAttribute('aria-disabled', busy ? 'true' : 'false');
+    var writeEl = modal.querySelector('.typecho-scribe-modal-write');
+    var previewEl = modal.querySelector('.typecho-scribe-modal-preview');
+    var compareEl = modal.querySelector('.typecho-scribe-modal-compare');
+    writeEl.classList.toggle('typecho-scribe-tab-hidden', tab !== 'write');
+    previewEl.classList.toggle('typecho-scribe-tab-hidden', tab !== 'preview');
+    compareEl.classList.toggle('typecho-scribe-tab-hidden', tab !== 'compare');
+    renderModalViews();
+  }
+
+  function renderModalViews() {
+    var modal = document.querySelector('.typecho-scribe-modal');
+    if (!modal || !previewState.open) return;
+    var writeEl = modal.querySelector('.typecho-scribe-modal-write');
+    var previewEl = modal.querySelector('.typecho-scribe-modal-preview');
+    var originalEl = modal.querySelector('.typecho-scribe-modal-compare-original');
+    var generatedEl = modal.querySelector('.typecho-scribe-modal-compare-generated');
+    // 用户已开始手动编辑时，以 textarea 内容为准，流式内容不再覆盖。
+    var text = previewState.userEdited ? writeEl.value : previewState.currentText;
+    if (!previewState.userEdited) {
+      writeEl.value = text;
     }
-    if (text) {
-      text.readOnly = busy;
-      text.classList.toggle('typecho-scribe-locked', busy);
-      text.setAttribute('aria-busy', busy ? 'true' : 'false');
+    previewEl.innerHTML = renderMarkdown(text);
+    originalEl.innerHTML = renderMarkdown(previewState.oldText);
+    generatedEl.innerHTML = renderMarkdown(text);
+  }
+
+  function scrollActiveViewToBottom() {
+    var modal = document.querySelector('.typecho-scribe-modal');
+    if (!modal) return;
+    var el = modal.querySelector('.typecho-scribe-modal-write:not(.typecho-scribe-tab-hidden)')
+      || modal.querySelector('.typecho-scribe-modal-preview:not(.typecho-scribe-tab-hidden)')
+      || modal.querySelector('.typecho-scribe-modal-compare-generated');
+    if (el) el.scrollTop = el.scrollHeight;
+  }
+
+  function currentTaskLabel() {
+    return previewState.followUpPrompt ? '调整' : modeLabel(previewState.mode);
+  }
+
+  function updateModalControls() {
+    var confirmBtn = document.querySelector('.typecho-scribe-modal-confirm');
+    var writeEl = document.querySelector('.typecho-scribe-modal-write');
+    var hasText = previewState.userEdited
+      ? !!writeEl.value.trim()
+      : !!previewState.currentText;
+    var canAct = !previewState.streaming && !previewState.error && hasText;
+    confirmBtn.disabled = !canAct;
+  }
+
+  function setModalStreaming(streaming, label) {
+    var statusEl = document.querySelector('.typecho-scribe-modal-status');
+    if (streaming) {
+      statusEl.textContent = label || 'AI 正在生成...';
+      statusEl.classList.remove('typecho-scribe-modal-status-error');
+      statusEl.classList.add('loading');
+    } else {
+      statusEl.classList.remove('loading');
     }
+    updateModalControls();
+  }
+
+  function showModalStatus(message) {
+    var statusEl = document.querySelector('.typecho-scribe-modal-status');
+    statusEl.textContent = message || '';
+    statusEl.classList.remove('typecho-scribe-modal-status-error');
+    statusEl.classList.remove('loading');
+    updateModalControls();
+  }
+
+  function showModalError(message) {
+    var statusEl = document.querySelector('.typecho-scribe-modal-status');
+    statusEl.textContent = message || 'AI 写作失败';
+    statusEl.classList.add('typecho-scribe-modal-status-error');
+    statusEl.classList.remove('loading');
+    updateModalControls();
+  }
+
+  function openPreviewModal(mode) {
+    var modal = document.querySelector('.typecho-scribe-modal');
+    modal.querySelector('.typecho-scribe-modal-title').textContent = 'AI ' + modeLabel(mode) + '预览';
+    modal.setAttribute('aria-hidden', 'false');
+    previewState.open = true;
+    previewState.userEdited = false;
+    closeScribeMenus();
+    setModalTab('write');
+  }
+
+  function closePreviewModal(abort) {
+    if (!previewState.open) return;
+    if (abort && previewState.controller) {
+      previewState.controller.abort();
+    }
+    var modal = document.querySelector('.typecho-scribe-modal');
+    modal.setAttribute('aria-hidden', 'true');
+    modal.querySelector('.typecho-scribe-modal-write').value = '';
+    modal.querySelector('.typecho-scribe-modal-preview').innerHTML = '';
+    modal.querySelector('.typecho-scribe-modal-compare-original').innerHTML = '';
+    modal.querySelector('.typecho-scribe-modal-compare-generated').innerHTML = '';
+    modal.querySelector('.typecho-scribe-modal-followup-input').value = '';
+    modal.querySelector('.typecho-scribe-modal-status').textContent = '';
+    modal.querySelector('.typecho-scribe-modal-status').classList.remove('typecho-scribe-modal-status-error');
+    modal.querySelector('.typecho-scribe-modal-status').classList.remove('loading');
+    previewState.open = false;
+    previewState.controller = null;
+    previewState.userEdited = false;
   }
 
   function mergeAiCompletion(oldText, streamedText, mode) {
@@ -1316,11 +1658,13 @@ function editorHtml(contentType: ContentType): string {
     return extractActionErrorFromText(text) || response.statusText || 'AI 写作失败';
   }
 
-  async function readStreamIntoEditor(response, text, oldText, mode) {
+  async function streamIntoPreview(response) {
     if (!response.body || !window.TextDecoder) {
       var data = await response.json().catch(function() { return {}; });
       if (!response.ok || !data.success) throw new Error(extractActionError(data) || 'AI 写作失败');
-      text.value = mergeAiCompletion(oldText, data.content || '', mode);
+      previewState.currentText = data.content || '';
+      renderModalViews();
+      scrollActiveViewToBottom();
       return;
     }
 
@@ -1331,25 +1675,120 @@ function editorHtml(contentType: ContentType): string {
     var reader = response.body.getReader();
     var decoder = new TextDecoder();
     var nextText = '';
-    text.value = mode === 'polish' || mode === 'correct' ? oldText : '';
-
     for (;;) {
       var result = await reader.read();
       if (result.done) break;
       nextText += decoder.decode(result.value, { stream: true });
-      text.value = nextText;
+      previewState.currentText = nextText;
+      renderModalViews();
+      scrollActiveViewToBottom();
     }
 
     var tail = decoder.decode();
     if (tail) {
       nextText += tail;
     }
-    text.value = mergeAiCompletion(oldText, nextText, mode);
+    previewState.currentText = nextText;
+    renderModalViews();
+    scrollActiveViewToBottom();
+  }
 
-    if (!text.value && oldText) {
-      text.value = oldText;
-      throw new Error('AI 未返回内容');
+  function buildActionPayload(csrfToken) {
+    var writeEl = document.querySelector('.typecho-scribe-modal-write');
+    var body = writeEl && writeEl.value.trim()
+      ? writeEl.value
+      : (previewState.currentText || previewState.oldText);
+    var payload = {
+      contentType: previewState.box.getAttribute('data-content-type') || 'post',
+      title: (document.getElementById('title') || {}).value || '',
+      body: body,
+      cid: (document.querySelector('input[name="cid"]') || {}).value || '',
+      attachmentIds: Array.prototype.slice.call(document.querySelectorAll('input[name="attachment[]"]')).map(function(input) {
+        return input.value || '';
+      }),
+      writingOptions: collectWritingSettings(previewState.box.querySelector('.typecho-scribe-menu') || previewState.box)
+    };
+    if (previewState.followUpPrompt) {
+      payload.originalBody = previewState.oldText;
+      payload.followUpPrompt = previewState.followUpPrompt;
     }
+    return {
+      _: csrfToken,
+      plugin: '${PLUGIN_ID}',
+      action: previewState.followUpPrompt ? 'continue' : previewState.mode,
+      payload: payload
+    };
+  }
+
+  async function startStream() {
+    var csrf = document.querySelector('input[name="_"]');
+    if (!previewState.open || !csrf) return;
+
+    // 先构建请求载荷：body 取当前 textarea 内容（上次 AI 结果或用户编辑后的内容），
+    // 再清空展示区开始新一轮流式生成，避免 continue 模式把原文误当当前结果发送。
+    var requestBody = JSON.stringify(buildActionPayload(csrf.value));
+    var writeEl = document.querySelector('.typecho-scribe-modal-write');
+    writeEl.value = '';
+    previewState.currentText = '';
+    previewState.userEdited = false;
+    previewState.streaming = true;
+    previewState.error = false;
+    setModalStreaming(true, 'AI 正在' + currentTaskLabel() + '...');
+    previewState.controller = new AbortController();
+
+    try {
+      var response = await fetch('/api/admin/plugin-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: previewState.controller.signal,
+        body: requestBody
+      });
+      await streamIntoPreview(response);
+      var hasResult = previewState.userEdited
+        ? !!writeEl.value.trim()
+        : !!previewState.currentText;
+      if (!hasResult && (previewState.oldText.trim() !== '' || previewState.followUpPrompt)) {
+        previewState.error = true;
+        showModalError('AI 未返回内容');
+        return;
+      }
+      showModalStatus(currentTaskLabel() + '完成，请预览后点击「确定」插入编辑器。');
+    } catch (error) {
+      if (!previewState.open || (error && error.name === 'AbortError')) return;
+      previewState.error = true;
+      showModalError(error && error.message ? error.message : 'AI 写作失败');
+    } finally {
+      previewState.streaming = false;
+      previewState.controller = null;
+      updateModalControls();
+    }
+  }
+
+  function sendFollowUp() {
+    if (!previewState.open || previewState.streaming || previewState.error) return;
+    var input = document.querySelector('.typecho-scribe-modal-followup-input');
+    var prompt = input.value.trim();
+    if (!prompt) return;
+    previewState.followUpPrompt = prompt;
+    input.value = '';
+    startStream();
+  }
+
+  function confirmInsert() {
+    if (!previewState.open || previewState.streaming || previewState.error) return;
+    var writeEl = document.querySelector('.typecho-scribe-modal-write');
+    if (!writeEl.value.trim() && !previewState.currentText) return;
+    var text = document.getElementById('text');
+    // 用户手动编辑过，则直接采用 textarea 内容；否则走智能合并。
+    var finalText = previewState.userEdited
+      ? writeEl.value
+      : mergeAiCompletion(previewState.oldText, writeEl.value || previewState.currentText, previewState.mode);
+    text.value = finalText;
+    text.dispatchEvent(new Event('input', { bubbles: true }));
+    if (window.jQuery) window.jQuery(text).trigger('input');
+    var mode = previewState.mode;
+    closePreviewModal(false);
+    showAdminNotice('AI ' + modeLabel(mode) + '完成', 'success');
   }
 
   async function runScribe(box, button, requestedMode) {
@@ -1358,9 +1797,7 @@ function editorHtml(contentType: ContentType): string {
     var title = document.getElementById('title');
     var text = document.getElementById('text');
     var csrf = document.querySelector('input[name="_"]');
-    var cid = document.querySelector('input[name="cid"]');
     if (!box || !title || !text || !csrf) return;
-    var menu = button ? button.closest('.typecho-scribe-menu') : null;
 
     var oldText = text.value || '';
     var hasText = oldText.trim() !== '';
@@ -1374,41 +1811,16 @@ function editorHtml(contentType: ContentType): string {
     } else {
       mode = 'generate';
     }
-    var label = modeLabel(mode);
 
-    setBusy(text, button, true, label);
     clearAdminNotice();
-
-    try {
-      var response = await fetch('/api/admin/plugin-action', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          _: csrf.value,
-          plugin: '${PLUGIN_ID}',
-          action: mode,
-          payload: {
-            contentType: box.getAttribute('data-content-type') || 'post',
-            title: title.value || '',
-            body: oldText,
-            cid: cid ? cid.value : '',
-            attachmentIds: Array.prototype.slice.call(document.querySelectorAll('input[name="attachment[]"]')).map(function(input) {
-              return input.value || '';
-            }),
-            writingOptions: collectWritingSettings(menu || box)
-          }
-        })
-      });
-      await readStreamIntoEditor(response, text, oldText, mode);
-      text.dispatchEvent(new Event('input', { bubbles: true }));
-      if (window.jQuery) window.jQuery(text).trigger('input');
-      showAdminNotice('AI ' + label + '完成', 'success');
-    } catch (error) {
-      text.value = oldText;
-      showAdminNotice(error && error.message ? error.message : 'AI 写作失败', 'error');
-    } finally {
-      setBusy(text, button, false, label);
-    }
+    previewState.box = box;
+    previewState.mode = mode;
+    previewState.oldText = oldText;
+    previewState.currentText = '';
+    previewState.followUpPrompt = '';
+    previewState.error = false;
+    openPreviewModal(mode);
+    await startStream();
   }
 
   var scribeMenuOpen = false;
@@ -1502,7 +1914,7 @@ function editorHtml(contentType: ContentType): string {
       '<option value="assumptive">头脑风暴</option>',
       '</select>',
       '</div>',
-      '<div class="typecho-scribe-setting">',
+      '<div class="typecho-scribe-setting typecho-scribe-setting-wide">',
       '<label class="typecho-scribe-checkbox">',
       '<input type="checkbox" data-scribe-setting="includeBodyAssets">',
       '<span>发送正文图片和附件</span>',
@@ -1559,6 +1971,10 @@ function editorHtml(contentType: ContentType): string {
       toggleScribeMenu(item);
     });
     item.addEventListener('keydown', function(event) {
+      // Key events from form controls inside the menu (e.g. the userPrompt
+      // textarea) bubble up to this trigger; let Enter insert newlines and
+      // Space type normally instead of toggling the menu.
+      if (event.target && event.target.closest && event.target.closest('.typecho-scribe-menu')) return;
       if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault();
         toggleScribeMenu(item);
@@ -1610,6 +2026,40 @@ function editorHtml(contentType: ContentType): string {
     return true;
   }
 
+  function wireModalEvents() {
+    var modal = document.querySelector('.typecho-scribe-modal');
+    if (!modal || modal.getAttribute('data-wired') === '1') return;
+    modal.setAttribute('data-wired', '1');
+
+    function closeModal() {
+      closePreviewModal(true);
+    }
+
+    modal.querySelectorAll('.typecho-scribe-modal-tab').forEach(function(button) {
+      button.addEventListener('click', function() {
+        setModalTab(button.getAttribute('data-scribe-tab') || 'write');
+      });
+    });
+    modal.querySelector('.typecho-scribe-modal-write').addEventListener('input', function() {
+      previewState.userEdited = true;
+      previewState.currentText = this.value;
+      renderModalViews();
+      updateModalControls();
+    });
+    modal.querySelector('.typecho-scribe-modal-close').addEventListener('click', closeModal);
+    modal.querySelector('.typecho-scribe-modal-cancel').addEventListener('click', closeModal);
+    modal.querySelector('.typecho-scribe-modal-confirm').addEventListener('click', confirmInsert);
+    modal.querySelector('.typecho-scribe-modal-followup-input').addEventListener('keydown', function(event) {
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        sendFollowUp();
+      }
+    });
+    modal.addEventListener('click', function(event) {
+      if (event.target === modal) closePreviewModal(true);
+    });
+  }
+
   function initScribe() {
     var box = document.querySelector('.typecho-scribe');
     if (!box) return;
@@ -1634,6 +2084,12 @@ function editorHtml(contentType: ContentType): string {
     if (event.target && event.target.closest && event.target.closest('.typecho-scribe-menu')) return;
     closeScribeMenus();
   });
+  document.addEventListener('keydown', function(event) {
+    if (event.key === 'Escape' && previewState.open) {
+      closePreviewModal(true);
+    }
+  });
+  wireModalEvents();
 })();
 </script>`;
 }
@@ -1667,7 +2123,7 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
       // AI writing helpers write into the current editor session, so
       // contributor-level authors need to reach them. Restricting to
       // administrator would lock non-admin authors out of the feature.
-      if (['generate', 'polish', 'correct'].includes(extra?.action || '')) return 'contributor';
+      if (['generate', 'polish', 'correct', 'continue'].includes(extra?.action || '')) return 'contributor';
       return defaultRole;
     },
   );
@@ -1680,11 +2136,14 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
       extra?: { action?: string; payload?: WriterPayload; options?: Record<string, unknown>; db?: Database },
     ) => {
       const action = extra?.action || '';
-      if (!['generate', 'polish', 'correct'].includes(action)) return result;
+      if (!['generate', 'polish', 'correct', 'continue'].includes(action)) return result;
 
       try {
-        const config = applyWritingOptions(getConfig(extra?.options), extra?.payload?.writingOptions);
         const payload = extra?.payload || {};
+        if (action === 'continue' && !String(payload.followUpPrompt || '').trim()) {
+          throw new Error('缺少调整要求');
+        }
+        const config = applyWritingOptions(getConfig(extra?.options), extra?.payload?.writingOptions);
         const siteUrl = typeof extra?.options?.siteUrl === 'string' ? extra.options.siteUrl : undefined;
         const [styleSamples, assets] = await Promise.all([
           loadStyleSamples(extra?.db, Number.isFinite(Number(config.stylePostCount)) ? Number(config.stylePostCount) : 0),
