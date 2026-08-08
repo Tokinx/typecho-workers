@@ -39,6 +39,20 @@ export default defineConfig({
       // 第二次 pass 会全量重发依赖文件，而 workerd runner 仍引用首次 pass
       // 的旧 URL，导致 "The file does not exist at .../deps_ssr/xxx.js" 崩溃。
       include: ['astro/assets/services/noop'],
+      // workspace 插件/主题包必须走源码路径，禁止 optimizeDeps 预打包：
+      // 它们以 node_modules symlink 暴露，Vite 会按依赖预打包，导致包内
+      // `typecho/plugin-sdk` 被内联成独立副本，pluginAdminPaths / hook 注册
+      // 与中间件（源码版 @/lib/plugin）形成双实例，插件 admin 路由被
+      // isReservedCorePath 误判为保留路径而 404。
+      exclude: [
+        'typecho-plugin-antispam',
+        'typecho-plugin-cache',
+        'typecho-plugin-mailer',
+        'typecho-plugin-notes',
+        'typecho-plugin-scribe',
+        'typecho-plugin-turnstile',
+        'typecho-theme-warm',
+      ],
     },
   },
 });
