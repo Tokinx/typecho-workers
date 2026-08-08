@@ -836,7 +836,6 @@ async function createNote(body: unknown, context: NotesActionContext): Promise<R
     status: input.status,
     commentsNum: 0,
     allowComment: input.status === 'publish' ? '1' : '0',
-    allowPing: '0',
     allowFeed: '0',
   }).returning({ cid: schema.contents.cid });
   const cid = inserted[0]?.cid;

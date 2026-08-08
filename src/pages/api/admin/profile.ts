@@ -59,10 +59,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
     ].map((value) => value.toString()));
     const settings: Record<string, string> = {
       markdown: formData.get('markdown')?.toString() === '1' ? '1' : '0',
-      xmlrpcMarkdown: formData.get('xmlrpcMarkdown')?.toString() === '1' ? '1' : '0',
       autoSave: formData.get('autoSave')?.toString() === '1' ? '1' : '0',
       defaultAllowComment: defaultAllow.has('comment') ? '1' : '0',
-      defaultAllowPing: defaultAllow.has('ping') ? '1' : '0',
       defaultAllowFeed: defaultAllow.has('feed') ? '1' : '0',
     };
     await auth.db.batch(Object.entries(settings).map(([name, value]) =>

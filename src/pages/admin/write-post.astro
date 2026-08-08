@@ -60,7 +60,7 @@ if (cidNum > 0) {
     db.select({ name: schema.options.name, value: schema.options.value }).from(schema.options)
       .where(and(
         eq(schema.options.user, user!.uid),
-        inArray(schema.options.name, ['markdown', 'autoSave', 'defaultAllowComment', 'defaultAllowPing', 'defaultAllowFeed']),
+        inArray(schema.options.name, ['markdown', 'autoSave', 'defaultAllowComment', 'defaultAllowFeed']),
       )),
   ]);
   post = postRows[0] || null;
@@ -101,7 +101,7 @@ if (cidNum > 0) {
     db.select({ name: schema.options.name, value: schema.options.value }).from(schema.options)
       .where(and(
         eq(schema.options.user, user!.uid),
-        inArray(schema.options.name, ['markdown', 'autoSave', 'defaultAllowComment', 'defaultAllowPing', 'defaultAllowFeed']),
+        inArray(schema.options.name, ['markdown', 'autoSave', 'defaultAllowComment', 'defaultAllowFeed']),
       )),
   ]);
   categories = categoryRows;
@@ -120,7 +120,6 @@ const isMarkdown = post
   : userPreference('markdown', Number(options.markdown) || 0);
 const autoSave = userPreference('autoSave', Number(options.autoSave) || 0);
 const defaultAllowComment = userPreference('defaultAllowComment', Number(options.defaultAllowComment) || 0);
-const defaultAllowPing = userPreference('defaultAllowPing', Number(options.defaultAllowPing) || 0);
 const defaultAllowFeed = userPreference('defaultAllowFeed', Number(options.defaultAllowFeed) || 0);
 const postPermalinkPattern = options.permalinkPattern || '/archives/{cid}/';
 const allowsSlugEdit = postPermalinkPattern.includes('{slug}');
@@ -323,11 +322,6 @@ const writePostBottomHtml = await applyFilterSafely(ctx, 'admin:writePost:bottom
                 <input id="allowComment" name="allowComment" type="checkbox" value="1"
                   checked={post ? post.allowComment === '1' : defaultAllowComment} />
                 <label for="allowComment">允许评论</label>
-              </li>
-              <li>
-                <input id="allowPing" name="allowPing" type="checkbox" value="1"
-                  checked={post ? post.allowPing === '1' : defaultAllowPing} />
-                <label for="allowPing">允许被引用</label>
               </li>
               <li>
                 <input id="allowFeed" name="allowFeed" type="checkbox" value="1"

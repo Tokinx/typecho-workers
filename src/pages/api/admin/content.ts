@@ -262,7 +262,6 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const status = VISIBILITY_TO_STATUS[formData.get('visibility')?.toString() || ''] || 'publish';
   const password = formData.get('password')?.toString()?.trim() || null;
   const allowComment = formData.get('allowComment') ? '1' : '0';
-  const allowPing = formData.get('allowPing') ? '1' : '0';
   const allowFeed = formData.get('allowFeed') ? '1' : '0';
   const tags = formData.get('tags')?.toString()?.trim() || '';
   const parsedCategoryIds = parseBoundedIds(formData.getAll('category[]'));
@@ -416,7 +415,6 @@ export const POST: APIRoute = async ({ request, locals }) => {
       status,
       password,
       allowComment,
-      allowPing,
       allowFeed,
       ...(type === 'page' ? { parent: submittedPageParent ?? 0 } : {}),
     };
@@ -525,7 +523,6 @@ export const POST: APIRoute = async ({ request, locals }) => {
         status,
         password,
         allowComment,
-        allowPing,
         allowFeed,
         ...(type === 'page' ? { parent: submittedPageParent ?? existing.parent ?? 0 } : {}),
       }).where(eq(schema.contents.cid, cid)),

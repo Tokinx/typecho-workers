@@ -98,25 +98,17 @@ const attachmentChecked = (value: string) => attachmentSet.has(value)
           <p class="description">允许访问者注册到你的网站, 默认的注册用户不享有任何写入权限.</p>
         </li>
       </ul>
-      <ul class="typecho-option" id="typecho-option-item-allowXmlRpc-5">
+      <ul class="typecho-option" id="typecho-option-item-timezone-5">
         <li>
-          <label class="typecho-label">XMLRPC 接口</label>
-          <span><input type="radio" name="allowXmlRpc" value="0" id="allowXmlRpc-0" checked={Number(options.allowXmlRpc ?? 2) === 0} /><label for="allowXmlRpc-0">关闭</label></span>
-          <span><input type="radio" name="allowXmlRpc" value="1" id="allowXmlRpc-1" checked={Number(options.allowXmlRpc ?? 2) === 1} /><label for="allowXmlRpc-1">仅关闭 Pingback 接口</label></span>
-          <span><input type="radio" name="allowXmlRpc" value="2" id="allowXmlRpc-2" checked={Number(options.allowXmlRpc ?? 2) === 2} /><label for="allowXmlRpc-2">打开</label></span>
-        </li>
-      </ul>
-      <ul class="typecho-option" id="typecho-option-item-timezone-6">
-        <li>
-          <label class="typecho-label" for="timezone-0-7">时区</label>
-          <select id="timezone-0-7" name="timezone">
+          <label class="typecho-label" for="timezone-0-6">时区</label>
+          <select id="timezone-0-6" name="timezone">
             {timezoneOptions.map(([value, label]) => (
               <option value={value} selected={Number(options.timezone) === Number(value)}>{label}</option>
             ))}
           </select>
         </li>
       </ul>
-      <ul class="typecho-option" id="typecho-option-item-attachmentTypes-7">
+      <ul class="typecho-option" id="typecho-option-item-attachmentTypes-6">
         <li>
           <label class="typecho-label">允许上传的文件类型</label>
           <span class="multiline"><input type="checkbox" id="attachmentTypes-image" name="attachmentTypes[]" value="@image@" checked={attachmentChecked('@image@')} /><label for="attachmentTypes-image">图片文件 <code>(gif jpg jpeg png tiff bmp webp avif)</code></label></span>
@@ -126,15 +118,15 @@ const attachmentChecked = (value: string) => attachmentSet.has(value)
           <p class="description">用逗号 "," 将后缀名隔开, 例如: <code>cpp, h, mak</code></p>
         </li>
       </ul>
-      <ul class="typecho-option" id="typecho-option-item-robotsTxt-8">
+      <ul class="typecho-option" id="typecho-option-item-robotsTxt-7">
         <li>
-          <label class="typecho-label" for="robotsTxt-0-9">robots.txt 内容</label>
-          <textarea id="robotsTxt-0-9" name="robotsTxt" rows="5">{options.robotsTxt || ''}</textarea>
+          <label class="typecho-label" for="robotsTxt-0-8">robots.txt 内容</label>
+          <textarea id="robotsTxt-0-8" name="robotsTxt" rows="5">{options.robotsTxt || ''}</textarea>
           <p class="description">留空使用默认规则（Allow / Disallow /admin/ /api/ Sitemap）</p>
         </li>
       </ul>
 
-      <ul class="typecho-option typecho-option-submit" id="typecho-option-item-submit-9">
+      <ul class="typecho-option typecho-option-submit" id="typecho-option-item-submit-8">
         <li>
           <button type="submit" class="btn primary">保存设置</button>
         </li>

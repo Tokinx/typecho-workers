@@ -13,8 +13,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
   // Save each option
   const optionKeys = [
     'title', 'description', 'keywords', 'siteUrl', 'timezone',
-    'allowRegister', 'allowXmlRpc', 'pageSize', 'postsListSize', 'commentsListSize',
-    'defaultAllowComment', 'defaultAllowPing', 'defaultAllowFeed',
+    'allowRegister', 'pageSize', 'postsListSize', 'commentsListSize',
+    'defaultAllowComment', 'defaultAllowFeed',
     'feedFullText', 'markdown', 'postDateFormat', 'commentDateFormat',
     'commentsRequireMail', 'commentsRequireURL', 'commentsRequireModeration',
     'commentsWhitelist', 'commentsMaxNestingLevels',

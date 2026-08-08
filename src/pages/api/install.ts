@@ -168,7 +168,6 @@ export const POST: APIRoute = async ({ request }) => {
       type: 'post',
       status: 'publish',
       allowComment: '1',
-      allowPing: '1',
       allowFeed: '1',
     }).returning({ cid: schema.contents.cid });
     const helloCid = insertedHello[0]?.cid ?? 1;
@@ -187,7 +186,6 @@ export const POST: APIRoute = async ({ request }) => {
       type: 'page',
       status: 'publish',
       allowComment: '1',
-      allowPing: '0',
       allowFeed: '1',
       order: 0,
     });
@@ -215,9 +213,7 @@ export const POST: APIRoute = async ({ request }) => {
       commentDateFormat: 'Y-m-d H:i',
       defaultCategory: String(categoryMid),
       allowRegister: '0',
-      allowXmlRpc: '2',
       defaultAllowComment: '1',
-      defaultAllowPing: '1',
       defaultAllowFeed: '1',
       feedFullText: '1',
       markdown: '1',

@@ -128,12 +128,6 @@ describe('POST /api/admin/options', () => {
     expect(await getOption(testDb, 'siteUrl')).toBe('https://myblog.com');
   });
 
-  it('saves the Typecho XMLRPC mode', async () => {
-    const req = await makeAdminRequest(testDb, { allowXmlRpc: '1' });
-    await POST({ request: req, locals: {} } as any);
-    expect(await getOption(testDb, 'allowXmlRpc')).toBe('1');
-  });
-
   it('serializes upload groups and custom extensions from the basic page', async () => {
     const req = await makeAdminRequest(testDb, {
       'attachmentTypes[]': ['@image@', '@other@'],

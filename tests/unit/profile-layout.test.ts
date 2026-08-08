@@ -21,7 +21,8 @@ describe('Typecho 1.3 personal settings layout', () => {
 
   it('includes every user writing preference and the profile extension hook', () => {
     expect(source).toContain('name="markdown"');
-    expect(source).toContain('name="xmlrpcMarkdown"');
+    expect(source).not.toContain('name="xmlrpcMarkdown"');
+    expect(source).not.toContain('defaultAllow-ping');
     expect(source).toContain('name="autoSave"');
     expect(source).toContain('name="defaultAllow[]"');
     expect(source).toContain("applyFilterSafely(ctx, 'admin:profile:bottom'");
@@ -30,14 +31,14 @@ describe('Typecho 1.3 personal settings layout', () => {
   it('renders each Form element as its own Typecho option list', () => {
     for (const id of [
       'screenName-0', 'url-1', 'mail-2', 'do-3', 'submit-4',
-      'markdown-5', 'xmlrpcMarkdown-6', 'autoSave-7', 'defaultAllow-8',
-      'do-9', 'submit-10', 'password-11', 'confirm-12', 'do-13', 'submit-14',
+      'markdown-5', 'autoSave-6', 'defaultAllow-7',
+      'do-8', 'submit-9', 'password-10', 'confirm-11', 'do-12', 'submit-13',
     ]) {
       expect(source).toContain(`id="typecho-option-item-${id}"`);
     }
 
     const optionBlocks = [...source.matchAll(/<ul class="typecho-option[^\"]*" id="typecho-option-item-[^"]+"[^>]*>([\s\S]*?)<\/ul>/g)];
-    expect(optionBlocks).toHaveLength(15);
+    expect(optionBlocks).toHaveLength(14);
     for (const [, block] of optionBlocks) {
       expect(block.match(/<li>/g)).toHaveLength(1);
     }

@@ -32,9 +32,7 @@ export interface SiteOptions {
   commentDateFormat: string;
   defaultCategory: number;
   allowRegister: number;
-  allowXmlRpc: number;
   defaultAllowComment: number;
-  defaultAllowPing: number;
   defaultAllowFeed: number;
   feedFullText: number;
   markdown: number;
@@ -97,9 +95,7 @@ const defaultOptions: Partial<SiteOptions> = {
   commentDateFormat: 'F jS, Y',
   defaultCategory: 1,
   allowRegister: 0,
-  allowXmlRpc: 2,
   defaultAllowComment: 1,
-  defaultAllowPing: 1,
   defaultAllowFeed: 1,
   feedFullText: 1,
   markdown: 1,
@@ -250,8 +246,8 @@ function parseOptions(rows: Array<{ name: string; value: string | null }>): Reco
 
   const numericKeys = [
     'timezone', 'frontArchive', 'pageSize', 'postsListSize',
-    'commentsListSize', 'defaultCategory', 'allowRegister', 'allowXmlRpc', 'defaultAllowComment',
-    'defaultAllowPing', 'defaultAllowFeed', 'feedFullText', 'markdown',
+    'commentsListSize', 'defaultCategory', 'allowRegister', 'defaultAllowComment',
+    'defaultAllowFeed', 'feedFullText', 'markdown',
     'commentsRequireMail', 'commentsRequireURL', 'commentsRequireModeration',
     'commentsWhitelist', 'commentsMaxNestingLevels', 'commentsPostTimeout',
     'commentsUrlNofollow', 'commentsShowUrl', 'commentsMarkdown',

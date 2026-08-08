@@ -92,7 +92,7 @@ if (cidNum > 0) {
     db.select({ name: schema.options.name, value: schema.options.value }).from(schema.options)
       .where(and(
         eq(schema.options.user, user!.uid),
-        inArray(schema.options.name, ['markdown', 'autoSave', 'defaultAllowComment', 'defaultAllowPing', 'defaultAllowFeed']),
+        inArray(schema.options.name, ['markdown', 'autoSave', 'defaultAllowComment', 'defaultAllowFeed']),
       )),
   ]);
   page = pageRows[0] || null;
@@ -131,7 +131,7 @@ if (cidNum > 0) {
     db.select({ name: schema.options.name, value: schema.options.value }).from(schema.options)
       .where(and(
         eq(schema.options.user, user!.uid),
-        inArray(schema.options.name, ['markdown', 'autoSave', 'defaultAllowComment', 'defaultAllowPing', 'defaultAllowFeed']),
+        inArray(schema.options.name, ['markdown', 'autoSave', 'defaultAllowComment', 'defaultAllowFeed']),
       )),
   ]);
   parentPageRows = parentRows;
@@ -146,7 +146,6 @@ const isMarkdown = page
   : userPreference('markdown', Number(options.markdown) || 0);
 const autoSave = userPreference('autoSave', Number(options.autoSave) || 0);
 const defaultAllowComment = userPreference('defaultAllowComment', Number(options.defaultAllowComment) || 0);
-const defaultAllowPing = userPreference('defaultAllowPing', Number(options.defaultAllowPing) || 0);
 const defaultAllowFeed = userPreference('defaultAllowFeed', Number(options.defaultAllowFeed) || 0);
 const pagePermalinkPattern = options.pagePattern || '/{slug}.html';
 const allowsSlugEdit = pagePermalinkPattern.includes('{slug}');
@@ -373,11 +372,6 @@ const writePageBottomHtml = await applyFilterSafely(ctx, 'admin:writePage:bottom
                 <input id="allowComment" name="allowComment" type="checkbox" value="1"
                   checked={page ? page.allowComment === '1' : defaultAllowComment} />
                 <label for="allowComment">允许评论</label>
-              </li>
-              <li>
-                <input id="allowPing" name="allowPing" type="checkbox" value="1"
-                  checked={page ? page.allowPing === '1' : defaultAllowPing} />
-                <label for="allowPing">允许被引用</label>
               </li>
               <li>
                 <input id="allowFeed" name="allowFeed" type="checkbox" value="1"

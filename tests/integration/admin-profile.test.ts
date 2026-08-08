@@ -149,7 +149,6 @@ describe('POST /api/admin/profile', () => {
     const formData = new URLSearchParams([
       ['do', 'options'],
       ['markdown', '0'],
-      ['xmlrpcMarkdown', '1'],
       ['autoSave', '1'],
       ['defaultAllow', 'comment'],
       ['defaultAllow', 'feed'],
@@ -166,10 +165,8 @@ describe('POST /api/admin/profile', () => {
     const rows = await testDb.select().from(schema.options).where(eq(schema.options.user, 1));
     expect(Object.fromEntries(rows.map((row) => [row.name, row.value]))).toMatchObject({
       markdown: '0',
-      xmlrpcMarkdown: '1',
       autoSave: '1',
       defaultAllowComment: '1',
-      defaultAllowPing: '0',
       defaultAllowFeed: '1',
     });
   });
@@ -179,7 +176,7 @@ describe('POST /api/admin/profile', () => {
     const formData = new URLSearchParams([
       ['do', 'options'],
       ['markdown', '1'],
-      ['defaultAllow[]', 'ping'],
+      ['defaultAllow[]', 'comment'],
     ]);
     const req = new Request('https://example.com/api/admin/profile', {
       method: 'POST',
@@ -193,8 +190,7 @@ describe('POST /api/admin/profile', () => {
     const rows = await testDb.select().from(schema.options).where(eq(schema.options.user, 1));
     expect(Object.fromEntries(rows.map((row) => [row.name, row.value]))).toMatchObject({
       markdown: '1',
-      defaultAllowComment: '0',
-      defaultAllowPing: '1',
+      defaultAllowComment: '1',
       defaultAllowFeed: '0',
     });
   });

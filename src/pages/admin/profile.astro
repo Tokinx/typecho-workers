@@ -27,8 +27,8 @@ const [stats, gravatarUrl] = await Promise.all([
       .where(and(
         eq(schema.options.user, user!.uid),
         inArray(schema.options.name, [
-          'markdown', 'xmlrpcMarkdown', 'autoSave',
-          'defaultAllowComment', 'defaultAllowPing', 'defaultAllowFeed',
+          'markdown', 'autoSave',
+          'defaultAllowComment', 'defaultAllowFeed',
         ]),
       )),
   ]),
@@ -40,10 +40,8 @@ const isContributor = hasPermission(user!.group || 'visitor', 'contributor');
 const preference = (name: string, fallback: number) => Number(userOptions.get(name) ?? fallback) === 1;
 const writingPreferences = {
   markdown: preference('markdown', Number(options.markdown) || 0),
-  xmlrpcMarkdown: preference('xmlrpcMarkdown', 0),
   autoSave: preference('autoSave', Number(options.autoSave) || 0),
   defaultAllowComment: preference('defaultAllowComment', Number(options.defaultAllowComment) || 0),
-  defaultAllowPing: preference('defaultAllowPing', Number(options.defaultAllowPing) || 0),
   defaultAllowFeed: preference('defaultAllowFeed', Number(options.defaultAllowFeed) || 0),
 };
 const lastLogin = user!.logged && user!.logged > 0
@@ -124,15 +122,7 @@ const profileBottomHtml = await applyFilterSafely(ctx, 'admin:profile:bottom', '
                 <p class="description">使用 <a href="https://daringfireball.net/projects/markdown/">Markdown</a> 语法能够使您的撰写过程更加简便直观.<br />此功能开启不会影响以前没有使用 Markdown 语法编辑的内容.</p>
               </li>
             </ul>
-            <ul class="typecho-option" id="typecho-option-item-xmlrpcMarkdown-6">
-              <li>
-                <label class="typecho-label">在 XMLRPC 接口中使用 Markdown 语法</label>
-                <span><input type="radio" name="xmlrpcMarkdown" value="0" id="xmlrpcMarkdown-0" checked={!writingPreferences.xmlrpcMarkdown} /><label for="xmlrpcMarkdown-0">关闭</label></span>
-                <span><input type="radio" name="xmlrpcMarkdown" value="1" id="xmlrpcMarkdown-1" checked={writingPreferences.xmlrpcMarkdown} /><label for="xmlrpcMarkdown-1">打开</label></span>
-                <p class="description">对于完全支持 <a href="https://daringfireball.net/projects/markdown/">Markdown</a> 语法写作的离线编辑器, 打开此选项后将避免内容被转换为 HTML.</p>
-              </li>
-            </ul>
-            <ul class="typecho-option" id="typecho-option-item-autoSave-7">
+            <ul class="typecho-option" id="typecho-option-item-autoSave-6">
               <li>
                 <label class="typecho-label">自动保存</label>
                 <span><input type="radio" name="autoSave" value="0" id="autoSave-0" checked={!writingPreferences.autoSave} /><label for="autoSave-0">关闭</label></span>
@@ -140,19 +130,18 @@ const profileBottomHtml = await applyFilterSafely(ctx, 'admin:profile:bottom', '
                 <p class="description">自动保存功能可以更好地保护你的文章不会丢失.</p>
               </li>
             </ul>
-            <ul class="typecho-option" id="typecho-option-item-defaultAllow-8">
+            <ul class="typecho-option" id="typecho-option-item-defaultAllow-7">
               <li>
                 <label class="typecho-label">默认允许</label>
                 <span><input type="checkbox" name="defaultAllow[]" value="comment" id="defaultAllow-comment" checked={writingPreferences.defaultAllowComment} /><label for="defaultAllow-comment">可以被评论</label></span>
-                <span><input type="checkbox" name="defaultAllow[]" value="ping" id="defaultAllow-ping" checked={writingPreferences.defaultAllowPing} /><label for="defaultAllow-ping">可以被引用</label></span>
                 <span><input type="checkbox" name="defaultAllow[]" value="feed" id="defaultAllow-feed" checked={writingPreferences.defaultAllowFeed} /><label for="defaultAllow-feed">出现在聚合中</label></span>
                 <p class="description">设置你经常使用的默认允许权限</p>
               </li>
             </ul>
-            <ul class="typecho-option" id="typecho-option-item-do-9" style="display:none">
-              <li><input type="hidden" id="do-0-10" name="do" value="options" /></li>
+            <ul class="typecho-option" id="typecho-option-item-do-8" style="display:none">
+              <li><input type="hidden" id="do-0-9" name="do" value="options" /></li>
             </ul>
-            <ul class="typecho-option typecho-option-submit" id="typecho-option-item-submit-10">
+            <ul class="typecho-option typecho-option-submit" id="typecho-option-item-submit-9">
               <li><button type="submit" class="btn primary">保存设置</button></li>
             </ul>
           </form>
@@ -166,24 +155,24 @@ const profileBottomHtml = await applyFilterSafely(ctx, 'admin:profile:bottom', '
       <h3>密码修改</h3>
       <form method="post" action="/api/admin/profile">
         <input type="hidden" name="_" value={csrfToken} />
-        <ul class="typecho-option" id="typecho-option-item-password-11">
+        <ul class="typecho-option" id="typecho-option-item-password-10">
           <li>
-            <label class="typecho-label" for="password-0-12">用户密码</label>
-            <input type="password" id="password-0-12" name="password" class="w-60" autocomplete="new-password" />
+            <label class="typecho-label" for="password-0-11">用户密码</label>
+            <input type="password" id="password-0-11" name="password" class="w-60" autocomplete="new-password" />
             <p class="description">为此用户分配一个密码.<br />建议使用特殊字符与字母、数字的混编样式,以增加系统安全性.</p>
           </li>
         </ul>
-        <ul class="typecho-option" id="typecho-option-item-confirm-12">
+        <ul class="typecho-option" id="typecho-option-item-confirm-11">
           <li>
-            <label class="typecho-label" for="confirm-0-13">用户密码确认</label>
-            <input type="password" id="confirm-0-13" name="passwordConfirm" class="w-60" autocomplete="new-password" />
+            <label class="typecho-label" for="confirm-0-12">用户密码确认</label>
+            <input type="password" id="confirm-0-12" name="passwordConfirm" class="w-60" autocomplete="new-password" />
             <p class="description">请确认你的密码, 与上面输入的密码保持一致.</p>
           </li>
         </ul>
-        <ul class="typecho-option" id="typecho-option-item-do-13" style="display:none">
-          <li><input type="hidden" id="do-0-14" name="do" value="password" /></li>
+        <ul class="typecho-option" id="typecho-option-item-do-12" style="display:none">
+          <li><input type="hidden" id="do-0-13" name="do" value="password" /></li>
         </ul>
-        <ul class="typecho-option typecho-option-submit" id="typecho-option-item-submit-14">
+        <ul class="typecho-option typecho-option-submit" id="typecho-option-item-submit-13">
           <li>
             <button type="submit" class="btn primary">更新密码</button>
           </li>
