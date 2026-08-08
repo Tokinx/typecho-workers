@@ -117,27 +117,38 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
 
   addHook('admin:page', pluginId, (html: string, extra?: { slug?: string; csrfToken?: string }) => {
     if (extra?.slug !== 'cache') return html;
-    return cacheAdminPageHtml(extra.csrfToken || '', !!kvBinding());
+    return cacheAdminPageHtml(extra.csrfToken || '', !!kvBinding())
+      + `<script>(function(){var title=document.querySelector('.typecho-page-title');if(!title||title.querySelector('a[href="/admin/plugin-config?id=${CACHE_PLUGIN_ID}"]'))return;var link=document.createElement('a');link.href='/admin/plugin-config?id=${CACHE_PLUGIN_ID}';link.textContent='设置';title.appendChild(link)})();</script>`;
   });
 
   addHook('admin:footer', pluginId, (html: string, extra?: { user?: { group?: string }; activeMenu?: string }) => {
     if (extra?.user?.group !== 'administrator') return html;
     const active = extra.activeMenu === 'cache';
-    return html + `<script>(function(){var menu=document.querySelector('.typecho-head-nav nav > menu > li:nth-child(3) > menu');if(!menu||menu.querySelector('a[href="/admin/plugin/cache"]'))return;var item=document.createElement('li');item.className=${active ? JSON.stringify('focus') : JSON.stringify('')};item.innerHTML='<a href="/admin/plugin/cache">缓存</a>';menu.appendChild(item)})();</script>`;
+    return html + `<script>(function(){var menu=document.querySelector('.typecho-head-nav nav > menu > li:nth-child(4) > menu');if(!menu||menu.querySelector('a[href="/admin/plugin/cache"]'))return;var item=document.createElement('li');item.className=${active ? JSON.stringify('focus') : JSON.stringify('')};item.innerHTML='<a href="/admin/plugin/cache">缓存管理</a>';menu.appendChild(item)})();</script>`;
   });
 
   addHook(`plugin:${pluginId}:action:auth`, pluginId, () => 'administrator');
   addHook(`plugin:${pluginId}:action`, pluginId, async (result: any, extra?: { action?: string; payload?: any }) => {
     if (extra?.action !== 'invalidate') return result;
-    const requested = String(extra.payload?.domain || 'all');
     const allowed = new Set<PublicCacheDomain | 'all'>(['home', 'post', 'page', 'note', 'archive', 'other', 'all']);
-    if (!allowed.has(requested as PublicCacheDomain | 'all')) {
-      return { handled: true, success: false, error: '缓存域无效' };
+    // payload.domains 支持批量刷新（新前端）；兼容旧的单 domain 字段。
+    let rawDomains = Array.isArray(extra.payload?.domains)
+      ? extra.payload.domains
+      : [String(extra.payload?.domain ?? 'all')];
+    if (rawDomains.length === 0) rawDomains = ['all'];
+    if (rawDomains.includes('all')) {
+      rawDomains = ['all'];
+    } else {
+      rawDomains = [...new Set(rawDomains.map(String))];
+      if (rawDomains.some((d: string) => !allowed.has(d as PublicCacheDomain | 'all'))) {
+        return { handled: true, success: false, error: '缓存域无效' };
+      }
     }
+    const requested = rawDomains as PublicCacheDomain[] | ['all'];
     const event: PublicCacheInvalidation = {
       reason: 'manual',
-      domains: [requested as PublicCacheDomain] as PublicCacheDomain[] | ['all'],
-      sharedDomains: requested === 'all' ? ['all'] : [],
+      domains: requested,
+      sharedDomains: requested[0] === 'all' ? ['all'] : [],
     };
     // Production reaches the registered early provider, which also clears L0.
     // The direct fallback keeps plugin actions usable in an already initialized

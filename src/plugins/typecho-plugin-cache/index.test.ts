@@ -1235,6 +1235,21 @@ describe('plugin registration and controls', () => {
     ]) expect(hooks.has(name)).toBe(true);
   });
 
+  it('injects a "缓存管理" nav item under the settings menu for administrators', () => {
+    const hooks = collectHooks();
+    const footer = hooks.get('admin:footer')!('', { user: { group: 'administrator' }, activeMenu: 'cache' });
+
+    // 插入到「设置」组（导航第 4 个 li 的子菜单），菜单名「缓存管理」
+    expect(footer).toContain('li:nth-child(4) > menu');
+    expect(footer).toContain('/admin/plugin/cache');
+    expect(footer).toContain('>缓存管理</a>');
+    expect(footer).toContain('item.className="focus"');
+
+    // 非管理员不注入
+    const guest = hooks.get('admin:footer')!('', { user: { group: 'contributor' } });
+    expect(guest).not.toContain('缓存管理');
+  });
+
   it('rejects invalid CDN configuration and normalizes valid settings', () => {
     const hook = collectHooks().get('plugin:config:beforeSave')!;
     const rejected = hook({ success: true }, {
@@ -1288,14 +1303,59 @@ describe('plugin registration and controls', () => {
     const hooks = collectHooks();
     const page = hooks.get('admin:page')!('', { slug: 'cache', csrfToken: 'csrf' });
     expect(page).toContain('TYPECHO_CACHE 已连接');
+    // checkbox 勾选 + 单个刷新按钮
+    expect(page).toContain('type="checkbox" value="home"');
     expect(page).toContain('data-cache-domain="home"');
+    expect(page).toContain('id="cache-refresh-btn"');
+    expect(page).toContain('id="cache-refresh-all"');
+    expect(page).toContain('>刷新</button>');
+    // disabled 状态下按钮文字保持白色可读
+    expect(page).toContain('#cache-refresh-btn{color:#fff !important}');
+    expect(page).toContain('<section id="edge-cache-app" class="col-mb-12">');
+    // 标题旁注入「设置」链接，指向插件配置页
+    expect(page).toContain('typecho-page-title');
+    expect(page).toContain('/admin/plugin-config?id=typecho-plugin-cache');
+    expect(page).toContain("link.textContent='设置'");
 
+    // 旧字段 domain 兼容
     const result = await hooks.get('plugin:typecho-plugin-cache:action')!({ handled: false }, {
       action: 'invalidate',
       payload: { domain: 'home' },
     });
     expect(result).toMatchObject({ handled: true, success: true });
     expect([...kv.store.keys()]).toContain('typecho:edge-cache:v1:g:home');
+  });
+
+  it('invalidates a batch of checked cache domains via the domains field', async () => {
+    const kv = new MemoryKv();
+    env.TYPECHO_CACHE = kv as any;
+    const hooks = collectHooks();
+    const result = await hooks.get('plugin:typecho-plugin-cache:action')!({ handled: false }, {
+      action: 'invalidate',
+      payload: { domains: ['post', 'page', 'note'] },
+    });
+    expect(result).toMatchObject({ handled: true, success: true });
+    expect([...kv.store.keys()]).toEqual(expect.arrayContaining([
+      'typecho:edge-cache:v1:g:post',
+      'typecho:edge-cache:v1:g:page',
+      'typecho:edge-cache:v1:g:note',
+    ]));
+    expect([...kv.store.keys()]).not.toContain('typecho:edge-cache:v1:g:home');
+
+    // 空数组退化为全量刷新
+    const empty = await hooks.get('plugin:typecho-plugin-cache:action')!({ handled: false }, {
+      action: 'invalidate',
+      payload: { domains: [] },
+    });
+    expect(empty).toMatchObject({ handled: true, success: true });
+    expect([...kv.store.keys()]).toContain('typecho:edge-cache:v1:g:all');
+
+    // 非法域被拒绝
+    const invalid = await hooks.get('plugin:typecho-plugin-cache:action')!({ handled: false }, {
+      action: 'invalidate',
+      payload: { domains: ['post', 'bogus'] },
+    });
+    expect(invalid).toMatchObject({ handled: true, success: false, error: '缓存域无效' });
   });
 
   it('invalidates all page and shared-data generations on a manual full refresh', async () => {
