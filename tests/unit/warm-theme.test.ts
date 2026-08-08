@@ -109,6 +109,11 @@ describe('typecho-theme-warm', () => {
     expect(shell).toContain("media.dataset.warmRepaired === '1'");
     expect(shell).toContain("media.dataset.warmRepaired = '1';");
     expect(shell).toContain('media.load()');
+    expect(shell).toContain('viewImageSource');
+    expect(shell).toContain("ViewImage.init('[view-image] img')");
+    expect(shell).toContain('data-warm-images-more');
+    expect(shell).toContain('data-warm-images-rest');
+    expect(shell).toContain("grid.classList.add('is-expanded')");
     expect(streamPagination).toContain("if (typeof window.warmRepairNoteMedia === 'function') window.warmRepairNoteMedia(stream);");
     const post = readFileSync(join(themeRoot, 'components/Post.astro'), 'utf8');
     expect(post).not.toContain('warm-back');
@@ -198,6 +203,32 @@ describe('typecho-theme-warm', () => {
     expect(index).not.toContain('warm-comment-count');
     expect(index).not.toContain('comments: post.commentsNum');
     expect(index).not.toContain('comments: item.comments');
+  });
+
+  it('renders every note image with a "+N" overlay and ViewImage lightbox', () => {
+    const media = readFileSync(join(themeRoot, 'components/WarmNoteMedia.astro'), 'utf8');
+    // All images are rendered; the fourth-cell overlay reveals the rest.
+    expect(media).not.toContain('(note.images || []).slice(0, 4)');
+    expect(media).toContain('images.slice(0, 4)');
+    expect(media).toContain('images.slice(4)');
+    expect(media).toContain('extraCount');
+    expect(media).toContain('view-image');
+    expect(media).toContain('data-warm-images-more');
+    expect(media).toContain('data-warm-images-rest');
+    expect(media).toContain('warm-note__image--more');
+    expect(media).toContain('warm-note__image--rest');
+    expect(media).toContain('aria-label={`展开剩余 ${extraCount} 张图片`}');
+    expect(media).toContain('hidden');
+    // The overlay grid layout must stay self-contained in the theme stylesheet.
+    const css = readFileSync(join(themeRoot, 'style.css'), 'utf8');
+    expect(css).toContain('.warm-note__image {');
+    expect(css).toContain('.warm-note__image--rest {');
+    expect(css).toContain('.warm-note__images.is-expanded .warm-note__image--rest');
+    expect(css).toContain('.warm-note__images-more {');
+    // ViewImage source is vendored inside the theme like InstantClick.
+    const viewImage = readFileSync(join(themeRoot, 'components/viewimage.ts'), 'utf8');
+    expect(viewImage).toContain('ViewImage.js 2.0.2');
+    expect(viewImage).toContain('export const viewImageSource');
   });
 
   it('normalizes excerpts, reading time, and configurable links', () => {

@@ -8,12 +8,17 @@ interface Props {
 }
 
 const { note, detail = false } = Astro.props;
-const images = (note.images || []).slice(0, 4);
+const images = note.images || [];
 const media = [
   ...(note.videos || []).map(video => ({ ...video, kind: 'video' as const })),
   ...(note.music || []).map(track => ({ ...track, kind: 'audio' as const })),
 ];
 const attachments = note.attachments || [];
+// Show every image in the grid. When a note has more than four images the
+// fourth cell becomes a "+N" overlay; clicking it reveals the remaining
+// images (handled by the delegated listener in WarmShell).
+const visibleImages = images.slice(0, 4);
+const extraCount = images.length - visibleImages.length;
 
 function fileExt(name: string): string {
   const dot = String(name || '').lastIndexOf('.');
@@ -28,9 +33,32 @@ function fileExt(name: string): string {
       `has-${Math.min(images.length, 4)}`,
       { "warm-note__images--detail": detail },
     ]}
+    view-image
   >
-    {images.map(image => (
-      <img src={image.url} alt={image.name || '笔记配图'} loading="lazy" />
+    {visibleImages.map((image, index) => (
+      <div
+        class:list={[
+          "warm-note__image",
+          { "warm-note__image--more": extraCount > 0 && index === visibleImages.length - 1 },
+        ]}
+      >
+        <img src={image.url} alt={image.name || '笔记配图'} loading="lazy" />
+        {extraCount > 0 && index === visibleImages.length - 1 && (
+          <button
+            type="button"
+            class="warm-note__images-more"
+            data-warm-images-more
+            aria-label={`展开剩余 ${extraCount} 张图片`}
+          >
+            +{extraCount}
+          </button>
+        )}
+      </div>
+    ))}
+    {extraCount > 0 && images.slice(4).map(image => (
+      <div class="warm-note__image warm-note__image--rest" data-warm-images-rest hidden>
+        <img src={image.url} alt={image.name || '笔记配图'} loading="lazy" />
+      </div>
     ))}
   </div>
 )}

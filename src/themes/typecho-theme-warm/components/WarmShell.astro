@@ -5,6 +5,7 @@ import type { PageContext } from '@/lib/plugin';
 import { PUBLIC_HTML_HEADER } from '@/lib/cache';
 import { warmSettings, type WarmSection } from './warm';
 import { instantClickSource } from './instantclick';
+import { viewImageSource } from './viewimage';
 
 interface Props extends Omit<ThemeBaseProps, 'user' | 'isLoggedIn'> {
   title?: string;
@@ -106,9 +107,26 @@ const socialLinks = [
   </script>
   <Fragment slot="head">
     <script is:inline data-instant-track data-no-instant set:html={instantClickSource}></script>
+    <script is:inline data-instant-track data-no-instant set:html={viewImageSource}></script>
   </Fragment>
   <script is:inline data-no-instant>
     (() => {
+      // ViewImage lightbox: click any note image to view it fullscreen.
+      // init() re-registers its document-level listener idempotently, so
+      // re-running it after an InstantClick page swap is safe.
+      const expandNoteImages = event => {
+        const button = event.target.closest('[data-warm-images-more]');
+        if (!button) return;
+        const grid = button.closest('.warm-note__images');
+        if (!grid) return;
+        grid.classList.add('is-expanded');
+        button.setAttribute('aria-expanded', 'true');
+        grid.querySelectorAll('[data-warm-images-rest]').forEach(item => {
+          item.hidden = false;
+        });
+      };
+      if (window.ViewImage) ViewImage.init('[view-image] img');
+      document.addEventListener('click', expandNoteImages);
       const repairNoteMedia = root => {
         const scope = root && root.querySelectorAll ? root : document;
         scope.querySelectorAll('.warm-note__media video, .warm-note__media audio').forEach(media => {

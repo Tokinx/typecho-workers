@@ -378,6 +378,57 @@ body.warm-theme {
   object-fit: cover;
 }
 
+.warm-note__image {
+  position: relative;
+  min-width: 0;
+}
+
+/* Images beyond the fourth are hidden until the "+N" overlay is clicked. */
+.warm-note__image--rest {
+  display: none;
+}
+
+.warm-note__images.is-expanded .warm-note__image--rest {
+  display: block;
+  animation: warm-note-images-in 240ms ease;
+}
+
+.warm-note__images.is-expanded .warm-note__images-more {
+  display: none;
+}
+
+.warm-note__images-more {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-size: 24px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.warm-note__images-more:hover,
+.warm-note__images-more:focus-visible {
+  background: rgba(0, 0, 0, 0.58);
+  outline: none;
+}
+
+@keyframes warm-note-images-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .warm-note__media {
   position: relative;
   z-index: 2;
