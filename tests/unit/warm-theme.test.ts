@@ -229,6 +229,17 @@ describe('typecho-theme-warm', () => {
     const viewImage = readFileSync(join(themeRoot, 'components/viewimage.ts'), 'utf8');
     expect(viewImage).toContain('ViewImage.js 2.0.2');
     expect(viewImage).toContain('export const viewImageSource');
+    // The vendored source embeds `\n` escape sequences inside its injected
+    // <style> string; inside the template literal they must be written as
+    // `\\n` so the emitted script keeps literal backslash-n. Assert the
+    // exported constant still parses as valid JavaScript (guards against
+    // the same template-literal newline trap that broke the Scribe modal).
+    const sourceMatch = viewImage.match(/export const viewImageSource = `([\s\S]*)`;/);
+    expect(sourceMatch).toBeTruthy();
+    const evaluated = eval('`' + sourceMatch![1] + '`');
+    expect(() => new Function(evaluated)).not.toThrow();
+    expect(evaluated).toContain('window.ViewImage=new function');
+    expect((evaluated.match(/\\n/g) || []).length).toBeGreaterThan(0);
   });
 
   it('normalizes excerpts, reading time, and configurable links', () => {
