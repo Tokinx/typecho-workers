@@ -122,12 +122,15 @@ describe('typecho-theme-warm', () => {
     expect(post).toContain('formatWarmDate(post.created, options.postDateFormat, options.timezone, isNote)');
     expect(post).toContain('componentLoadMode={settings.commentComponentLoadMode}');
     expect(post).toContain('initialLoadMode={settings.commentInitialLoadMode}');
+    // Article/note body images open the ViewImage lightbox too.
+    expect(post).toContain('class:list={["warm-prose", { "warm-note-prose": isNote }]} view-image');
     const page = readFileSync(join(themeRoot, 'components/Page.astro'), 'utf8');
     expect(page).not.toContain('continuousLoadMode={settings.continuousLoadMode}');
     expect(page).toContain('<span class="warm-note-label">独立页面</span>');
     expect(page).toContain('formatWarmDate(page.created, options.postDateFormat, options.timezone)');
     expect(page).toContain('componentLoadMode={settings.commentComponentLoadMode}');
     expect(page).toContain('initialLoadMode={settings.commentInitialLoadMode}');
+    expect(page).toContain('class="warm-prose" view-image');
     const css = readFileSync(join(themeRoot, 'style.css'), 'utf8');
     expect(css).not.toContain('.warm-list-heading');
     expect(css).not.toContain('.warm-back');

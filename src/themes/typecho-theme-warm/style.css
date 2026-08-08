@@ -381,6 +381,7 @@ body.warm-theme {
 .warm-note__image {
   position: relative;
   min-width: 0;
+  line-height: 0;
 }
 
 /* Images beyond the fourth are hidden until the "+N" overlay is clicked. */

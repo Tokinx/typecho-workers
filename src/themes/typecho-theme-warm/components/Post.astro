@@ -57,7 +57,7 @@ const description = plainExcerpt(isNote ? note.source : post.content, 160);
       {!isNote && <h1 itemprop="headline">{post.title}</h1>}
     </header>
 
-    <div class:list={["warm-prose", { "warm-note-prose": isNote }]} itemprop="articleBody" set:html={displayContent} />
+    <div class:list={["warm-prose", { "warm-note-prose": isNote }]} view-image itemprop="articleBody" set:html={displayContent} />
 
     {isNote && <WarmNoteMedia note={note} detail />}
 
