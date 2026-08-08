@@ -26,6 +26,13 @@ describe('page-specific theme templates', () => {
     }
   });
 
+  it('hashes theme static assets for CDN cache busting at build time', () => {
+    const loader = source('src/integrations/theme-loader.ts');
+    expect(loader).toContain("import { createHash } from 'node:crypto';");
+    expect(loader).toContain('assetVersion');
+    expect(loader).toContain("hash.digest('hex').slice(0, 8)");
+  });
+
   it('renders preview rows through the matching page-data helper and closes the parent preview on exit', () => {
     const preview = source('src/pages/admin/preview.astro');
 

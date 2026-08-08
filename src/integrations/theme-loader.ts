@@ -10,6 +10,7 @@
  * that maps theme IDs to their template components.
  */
 import type { AstroIntegration } from 'astro';
+import { createHash } from 'node:crypto';
 import { readFileSync, existsSync, readdirSync, mkdirSync, cpSync, statSync, realpathSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
@@ -150,17 +151,66 @@ function buildTheme(packageName: string, packageDir: string, manifest: Record<st
   const components = scanThemeComponents(packageDir);
   const pageTemplates = scanPageTemplates(packageName, packageDir, manifest);
   const screenshotFile = findScreenshot(packageDir, manifest.screenshot);
+  const assetVersion = computeThemeAssetVersion(packageDir, cssFile, manifest, screenshotFile);
 
   return {
     id,
     packageName,
     packageDir,
-    manifest: { ...manifest, id, ...(screenshotFile ? { screenshot: screenshotFile } : {}) },
+    manifest: { ...manifest, id, assetVersion, ...(screenshotFile ? { screenshot: screenshotFile } : {}) },
     cssFile,
     screenshotFile,
     components,
     pageTemplates,
   };
+}
+
+/**
+ * Hash every static file that the loader copies into public/themes/{id}.
+ * The short hash is attached to stylesheet URLs so CDN edge caches switch
+ * versions whenever theme CSS or assets change.
+ */
+function computeThemeAssetVersion(
+  packageDir: string,
+  cssFile: string,
+  manifest: Record<string, any>,
+  screenshotFile?: string,
+): string {
+  const files: string[] = [cssFile];
+
+  if (Array.isArray(manifest.stylesheets)) {
+    for (const extra of manifest.stylesheets) {
+      if (typeof extra === 'string') files.push(extra);
+    }
+  }
+  if (screenshotFile) files.push(screenshotFile);
+
+  const assetsDir = join(packageDir, 'assets');
+  if (existsSync(assetsDir) && statSync(assetsDir).isDirectory()) {
+    for (const file of listThemeAssetFiles(assetsDir)) {
+      files.push(join('assets', relative(assetsDir, file)));
+    }
+  }
+
+  const hash = createHash('sha256');
+  for (const file of files) {
+    const absolutePath = join(packageDir, file);
+    if (!existsSync(absolutePath) || !statSync(absolutePath).isFile()) continue;
+    hash.update(file.replace(/\\/g, '/'));
+    hash.update('\0');
+    hash.update(readFileSync(absolutePath));
+  }
+  return hash.digest('hex').slice(0, 8);
+}
+
+function listThemeAssetFiles(dir: string): string[] {
+  const files: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const entryPath = join(dir, entry.name);
+    if (entry.isDirectory()) files.push(...listThemeAssetFiles(entryPath));
+    else if (entry.isFile()) files.push(entryPath);
+  }
+  return files.sort();
 }
 
 /**

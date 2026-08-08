@@ -3,6 +3,7 @@ import {
   getActiveTheme,
   getThemeConfigDefinition,
   getThemeConfigDefaults,
+  getThemeStylesheets,
   loadThemeConfig,
   parseThemeConfigFormData,
   registerTheme,
@@ -55,5 +56,20 @@ describe('theme appearance configuration', () => {
     expect(getActiveTheme('typecho-theme-warm').manifest.commentsMode).toBe('api');
     expect(getActiveTheme('typecho-theme-warm').manifest.publicHtml).toBe(true);
     expect(getAvailableThemes('typecho-theme-warm').find(theme => theme.id === 'typecho-theme-warm')?.isDefault).toBe(true);
+  });
+
+  it('appends the theme asset version to every stylesheet URL', () => {
+    registerTheme('cache-busted-theme', {
+      id: 'cache-busted-theme',
+      name: 'Cache Busted',
+      version: '2.0.0',
+      assetVersion: 'a1b2c3d4',
+      stylesheets: ['extra.css'],
+    }, '/themes/cache-busted-theme/style.css');
+
+    expect(getThemeStylesheets('cache-busted-theme')).toEqual([
+      '/themes/cache-busted-theme/extra.css?v=a1b2c3d4',
+      '/themes/cache-busted-theme/style.css?v=a1b2c3d4',
+    ]);
   });
 });

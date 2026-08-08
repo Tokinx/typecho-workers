@@ -31,6 +31,8 @@ export interface ThemeManifest {
   authorUrl?: string;
   /** Theme version */
   version?: string;
+  /** Short build-time hash used to cache-bust theme stylesheets. */
+  assetVersion?: string;
   /** Screenshot filename (relative to package root) */
   screenshot?: string;
   /** Main CSS file (relative to package root), defaults to 'style.css' */
@@ -101,6 +103,7 @@ const FALLBACK_THEME: ThemeManifest = {
   description: '静谧温润的单栏写作主题，支持文章与笔记混合时间线。',
   author: 'Tokinx',
   version: '1.0.0',
+  assetVersion: '1.0.0',
   stylesheet: '/themes/typecho-theme-warm/style.css',
   homepage: 'https://github.com/Tokinx/typecho-workers/tree/master/src/themes/typecho-theme-warm',
   license: 'MIT',
@@ -222,18 +225,26 @@ export function registerTheme(
 export function getThemeStylesheets(activeThemeId: string): string[] {
   const theme = getActiveTheme(activeThemeId);
   const sheets: string[] = [];
+  const assetVersion = theme.manifest.assetVersion;
 
   // Additional stylesheets first (e.g. normalize.css, grid.css)
   if (theme.manifest.stylesheets) {
     for (const extra of theme.manifest.stylesheets) {
-      sheets.push(extra.startsWith('/') ? extra : `/themes/${theme.id}/${extra}`);
+      const href = extra.startsWith('/') ? extra : `/themes/${theme.id}/${extra}`;
+      sheets.push(withAssetVersion(href, assetVersion));
     }
   }
 
   // Main stylesheet last
-  sheets.push(theme.cssPath);
+  sheets.push(withAssetVersion(theme.cssPath, assetVersion));
 
   return sheets;
+}
+
+function withAssetVersion(href: string, assetVersion?: string): string {
+  if (!assetVersion) return href;
+  const separator = href.includes('?') ? '&' : '?';
+  return `${href}${separator}v=${encodeURIComponent(assetVersion)}`;
 }
 
 /**
