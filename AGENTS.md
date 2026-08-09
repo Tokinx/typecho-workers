@@ -189,6 +189,8 @@ const ip = getClientIp(request);
 | filter | `applyFilter(point, value, ...args)` | 链式变换，必须返回值，异常传播中断链路 |
 | filter-safe | `applyFilterSafely(point, value, ...args)` | 链式变换，吞异常，展示用 |
 
+> 例外：`route:request` 是唯一使用隔离执行的 filter hook——middleware 用 `applyFilterSafely` 调用（P1-2），单个插件 handler 抛异常仅记录并跳过，不整站 500（插件静态打包无法热卸载）；仅 `handled=true` 且带 Response 的结果生效，保留路径硬拦截（G6-4）仍适用。
+
 ### 6.2 注册
 
 ```typescript
