@@ -2,7 +2,7 @@ import { defineMiddleware } from 'astro:middleware';
 import { getDb } from '@/db';
 import { schema } from '@/db';
 import { loadOptions, ensureSecret } from '@/lib/options';
-import { applyFilter, isPluginAdminPath, parseActivatedPlugins, setActivatedPlugins, type HookContext } from '@/lib/plugin';
+import { applyFilterSafely, isPluginAdminPath, parseActivatedPlugins, setActivatedPlugins, type HookContext } from '@/lib/plugin';
 import { applySecurityHeaders } from '@/lib/security-headers';
 import { setRequestCoreContext } from '@/lib/context';
 import { compilePermalinkPattern } from '@/lib/permalink-pattern';
@@ -158,7 +158,13 @@ const coreMiddleware = defineMiddleware(async (context, next) => {
     );
   }
 
-  const pluginRoute = await applyFilter(pluginCtx, 'route:request', { handled: false }, {
+  // G: route:request is isolated per plugin — a single plugin bug (e.g. a
+  // timed-out outbound call in one handler) must not take the whole site
+  // down, since plugins are statically bundled and cannot be hot-unloaded.
+  // applyFilterSafely swallows each handler's exception and continues the
+  // chain; only a plugin that returns handled=true with a Response takes
+  // effect. The reserved-core-path hard block below still applies.
+  const pluginRoute = await applyFilterSafely(pluginCtx, 'route:request', { handled: false }, {
     request: context.request,
     url,
     path,

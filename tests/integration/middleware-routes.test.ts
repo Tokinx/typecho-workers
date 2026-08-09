@@ -64,6 +64,7 @@ import { advanceOptionsSnapshotGeneration } from '@/lib/options-snapshot-generat
 import { onRequest } from '@/middleware';
 import { env as workerEnv } from 'cloudflare:workers';
 import { earlyRequestProvider, resetCacheProviderForTests } from '@/plugins/typecho-plugin-cache/cache';
+import { addHook, HookPoints, registerPluginLoaders } from '@/lib/plugin';
 
 const SITE = 'http://localhost:4321';
 
@@ -407,5 +408,96 @@ describe('Middleware: activated plugin routes (registry imported by middleware)'
     } as any;
     const response = await onRequest(ctx, async () => new Response('not found', { status: 404 })) as Response;
     expect(response.status).toBe(404);
+  });
+
+  it('isolates a throwing route:request plugin instead of 500ing the site (G: P1-2)', async () => {
+    // A plugin whose route:request handler always throws must only lose its
+    // own contribution — every other request still renders normally. Before
+    // the isolation fix, applyFilter rethrew and the whole site 500ed.
+    registerPluginLoaders({
+      'test-broken-route': () => async () => {
+        addHook('route:request', 'test-broken-route', async (_value) => {
+          throw new Error('broken plugin exploded');
+        });
+      },
+    }, { addHook, HookPoints });
+
+    await testDb.insert(schema.options).values({
+      name: 'activatedPlugins',
+      user: 0,
+      value: JSON.stringify(['test-broken-route']),
+    }).onConflictDoUpdate({
+      target: [schema.options.name, schema.options.user],
+      set: { value: JSON.stringify(['test-broken-route']) },
+    });
+    advanceOptionsSnapshotGeneration(testDb as any);
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const request = new Request(`${SITE}/a-plain-page`, { method: 'GET' });
+      const ctx = {
+        request,
+        url: new URL(request.url),
+        locals: {},
+        redirect: (p: string) => new Response(null, { status: 302, headers: { Location: p } }),
+        rewrite: (p: string) => new Response(null, { status: 302, headers: { Location: p } }),
+      } as any;
+      const next = vi.fn(async () => new Response('ok', { status: 200 }));
+      const response = await onRequest(ctx, next) as Response;
+
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe('ok');
+      expect(next).toHaveBeenCalledOnce();
+    } finally {
+      errorSpy.mockRestore();
+      await testDb.delete(schema.options).where(eq(schema.options.name, 'activatedPlugins'));
+      advanceOptionsSnapshotGeneration(testDb as any);
+    }
+  });
+
+  it('still claims routes from a healthy plugin when a sibling route:request handler throws (G: P1-2)', async () => {
+    // The broken plugin is registered first (priority 10, stable sort) so it
+    // runs before the healthy one: the healthy plugin must still receive the
+    // chain value and be able to claim its route.
+    registerPluginLoaders({
+      'test-good-route': () => async () => {
+        addHook('route:request', 'test-good-route', async (value, extra) => {
+          if (extra.path === '/claim-me') {
+            return { handled: true, response: new Response('claimed', { status: 200 }) };
+          }
+          return value;
+        });
+      },
+    }, { addHook, HookPoints });
+
+    await testDb.insert(schema.options).values({
+      name: 'activatedPlugins',
+      user: 0,
+      value: JSON.stringify(['test-broken-route', 'test-good-route']),
+    }).onConflictDoUpdate({
+      target: [schema.options.name, schema.options.user],
+      set: { value: JSON.stringify(['test-broken-route', 'test-good-route']) },
+    });
+    advanceOptionsSnapshotGeneration(testDb as any);
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const request = new Request(`${SITE}/claim-me`, { method: 'GET' });
+      const ctx = {
+        request,
+        url: new URL(request.url),
+        locals: {},
+        redirect: (p: string) => new Response(null, { status: 302, headers: { Location: p } }),
+        rewrite: (p: string) => new Response(null, { status: 302, headers: { Location: p } }),
+      } as any;
+      const response = await onRequest(ctx, async () => new Response('not found', { status: 404 })) as Response;
+
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe('claimed');
+    } finally {
+      errorSpy.mockRestore();
+      await testDb.delete(schema.options).where(eq(schema.options.name, 'activatedPlugins'));
+      advanceOptionsSnapshotGeneration(testDb as any);
+    }
   });
 });
