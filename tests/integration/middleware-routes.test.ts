@@ -416,7 +416,7 @@ describe('Middleware: activated plugin routes (registry imported by middleware)'
     // the isolation fix, applyFilter rethrew and the whole site 500ed.
     registerPluginLoaders({
       'test-broken-route': () => async () => {
-        addHook('route:request', 'test-broken-route', async (_value) => {
+        addHook('route:request', 'test-broken-route', async (_value: { handled?: boolean }) => {
           throw new Error('broken plugin exploded');
         });
       },
@@ -461,7 +461,7 @@ describe('Middleware: activated plugin routes (registry imported by middleware)'
     // chain value and be able to claim its route.
     registerPluginLoaders({
       'test-good-route': () => async () => {
-        addHook('route:request', 'test-good-route', async (value, extra) => {
+        addHook('route:request', 'test-good-route', async (value: { handled?: boolean }, extra: { path: string }) => {
           if (extra.path === '/claim-me') {
             return { handled: true, response: new Response('claimed', { status: 200 }) };
           }

@@ -245,7 +245,7 @@ describe('POST /api/admin/content', () => {
     const slugs = rows.map(r => r.slug);
     expect(new Set(slugs).size).toBe(2);
     expect(slugs).toContain('race-slug');
-    expect(slugs.some(slug => /^race-slug-\d+$/.test(slug))).toBe(true);
+    expect(slugs.some((slug) => slug !== null && /^race-slug-\d+$/.test(slug))).toBe(true);
   });
 
   it('preserves a post slug when its permalink format does not expose a slug input', async () => {
