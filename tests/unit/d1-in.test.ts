@@ -37,4 +37,27 @@ describe('D1 IN predicate bounds', () => {
       if (db) await disposeTestDb(db);
     }
   });
+
+  it('treats an empty ID list as match-nothing instead of throwing', async () => {
+    // Regression: manage-posts.astro used a [-1] sentinel for empty
+    // post/author lists, which trips the positive-integer guard below and
+    // 500ed pages with empty lists (?status=waiting with no waiting posts,
+    // or a brand-new site with no published posts). The empty branch must
+    // short-circuit to `1 = 0`.
+    let db: TestDatabase | undefined;
+    try {
+      db = await createTestDb();
+      const rows = await db.select({ uid: schema.users.uid })
+        .from(schema.users)
+        .where(sqlInChunks(schema.users.uid, []));
+      expect(rows).toHaveLength(0);
+    } finally {
+      if (db) await disposeTestDb(db);
+    }
+  });
+
+  it('rejects non-positive IDs, so a -1 sentinel can never silently match nothing', () => {
+    expect(() => sqlInChunks(schema.users.uid, [-1])).toThrow('D1 ID list contains an invalid value');
+    expect(() => sqlInChunks(schema.users.uid, [0])).toThrow('D1 ID list contains an invalid value');
+  });
 });

@@ -96,18 +96,21 @@ const loadPostList = async () => {
     db.select({ count: sql<number>`count(*)` }).from(schema.contents)
       .where(and(eq(schema.contents.type, 'post'), eq(schema.contents.status, 'waiting'), ...(!isAdmin ? [eq(schema.contents.authorId, user!.uid)] : []))),
   ]);
-  const authorIds = [...new Set(posts.map(p => p.authorId).filter(Boolean))];
+  // Empty lists are passed straight through: sqlInChunks returns `1 = 0`
+  // for an empty ID list, which matches nothing. Do NOT fall back to a
+  // sentinel like [-1] — sqlInChunks validates positive IDs and throws,
+  // 500ing pages with empty lists (e.g. ?status=waiting with no waiting
+  // posts or a brand-new site with no published posts).
+  const authorIds = [...new Set(posts.map(p => p.authorId).filter((id): id is number => Boolean(id)))];
   const postIds = posts.map(p => p.cid);
-  const safeAuthorIds = authorIds.length > 0 ? authorIds : [-1];
-  const safePostIds = postIds.length > 0 ? postIds : [-1];
   const [authors, catData] = await db.batch([
     db.select({ uid: schema.users.uid, name: schema.users.name, screenName: schema.users.screenName }).from(schema.users)
-      .where(sqlInChunks(schema.users.uid, safeAuthorIds)),
+      .where(sqlInChunks(schema.users.uid, authorIds)),
     db.select({ cid: schema.relationships.cid, name: schema.metas.name, mid: schema.metas.mid })
       .from(schema.relationships)
       .innerJoin(schema.metas, eq(schema.relationships.mid, schema.metas.mid))
       .where(and(
-        sqlInChunks(schema.relationships.cid, safePostIds),
+        sqlInChunks(schema.relationships.cid, postIds),
         eq(schema.metas.type, 'category')
       )),
   ]);
