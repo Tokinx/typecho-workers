@@ -210,6 +210,44 @@ describe('POST /api/admin/content', () => {
     expect(updated?.slug).toBe(`shared-slug-${second!.cid}`);
   });
 
+  it('resolves concurrent publishes of the same slug without a 500 (G: P1-4)', async () => {
+    await testDb.insert(schema.options).values({
+      name: 'permalinkPattern',
+      user: 0,
+      value: '/archives/{slug}.html',
+    });
+    const admin = await testDb.query.users.findFirst();
+    const cookie = await makeAuthCookie(testDb, admin!.uid, TEST_AUTH_CODE, TEST_SECRET);
+    const makeCreate = () => makeContentRequest({
+      do: 'create',
+      type: 'post',
+      title: 'Race post',
+      slug: 'race-slug',
+      text: 'Body',
+      status: 'publish',
+      visibility: 'publish',
+    }, cookie);
+
+    // Two simultaneous publishes of the same slug: the slug claim is a
+    // compare-and-swap UPDATE, so the loser must fall back to a -cid suffix
+    // instead of tripping the unique index and 500ing.
+    const [resA, resB] = await Promise.all([
+      POST({ request: await makeCreate(), locals: {} } as any),
+      POST({ request: await makeCreate(), locals: {} } as any),
+    ]);
+    expect(resA.status).toBe(302);
+    expect(resB.status).toBe(302);
+
+    const rows = await testDb.query.contents.findMany({
+      where: eq(schema.contents.title, 'Race post'),
+    });
+    expect(rows).toHaveLength(2);
+    const slugs = rows.map(r => r.slug);
+    expect(new Set(slugs).size).toBe(2);
+    expect(slugs).toContain('race-slug');
+    expect(slugs.some(slug => /^race-slug-\d+$/.test(slug))).toBe(true);
+  });
+
   it('preserves a post slug when its permalink format does not expose a slug input', async () => {
     await testDb.insert(schema.contents).values({
       title: 'Existing post',

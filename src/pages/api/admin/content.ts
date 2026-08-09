@@ -12,6 +12,7 @@ import { canViewContent } from '@/lib/content-visibility';
 import { parseTrackbackUrls, sendTrackbacks, TrackbackInputError } from '@/lib/trackback';
 import { eq, and, sql } from 'drizzle-orm';
 import { parseBoundedIds, sqlInChunks } from '@/lib/d1-in';
+import { SLUG_RESOLVE_MAX_SUFFIX } from '@/lib/constants';
 
 // Typecho convention: visibility dropdown maps to db status column.
 // 'password' visibility stores the password in a separate column, status falls back to 'publish'.
@@ -141,19 +142,34 @@ async function attachTags(db: any, cid: number, tags: string) {
   }
 }
 
-async function resolveUniqueContentSlug(db: any, desiredSlug: string, cid: number): Promise<string> {
-  const base = desiredSlug || String(cid);
+/**
+ * Claim a unique slug for a content row with a compare-and-swap UPDATE.
+ * The statement only takes effect while no OTHER row holds the candidate
+ * (single atomic statement), so concurrent publishes of the same title
+ * resolve to different slugs instead of tripping the unique index and
+ * surfacing a 500. The CAS itself is the source of truth — callers must
+ * not pre-check with a SELECT.
+ *
+ * Suffix convention mirrors the old SELECT-then-UPDATE loop: first
+ * conflict appends `-{cid}`, later ones `-{cid}-{n}`.
+ */
+async function claimUniqueSlug(db: any, cid: number, base: string): Promise<string> {
   let candidate = base;
   let suffix = 0;
-
-  while (true) {
-    const existing = await db.query.contents.findFirst({
-      where: and(eq(schema.contents.slug, candidate), sql`${schema.contents.cid} != ${cid}`),
-    });
-    if (!existing) return candidate;
+  while (suffix < SLUG_RESOLVE_MAX_SUFFIX) {
+    const claimed = await db.update(schema.contents)
+      .set({ slug: candidate })
+      .where(and(
+        eq(schema.contents.cid, cid),
+        sql`NOT EXISTS (SELECT 1 FROM typecho_contents WHERE slug = ${candidate} AND cid != ${cid})`,
+      ))
+      .returning({ cid: schema.contents.cid });
+    if (claimed.length > 0) return candidate;
     suffix += 1;
     candidate = suffix === 1 ? `${base}-${cid}` : `${base}-${cid}-${suffix}`;
   }
+  // Pathological cap (same convention as install.ts): timestamp suffix.
+  return `${base}-${Date.now().toString(36)}`;
 }
 
 type PageParentValidation = { parent: number } | { error: string };
@@ -401,10 +417,13 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   if (action === 'create') {
     // Typecho 1.3 derives an initial slug from the title, then falls back to
-    // cid for titles that have no URL-safe characters.
+    // cid for titles that have no URL-safe characters. The row is inserted
+    // with a throwaway random slug; the real one is claimed atomically below
+    // so two concurrent publishes of the same title cannot race on the
+    // unique index (G: P1-4).
     let contentData: Record<string, unknown> = {
       title,
-      slug: canEditSlug && hasSubmittedSlug && slugInput ? slugInput : `temp-${Date.now().toString(36)}`,
+      slug: `temp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
       created,
       modified: now,
       text,
@@ -428,13 +447,16 @@ export const POST: APIRoute = async ({ request, locals }) => {
     const newCid = result[0]?.cid;
     if (!newCid) return new Response('创建失败', { status: 500 });
 
-    const finalSlug = await resolveUniqueContentSlug(
+    const finalSlug = await claimUniqueSlug(
       db,
-      canEditSlug && hasSubmittedSlug && slugInput ? slugInput : generateSlug(title) || String(newCid),
       newCid,
+      canEditSlug && hasSubmittedSlug && slugInput ? slugInput : generateSlug(title) || String(newCid),
     );
+    // Finish hooks and the flash notice must see the claimed slug, not the
+    // throwaway temp value used for the insert.
+    contentData.slug = finalSlug;
+
     const createStatements: any[] = [
-      db.update(schema.contents).set({ slug: finalSlug }).where(eq(schema.contents.cid, newCid)),
       ...buildCustomFieldStatements(db, newCid, formData),
     ];
     if (categoryIds.length > 0) {
@@ -495,9 +517,12 @@ export const POST: APIRoute = async ({ request, locals }) => {
       return new Response('Forbidden', { status: 403 });
     }
 
-    const finalSlug = canEditSlug && hasSubmittedSlug
-      ? await resolveUniqueContentSlug(db, slugInput || String(cid), cid)
-      : existing.slug || String(cid);
+    // Slug is claimed via compare-and-swap AFTER the field batch (below) —
+    // a concurrent publish resolving the same slug retries with a -cid
+    // suffix instead of violating the unique index (G: P1-4).
+    const desiredSlug = canEditSlug && hasSubmittedSlug
+      ? (slugInput || String(cid))
+      : (existing.slug || String(cid));
 
     // Update categories: remove old, add new. Snapshot old category/tag
     // slugs first so we can purge their archive pages after the writes —
@@ -513,7 +538,6 @@ export const POST: APIRoute = async ({ request, locals }) => {
     const updateStatements: any[] = [
       db.update(schema.contents).set({
         title,
-        slug: finalSlug,
         created,
         modified: now,
         text,
@@ -558,6 +582,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
       )));
     }
     await db.batch(updateStatements as [any, ...any[]]);
+
+    // Claim the slug atomically (see desiredSlug above) — may retry with a
+    // -cid suffix when a concurrent publish won the race.
+    const finalSlug = await claimUniqueSlug(db, cid, desiredSlug);
 
     // Add tags
     if (tags) {
