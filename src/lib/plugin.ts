@@ -270,10 +270,23 @@ let pluginInitContext: { addHook: typeof addHook; HookPoints: typeof HookPoints 
  * Plugins can register admin paths that bypass the reserved-core-path guard
  * in middleware. Call this during plugin init() for each /admin/ or /api/admin/
  * path the plugin serves via route:request.
+ *
+ * G: registration is restricted to /admin/ and /api/admin/ prefixed paths.
+ * isReservedCorePath() in middleware exempts any registered path from the
+ * hard block, so accepting arbitrary paths (e.g. /api/users/login,
+ * /api/install) would let a buggy or malicious plugin shadow authentication,
+ * installation or other core flows.
  */
+const PLUGIN_ADMIN_PATH_PREFIXES = ['/admin/', '/api/admin/'] as const;
 const pluginAdminPaths = new Set<string>();
 
 export function registerPluginAdminPath(path: string): void {
+  if (!PLUGIN_ADMIN_PATH_PREFIXES.some(prefix => path.startsWith(prefix))) {
+    console.warn(
+      `[plugin] registerPluginAdminPath rejected "${path}": only /admin/ and /api/admin/ paths may bypass the reserved-core-path guard`,
+    );
+    return;
+  }
   pluginAdminPaths.add(path);
 }
 
