@@ -38,4 +38,21 @@ describe('admin manage comments page', () => {
     expect(adminCss).toContain('.comment-action button.operate-reply { color: #545c30; }');
     expect(adminCss).toContain('.comment-action button.operate-delete { color: #B94A48; }');
   });
+
+  it('never interpolates commenter data into inline event handlers (G-XSS-1)', () => {
+    // Regression: the delete confirm used to inline comment.author into an
+    // onclick attribute escaping only single quotes. Author names like
+    // \');alert(document.domain)// broke out of the JS string (the doubled
+    // backslash stays literal while the following quote terminates it), so
+    // any anonymous visitor could run script in the admin page. Author data
+    // must only ever travel in data-* attributes and be read via
+    // getAttribute — never into a template literal used as a handler.
+    expect(pageSource).not.toMatch(/onclick=\{`return confirm/);
+    expect(pageSource).not.toMatch(/onclick=\{`[^`]*comment\.author/);
+    expect(pageSource).toMatch(
+      /class="operate-delete" data-coid=\{String\(comment\.coid\)\} data-author=\{comment\.author \|\| '匿名'\}/,
+    );
+    expect(pageSource).toMatch(/del\.getAttribute\('data-author'\) \|\| '匿名'/);
+    expect(pageSource).toMatch(/window\.confirm\('你确认要删除' \+ authorName \+ '的评论吗\?'\)/);
+  });
 });

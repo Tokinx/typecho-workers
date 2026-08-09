@@ -264,9 +264,13 @@ const commentHtml = new Map(commentsList.map(comment => [
                         <button type="button" class="operate-reply" data-coid={String(comment.coid)}>回复</button>
                       )}
 
+                      {/* G-XSS-1: never interpolate commenter data into inline
+                          handlers — author names like \');alert(1)// broke out of
+                          the old onclick confirm string. The name is carried in a
+                          data-* attribute (HTML-escaped by Astro) and read via
+                          getAttribute + window.confirm in the delegated handler. */}
                       <button type="submit" formaction={`/api/admin/comment-action?action=delete&coid=${comment.coid}`} formmethod="post"
-                        class="operate-delete"
-                        onclick={`return confirm('你确认要删除${(comment.author || '匿名').replace(/'/g, "\\'")}的评论吗?')`}>删除</button>
+                        class="operate-delete" data-coid={String(comment.coid)} data-author={comment.author || '匿名'}>删除</button>
                     </div>
                   </td>
                 </tr>
@@ -562,6 +566,16 @@ const commentHtml = new Map(commentsList.map(comment => [
         if (reply) {
           event.preventDefault();
           openReply(reply);
+          return;
+        }
+        // G-XSS-1: delete confirm reads the author from data-author (safe
+        // textContent) instead of interpolating it into an inline onclick.
+        var del = target.closest('.operate-delete');
+        if (del) {
+          var authorName = del.getAttribute('data-author') || '匿名';
+          if (!window.confirm('你确认要删除' + authorName + '的评论吗?')) {
+            event.preventDefault();
+          }
         }
       });
     })();
