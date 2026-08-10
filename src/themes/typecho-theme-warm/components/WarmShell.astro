@@ -125,7 +125,11 @@ const socialLinks = [
           item.hidden = false;
         });
       };
-      if (window.ViewImage) ViewImage.init('[view-image] img');
+      // Collect lightbox targets from both note-grid links (href = full-size
+      // image) and unwrapped content images (src). The `img:not(a img)` guard
+      // keeps wrapped thumbnails from being collected twice, since ViewImage
+      // does not deduplicate.
+      if (window.ViewImage) ViewImage.init('[view-image] a, [view-image] img:not(a img)');
       document.addEventListener('click', expandNoteImages);
       const repairNoteMedia = root => {
         const scope = root && root.querySelectorAll ? root : document;

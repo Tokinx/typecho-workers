@@ -76,6 +76,11 @@ describe('typecho-theme-warm', () => {
     expect(index.indexOf('class="warm-category"')).toBeLessThan(index.indexOf('formatWarmDate(item.created, options.postDateFormat, options.timezone)'));
     expect(index).toContain('formatWarmDate(item.created, options.postDateFormat, options.timezone, true)');
     expect(index).not.toContain('item.categories[0] &&');
+    // Note bodies and note grids on the index carry EdgeOne optimization params.
+    expect(index).toContain("optimizeContentImages(item.html, settings.imageOptimizeParams, urls.siteUrl)");
+    expect(index).toContain('optimizeParams={settings.imageOptimizeParams}');
+    expect(index).toContain('thumbParams={settings.thumbOptimizeParams}');
+    expect(index).toContain('siteUrl={urls.siteUrl}');
     const archive = readFileSync(join(themeRoot, 'components/Archive.astro'), 'utf8');
     expect(archive).not.toContain('warm-list-heading');
     expect(archive.indexOf('class="warm-category"')).toBeLessThan(archive.indexOf('formatWarmDate(post.created, options.postDateFormat, options.timezone)'));
@@ -118,7 +123,7 @@ describe('typecho-theme-warm', () => {
     expect(shell).toContain("media.dataset.warmRepaired = '1';");
     expect(shell).toContain('media.load()');
     expect(shell).toContain('viewImageSource');
-    expect(shell).toContain("ViewImage.init('[view-image] img')");
+    expect(shell).toContain("ViewImage.init('[view-image] a, [view-image] img:not(a img)')");
     expect(shell).toContain('data-warm-images-more');
     expect(shell).toContain('data-warm-images-rest');
     expect(shell).toContain("grid.classList.add('is-expanded')");
@@ -132,6 +137,10 @@ describe('typecho-theme-warm', () => {
     expect(post).toContain('initialLoadMode={settings.commentInitialLoadMode}');
     // Article/note body images open the ViewImage lightbox too.
     expect(post).toContain('class:list={["warm-prose", { "warm-note-prose": isNote }]} view-image');
+    // Content bodies carry EdgeOne optimization params on same-origin images.
+    expect(post).toContain("optimizeContentImages(");
+    expect(post).toContain('settings.imageOptimizeParams');
+    expect(post).toContain("urls.siteUrl");
     const page = readFileSync(join(themeRoot, 'components/Page.astro'), 'utf8');
     expect(page).not.toContain('continuousLoadMode={settings.continuousLoadMode}');
     expect(page).toContain('<span class="warm-note-label">独立页面</span>');
@@ -139,6 +148,7 @@ describe('typecho-theme-warm', () => {
     expect(page).toContain('componentLoadMode={settings.commentComponentLoadMode}');
     expect(page).toContain('initialLoadMode={settings.commentInitialLoadMode}');
     expect(page).toContain('class="warm-prose" view-image');
+    expect(page).toContain("optimizeContentImages(page.content, settings.imageOptimizeParams, urls.siteUrl)");
     const css = readFileSync(join(themeRoot, 'style.css'), 'utf8');
     expect(css).not.toContain('.warm-list-heading');
     expect(css).not.toContain('.warm-back');
@@ -230,9 +240,20 @@ describe('typecho-theme-warm', () => {
     expect(media).toContain('warm-note__image--rest');
     expect(media).toContain('aria-label={`展开剩余 ${extraCount} 张图片`}');
     expect(media).toContain('hidden');
+    // Every thumbnail is wrapped in a lightbox link: the anchor opens the
+    // optimized full-size image (href), the img shows the optimized thumbnail.
+    expect(media).toContain('optimizeImageUrl');
+    expect(media).toContain('optimizeParams?: string');
+    expect(media).toContain('thumbParams?: string');
+    expect(media).toContain('href={optimizeImageUrl(image.url, optimizeParams, siteUrl)}');
+    expect(media).toContain('src={optimizeImageUrl(image.url, thumbParams, siteUrl)}');
+    expect(media).toContain('warm-note__image-link');
+    expect((media.match(/optimizeImageUrl\(image\.url, optimizeParams/g) || [])).toHaveLength(2);
+    expect((media.match(/optimizeImageUrl\(image\.url, thumbParams/g) || [])).toHaveLength(2);
     // The overlay grid layout must stay self-contained in the theme stylesheet.
     const css = readFileSync(join(themeRoot, 'style.css'), 'utf8');
     expect(css).toContain('.warm-note__image {');
+    expect(css).toContain('.warm-note__image-link {\n  display: block;\n}');
     expect(css).toContain('.warm-note__image--rest {');
     expect(css).toContain('.warm-note__images.is-expanded .warm-note__image--rest');
     expect(css).toContain('.warm-note__images-more {');

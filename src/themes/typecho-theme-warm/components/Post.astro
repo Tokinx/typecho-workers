@@ -3,6 +3,7 @@ import { env } from 'cloudflare:workers';
 import { getDb } from 'typecho/db';
 import { getNoteForTheme } from 'typecho-plugin-notes';
 import { createContext } from '@/lib/context';
+import { optimizeContentImages } from '@/lib/image-transform';
 import type { ThemePostProps } from '@/lib/theme-props';
 import WarmShell from './WarmShell.astro';
 import WarmComments from './WarmComments.astro';
@@ -25,7 +26,11 @@ const note = noteContext
   : null;
 const isNote = note?.type === 'note';
 const settings = warmSettings(options);
-const displayContent = isNote ? note.html : post.content;
+const displayContent = optimizeContentImages(
+  isNote ? note.html : post.content,
+  settings.imageOptimizeParams,
+  urls.siteUrl,
+);
 const description = plainExcerpt(isNote ? note.source : post.content, 160);
 ---
 <WarmShell
@@ -59,7 +64,15 @@ const description = plainExcerpt(isNote ? note.source : post.content, 160);
 
     <div class:list={["warm-prose", { "warm-note-prose": isNote }]} view-image itemprop="articleBody" set:html={displayContent} />
 
-    {isNote && <WarmNoteMedia note={note} detail />}
+    {isNote && (
+      <WarmNoteMedia
+        note={note}
+        detail
+        optimizeParams={settings.imageOptimizeParams}
+        thumbParams={settings.thumbOptimizeParams}
+        siteUrl={urls.siteUrl}
+      />
+    )}
 
     {!isNote && tags.length > 0 && (
       <footer class="warm-article__tags">

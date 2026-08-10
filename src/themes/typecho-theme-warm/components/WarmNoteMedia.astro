@@ -1,13 +1,20 @@
 ---
 import type { NoteListItem } from 'typecho-plugin-notes';
+import { optimizeImageUrl } from '@/lib/image-transform';
 
 interface Props {
   note: NoteListItem;
   /** Detail view (note page) instead of stream card. */
   detail?: boolean;
+  /** EdgeOne params for the full-size image the lightbox opens. */
+  optimizeParams?: string;
+  /** EdgeOne params for the grid thumbnails; falls back to optimizeParams when empty. */
+  thumbParams?: string;
+  /** Site origin used to recognize absolute same-origin upload URLs. */
+  siteUrl?: string;
 }
 
-const { note, detail = false } = Astro.props;
+const { note, detail = false, optimizeParams = '', thumbParams = '', siteUrl = '' } = Astro.props;
 const images = note.images || [];
 const media = [
   ...(note.videos || []).map(video => ({ ...video, kind: 'video' as const })),
@@ -42,7 +49,12 @@ function fileExt(name: string): string {
           { "warm-note__image--more": extraCount > 0 && index === visibleImages.length - 1 },
         ]}
       >
-        <img src={image.url} alt={image.name || '笔记配图'} loading="lazy" />
+        <a
+          class="warm-note__image-link"
+          href={optimizeImageUrl(image.url, optimizeParams, siteUrl)}
+        >
+          <img src={optimizeImageUrl(image.url, thumbParams, siteUrl)} alt={image.name || '笔记配图'} loading="lazy" />
+        </a>
         {extraCount > 0 && index === visibleImages.length - 1 && (
           <button
             type="button"
@@ -57,7 +69,12 @@ function fileExt(name: string): string {
     ))}
     {extraCount > 0 && images.slice(4).map(image => (
       <div class="warm-note__image warm-note__image--rest" data-warm-images-rest hidden>
-        <img src={image.url} alt={image.name || '笔记配图'} loading="lazy" />
+        <a
+          class="warm-note__image-link"
+          href={optimizeImageUrl(image.url, optimizeParams, siteUrl)}
+        >
+          <img src={optimizeImageUrl(image.url, thumbParams, siteUrl)} alt={image.name || '笔记配图'} loading="lazy" />
+        </a>
       </div>
     ))}
   </div>

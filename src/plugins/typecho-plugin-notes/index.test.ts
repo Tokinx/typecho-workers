@@ -146,7 +146,7 @@ describe('typecho-plugin-notes', () => {
     expect(html).toContain("note-media-list '+gridClass+'\"");
     expect(html).toContain("note-media-list '+gridClass+'\" view-image>");
     expect(html).toContain('/vendor/view-image.min.js');
-    expect(html).toContain('ViewImage.init("[view-image] img")');
+    expect(html).toContain('ViewImage.init("[view-image] a, [view-image] img:not(a img)")');
     expect(html).toContain('note-body" view-image>');
     expect(html).toContain('.note-media-list.has-1{grid-template-columns:minmax(0,1fr);max-width:50%}');
     expect(html).toContain('.note-media-list.has-2{');

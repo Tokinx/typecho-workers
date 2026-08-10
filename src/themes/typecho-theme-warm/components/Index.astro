@@ -3,6 +3,7 @@ import { env } from 'cloudflare:workers';
 import { getDb, schema } from 'typecho/db';
 import { getNotesStreamForTheme, type NoteListItem } from 'typecho-plugin-notes';
 import { createContext } from '@/lib/context';
+import { optimizeContentImages } from '@/lib/image-transform';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { ThemeIndexProps, PostListItem } from '@/lib/theme-props';
 import { buildCategoryLink } from '@/lib/content';
@@ -182,8 +183,13 @@ if (isNotesStreamOutOfRange) Astro.response.status = 404;
           <span aria-hidden="true">·</span>
           <time datetime={new Date(item.created * 1000).toISOString()}>{formatWarmDate(item.created, options.postDateFormat, options.timezone, true)}</time>
         </div>
-        <div class="warm-note__content" set:html={item.html} />
-        <WarmNoteMedia note={item} />
+        <div class="warm-note__content" set:html={optimizeContentImages(item.html, settings.imageOptimizeParams, urls.siteUrl)} />
+        <WarmNoteMedia
+          note={item}
+          optimizeParams={settings.imageOptimizeParams}
+          thumbParams={settings.thumbOptimizeParams}
+          siteUrl={urls.siteUrl}
+        />
       </article>
     ) : (
       <article class="warm-stream-item warm-post-card" data-content-type="post">

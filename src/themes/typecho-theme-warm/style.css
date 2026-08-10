@@ -384,6 +384,11 @@ body.warm-theme {
   line-height: 0;
 }
 
+/* The lightbox link wraps the thumbnail and fills its grid cell. */
+.warm-note__image-link {
+  display: block;
+}
+
 /* Images beyond the fourth are hidden until the "+N" overlay is clicked. */
 .warm-note__image--rest {
   display: none;

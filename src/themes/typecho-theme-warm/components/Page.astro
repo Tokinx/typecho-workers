@@ -1,5 +1,6 @@
 ---
 import type { ThemePageProps } from '@/lib/theme-props';
+import { optimizeContentImages } from '@/lib/image-transform';
 import WarmShell from './WarmShell.astro';
 import WarmComments from './WarmComments.astro';
 import { formatWarmDate, plainExcerpt, warmSettings } from './warm';
@@ -29,7 +30,7 @@ const settings = warmSettings(options);
       <div class="warm-item-meta"><span class="warm-note-label">独立页面</span><span aria-hidden="true">·</span><time>{formatWarmDate(page.created, options.postDateFormat, options.timezone)}</time></div>
       <h1 itemprop="headline">{page.title}</h1>
     </header>
-    <div class="warm-prose" view-image itemprop="articleBody" set:html={page.content} />
+    <div class="warm-prose" view-image itemprop="articleBody" set:html={optimizeContentImages(page.content, settings.imageOptimizeParams, urls.siteUrl)} />
   </article>
 
   {(page.allowComment || commentPagination.totalComments > 0) && (
