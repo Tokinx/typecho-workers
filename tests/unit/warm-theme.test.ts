@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  WARM_THEME_ID,
   normalizeCommentComponentLoadMode,
   normalizeCommentInitialLoadMode,
   normalizeContinuousLoadMode,
@@ -9,6 +10,7 @@ import {
   readingMinutes,
   safeEmail,
   safeExternalUrl,
+  warmSettings,
 } from '../../src/themes/typecho-theme-warm/components/warm';
 
 const themeRoot = join(process.cwd(), 'src/themes/typecho-theme-warm');
@@ -47,6 +49,12 @@ describe('typecho-theme-warm', () => {
         'auto-2': '滚动加载 2 次',
         infinite: '无限滚动加载',
       },
+    });
+    expect(manifest.config.imageOptimizeParams).toMatchObject({
+      type: 'text', label: '图片优化参数', default: '',
+    });
+    expect(manifest.config.thumbOptimizeParams).toMatchObject({
+      type: 'text', label: '缩略图优化参数', default: '',
     });
   });
 
@@ -264,5 +272,29 @@ describe('typecho-theme-warm', () => {
     expect(normalizeCommentInitialLoadMode('infinite')).toBe('infinite');
     expect(normalizeCommentInitialLoadMode('auto')).toBe('auto-first');
     expect(normalizeCommentInitialLoadMode('invalid')).toBe('manual');
+  });
+
+  it('merges image optimization params with thumbnail fallback', () => {
+    type WarmOptions = Parameters<typeof warmSettings>[0];
+    const empty = warmSettings({} as unknown as WarmOptions);
+    expect(empty.imageOptimizeParams).toBe('');
+    expect(empty.thumbOptimizeParams).toBe('');
+
+    const saved = JSON.stringify({
+      imageOptimizeParams: '?quality=80&format=auto',
+      thumbOptimizeParams: '?quality=80&width=500&format=auto',
+    });
+    const settings = warmSettings({ [`theme:${WARM_THEME_ID}`]: saved } as unknown as WarmOptions);
+    expect(settings.imageOptimizeParams).toBe('quality=80&format=auto');
+    expect(settings.thumbOptimizeParams).toBe('quality=80&width=500&format=auto');
+
+    // Empty thumbnail params fall back to the image params.
+    const thumbOnlyImage = warmSettings({ [`theme:${WARM_THEME_ID}`]: JSON.stringify({ imageOptimizeParams: '?quality=80' }) } as unknown as WarmOptions);
+    expect(thumbOnlyImage.imageOptimizeParams).toBe('quality=80');
+    expect(thumbOnlyImage.thumbOptimizeParams).toBe('quality=80');
+
+    // Malicious input is filtered before it can reach a src attribute.
+    const injected = warmSettings({ [`theme:${WARM_THEME_ID}`]: JSON.stringify({ imageOptimizeParams: '?quality=80" onerror="alert(1)' }) } as unknown as WarmOptions);
+    expect(injected.imageOptimizeParams).toBe('quality=80onerror=alert1');
   });
 });

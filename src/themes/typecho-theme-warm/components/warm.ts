@@ -1,5 +1,6 @@
 import type { ThemeBaseProps } from '@/lib/theme-props';
 import { loadThemeConfig } from '@/lib/theme';
+import { normalizeOptimizeParams } from '@/lib/image-transform';
 import { formatDate } from '@/lib/content';
 
 export const WARM_THEME_ID = 'typecho-theme-warm';
@@ -16,6 +17,10 @@ export interface WarmSettings {
   continuousLoadMode: WarmContinuousLoadMode;
   commentComponentLoadMode: WarmCommentComponentLoadMode;
   commentInitialLoadMode: WarmCommentInitialLoadMode;
+  /** Query params appended to same-origin upload URLs in content bodies (EdgeOne). */
+  imageOptimizeParams: string;
+  /** Query params appended to thumbnail URLs; falls back to imageOptimizeParams when empty. */
+  thumbOptimizeParams: string;
 }
 
 export function warmSettings(options: ThemeBaseProps['options']): WarmSettings {
@@ -27,6 +32,7 @@ export function warmSettings(options: ThemeBaseProps['options']): WarmSettings {
     : legacyCommentMode === 'dwell' || legacyCommentMode === 'dwell-auto-2'
       ? 'dwell'
       : settings.commentComponentLoadMode;
+  const imageOptimizeParams = normalizeOptimizeParams(settings.imageOptimizeParams);
   return {
     githubUrl: safeExternalUrl(settings.githubUrl),
     socialUrl: safeExternalUrl(settings.socialUrl),
@@ -34,6 +40,8 @@ export function warmSettings(options: ThemeBaseProps['options']): WarmSettings {
     continuousLoadMode: normalizeContinuousLoadMode(settings.continuousLoadMode),
     commentComponentLoadMode: normalizeCommentComponentLoadMode(componentLoadMode),
     commentInitialLoadMode: normalizeCommentInitialLoadMode(settings.commentInitialLoadMode),
+    imageOptimizeParams,
+    thumbOptimizeParams: normalizeOptimizeParams(settings.thumbOptimizeParams) || imageOptimizeParams,
   };
 }
 

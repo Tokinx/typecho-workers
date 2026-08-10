@@ -75,6 +75,18 @@ const WARM_THEME_CONFIG: Record<string, PluginConfigField> = {
   githubUrl: { type: 'text', label: 'GitHub 地址', default: '' },
   socialUrl: { type: 'text', label: '社交主页地址', default: '' },
   email: { type: 'text', label: '联系邮箱', default: '' },
+  imageOptimizeParams: {
+    type: 'text',
+    label: '图片优化参数',
+    description: '追加到文章、页面、笔记和列表页所有站内图片 URL 的查询参数，由边缘函数（EdgeOne）处理。示例：?quality=80&format=auto。留空则不优化。',
+    default: '',
+  },
+  thumbOptimizeParams: {
+    type: 'text',
+    label: '缩略图优化参数',
+    description: '追加到笔记网格等缩略图 URL 的查询参数。示例：?quality=80&width=500&format=auto。留空则沿用「图片优化参数」。',
+    default: '',
+  },
   continuousLoadMode: {
     type: 'select',
     label: '内容列表',
