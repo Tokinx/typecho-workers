@@ -189,12 +189,12 @@ describe('GET /feed theme image optimization params', () => {
     await testDb.insert(schema.options).values({
       name: 'theme:typecho-theme-warm',
       user: 0,
-      value: JSON.stringify({ imageOptimizeParams: '?quality=80&format=auto' }),
+      value: JSON.stringify({ imageOptimizeParams: '?quality=80' }),
     });
     await seedContent('optimized-post', { text: '![pic](/usr/uploads/2024/03/a.jpg) text' });
     const res = await GET({ locals: {}, params: { type: '' } } as any);
     const xml = await res.text();
-    expect(xml).toContain('src="/usr/uploads/2024/03/a.jpg?quality=80&format=auto"');
+    expect(xml).toContain('src="/usr/uploads/2024/03/a.jpg?quality=80"');
     expect(xml).not.toContain('src="/usr/uploads/2024/03/a.jpg"');
   });
 

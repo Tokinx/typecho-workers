@@ -52,9 +52,11 @@ describe('typecho-theme-warm', () => {
     });
     expect(manifest.config.imageOptimizeParams).toMatchObject({
       type: 'text', label: '图片优化参数', default: '',
+      description: '适用于站内所有图片，示例：?quality=80',
     });
     expect(manifest.config.thumbOptimizeParams).toMatchObject({
       type: 'text', label: '缩略图优化参数', default: '',
+      description: '适用于主题所有缩略图位置，示例：?quality=80&width=500',
     });
   });
 
@@ -302,12 +304,12 @@ describe('typecho-theme-warm', () => {
     expect(empty.thumbOptimizeParams).toBe('');
 
     const saved = JSON.stringify({
-      imageOptimizeParams: '?quality=80&format=auto',
-      thumbOptimizeParams: '?quality=80&width=500&format=auto',
+      imageOptimizeParams: '?quality=80',
+      thumbOptimizeParams: '?quality=80&width=500',
     });
     const settings = warmSettings({ [`theme:${WARM_THEME_ID}`]: saved } as unknown as WarmOptions);
-    expect(settings.imageOptimizeParams).toBe('quality=80&format=auto');
-    expect(settings.thumbOptimizeParams).toBe('quality=80&width=500&format=auto');
+    expect(settings.imageOptimizeParams).toBe('quality=80');
+    expect(settings.thumbOptimizeParams).toBe('quality=80&width=500');
 
     // Empty thumbnail params fall back to the image params.
     const thumbOnlyImage = warmSettings({ [`theme:${WARM_THEME_ID}`]: JSON.stringify({ imageOptimizeParams: '?quality=80' }) } as unknown as WarmOptions);

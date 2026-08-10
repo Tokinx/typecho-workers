@@ -99,8 +99,8 @@ describe('POST /api/admin/theme', () => {
         settings: {
           githubUrl: 'https://github.com/example',
           commentComponentLoadMode: 'dwell',
-          imageOptimizeParams: '?quality=80&format=auto',
-          thumbOptimizeParams: '?quality=80&width=500&format=auto',
+          imageOptimizeParams: '?quality=80',
+          thumbOptimizeParams: '?quality=80&width=500',
           unexpected: 'discard me',
         },
       }),
@@ -115,8 +115,8 @@ describe('POST /api/admin/theme', () => {
       commentComponentLoadMode: 'dwell',
       commentInitialLoadMode: 'manual',
       continuousLoadMode: 'manual',
-      imageOptimizeParams: '?quality=80&format=auto',
-      thumbOptimizeParams: '?quality=80&width=500&format=auto',
+      imageOptimizeParams: '?quality=80',
+      thumbOptimizeParams: '?quality=80&width=500',
     });
     expect(JSON.parse(saved?.value || '{}')).not.toHaveProperty('unexpected');
   });
