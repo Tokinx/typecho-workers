@@ -125,7 +125,11 @@ describe('typecho-theme-warm', () => {
     expect(shell).toContain("media.dataset.warmRepaired = '1';");
     expect(shell).toContain('media.load()');
     expect(shell).toContain('viewImageSource');
-    expect(shell).toContain("ViewImage.init('[view-image] a, [view-image] img:not(a img)')");
+    // Lightbox targets are limited to image links and bare images; plain
+    // text links must keep navigating, with a :has() capability fallback.
+    expect(shell).toContain("CSS.supports('selector(a:has(> img))')");
+    expect(shell).toContain("'[view-image] a:has(> img), [view-image] img:not(a img)'");
+    expect(shell).toContain("'[view-image] img'");
     expect(shell).toContain('data-warm-images-more');
     expect(shell).toContain('data-warm-images-rest');
     expect(shell).toContain("grid.classList.add('is-expanded')");

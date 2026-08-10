@@ -125,11 +125,15 @@ const socialLinks = [
           item.hidden = false;
         });
       };
-      // Collect lightbox targets from both note-grid links (href = full-size
-      // image) and unwrapped content images (src). The `img:not(a img)` guard
-      // keeps wrapped thumbnails from being collected twice, since ViewImage
-      // does not deduplicate.
-      if (window.ViewImage) ViewImage.init('[view-image] a, [view-image] img:not(a img)');
+      // Collect lightbox targets from image links (a wrapping an img — the
+      // note-grid thumbnails) and bare content images. Plain text links must
+      // keep navigating, so only `a:has(> img)` qualifies. Engines without
+      // :has() fall back to collecting bare images, which keeps the lightbox
+      // working and never hijacks links.
+      const viewImageSelector = CSS.supports('selector(a:has(> img))')
+        ? '[view-image] a:has(> img), [view-image] img:not(a img)'
+        : '[view-image] img';
+      if (window.ViewImage) ViewImage.init(viewImageSelector);
       document.addEventListener('click', expandNoteImages);
       const repairNoteMedia = root => {
         const scope = root && root.querySelectorAll ? root : document;
