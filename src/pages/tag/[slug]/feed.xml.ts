@@ -1,7 +1,7 @@
 import type { APIRoute } from 'astro';
 import { schema } from '@/db';
 import { generateRss2 } from '@/lib/feed';
-import { clampFeedItems, buildFeedItem, getFeedRuntime, xmlResponse } from '@/lib/feed-helpers';
+import { clampFeedItems, buildFeedItem, getFeedRuntime, getThemeImageOptimizeParams, xmlResponse } from '@/lib/feed-helpers';
 import { eq, and, desc } from 'drizzle-orm';
 import { publishedPostCondition } from '@/lib/content-visibility';
 import { findPublicMeta } from '@/lib/public-metas';
@@ -29,9 +29,10 @@ export const GET: APIRoute = async ({ locals, params }) => {
     .limit(limit);
 
   const items = [];
+  const optimizeParams = getThemeImageOptimizeParams(options);
   for (const { contents: p } of rows) {
     items.push(
-      await buildFeedItem(p, urls.siteUrl, options.permalinkPattern as string | undefined, undefined, pluginCtx, !!(options.feedFullText)),
+      await buildFeedItem(p, urls.siteUrl, options.permalinkPattern as string | undefined, undefined, pluginCtx, !!(options.feedFullText), optimizeParams),
     );
   }
 

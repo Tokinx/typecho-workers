@@ -7,6 +7,8 @@ import type { FeedItem } from '@/lib/feed';
 import { buildPermalink } from '@/lib/content';
 import { generateRss2, generateAtom, generateRss1 } from '@/lib/feed';
 import { renderContent } from '@/lib/markdown';
+import { loadThemeConfig } from '@/lib/theme';
+import { normalizeOptimizeParams, optimizeContentImages } from '@/lib/image-transform';
 import {
   applyFilterSafely,
   parseActivatedPlugins,
@@ -25,6 +27,14 @@ export const FEED_ITEMS_MAX = 50;
 export function clampFeedItems(rawValue: unknown): number {
   const n = parseInt(String(rawValue ?? FEED_ITEMS_DEFAULT), 10) || FEED_ITEMS_DEFAULT;
   return Math.min(FEED_ITEMS_MAX, Math.max(FEED_ITEMS_MIN, n));
+}
+
+/**
+ * EdgeOne image params declared by the active theme. Themes without the
+ * field (or an unknown theme id) yield an empty string — no rewriting.
+ */
+export function getThemeImageOptimizeParams(options: Record<string, any>): string {
+  return normalizeOptimizeParams(loadThemeConfig(options, options?.theme).imageOptimizeParams);
 }
 
 export async function getFeedRuntime(locals: App.Locals) {
@@ -48,6 +58,7 @@ export async function buildFeedItem(
   pagePattern: string | undefined,
   pluginCtx: HookContext,
   feedFullText?: boolean,
+  optimizeParams?: string,
 ): Promise<FeedItem> {
   const rendered = renderContent(post.text || '');
   const link = buildPermalink(post, siteUrl, permalinkPattern, pagePattern);
@@ -55,7 +66,7 @@ export async function buildFeedItem(
   let item: FeedItem = {
     title: post.title || '无标题',
     link,
-    content: feedFullText ? rendered.html : '',
+    content: feedFullText ? optimizeContentImages(rendered.html, optimizeParams || '', siteUrl) : '',
     excerpt: rendered.plainExcerpt,
     date: new Date((post.created || 0) * 1000),
   };

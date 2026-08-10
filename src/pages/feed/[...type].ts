@@ -2,9 +2,10 @@ import type { APIRoute } from 'astro';
 import { schema, type Database } from '@/db';
 import { buildPermalink } from '@/lib/content';
 import { renderContent } from '@/lib/markdown';
+import { optimizeContentImages } from '@/lib/image-transform';
 import { generateRss2, generateAtom, generateRss1, type FeedItem } from '@/lib/feed';
 import { applyFilterSafely } from '@/lib/plugin';
-import { getFeedRuntime } from '@/lib/feed-helpers';
+import { getFeedRuntime, getThemeImageOptimizeParams } from '@/lib/feed-helpers';
 import { eq, and, desc, sql, or } from 'drizzle-orm';
 import { publishedPostCondition } from '@/lib/content-visibility';
 import { sqlInChunks } from '@/lib/d1-in';
@@ -91,6 +92,7 @@ export const GET: APIRoute = async ({ locals, params }) => {
   };
 
   const items: FeedItem[] = [];
+  const optimizeParams = getThemeImageOptimizeParams(options);
   for (const post of posts) {
     const author = authorMap.get(post.authorId || 0);
     // G7-6: distinguish description (always the excerpt) from
@@ -106,7 +108,7 @@ export const GET: APIRoute = async ({ locals, params }) => {
         urls.siteUrl,
         options.permalinkPattern as string | undefined,
       ),
-      content: options.feedFullText ? rendered.html : '',
+      content: options.feedFullText ? optimizeContentImages(rendered.html, optimizeParams, urls.siteUrl) : '',
       excerpt: rendered.plainExcerpt,
       date: new Date((post.created || 0) * 1000),
       author: author?.screenName || author?.name || undefined,
@@ -177,7 +179,11 @@ async function generateCommentsFeed(
       options.permalinkPattern as string | undefined,
       options.pagePattern as string | undefined,
     )}#comment-${comment.coid}`,
-    content: renderContent(comment.text || '').html,
+    content: optimizeContentImages(
+      renderContent(comment.text || '').html,
+      getThemeImageOptimizeParams(options),
+      urls.siteUrl,
+    ),
     date: new Date((comment.created || 0) * 1000),
     author: comment.author || '匿名',
   }));

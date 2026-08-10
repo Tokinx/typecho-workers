@@ -18,6 +18,8 @@ vi.mock('@/lib/plugin', () => ({
   setActivatedPlugins: () => {},
   applyFilter: async (_ctx: any, _hook: string, data: any) => data,
   applyFilterSafely: async (_ctx: any, _hook: string, data: any) => data,
+  getConfigDefaults: () => ({}),
+  parsePluginConfigFormData: () => ({}),
 }));
 
 import { GET } from '@/pages/feed/[...type]';
@@ -172,5 +174,35 @@ describe('GET /feed description vs content (G7-6)', () => {
     const xml = await res.text();
     expect(xml).not.toContain('<content:encoded>');
     expect(xml).toContain('<description>');
+  });
+});
+
+describe('GET /feed theme image optimization params', () => {
+  beforeEach(async () => {
+    testDb = await createTestDb();
+    await seedOptions();
+    await testDb.insert(schema.options).values({ name: 'theme', user: 0, value: 'typecho-theme-warm' });
+    await testDb.insert(schema.options).values({ name: 'feedFullText', user: 0, value: '1' });
+  });
+
+  it('appends the active theme image params to same-origin content images', async () => {
+    await testDb.insert(schema.options).values({
+      name: 'theme:typecho-theme-warm',
+      user: 0,
+      value: JSON.stringify({ imageOptimizeParams: '?quality=80&format=auto' }),
+    });
+    await seedContent('optimized-post', { text: '![pic](/usr/uploads/2024/03/a.jpg) text' });
+    const res = await GET({ locals: {}, params: { type: '' } } as any);
+    const xml = await res.text();
+    expect(xml).toContain('src="/usr/uploads/2024/03/a.jpg?quality=80&format=auto"');
+    expect(xml).not.toContain('src="/usr/uploads/2024/03/a.jpg"');
+  });
+
+  it('leaves content images untouched when the theme has no params', async () => {
+    await seedContent('plain-post', { text: '![pic](/usr/uploads/2024/03/b.jpg) text' });
+    const res = await GET({ locals: {}, params: { type: '' } } as any);
+    const xml = await res.text();
+    expect(xml).toContain('src="/usr/uploads/2024/03/b.jpg"');
+    expect(xml).not.toContain('?quality=80');
   });
 });
