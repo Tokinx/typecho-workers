@@ -13,3 +13,4 @@ wrangler.toml
 /.claude
 /.env
 /docs
+.zcode
