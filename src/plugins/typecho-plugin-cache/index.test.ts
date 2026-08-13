@@ -149,7 +149,11 @@ describe('typecho-plugin-cache provider', () => {
     const second = await earlyRequestProvider.handle(requestContext(), next);
 
     expect(first.headers.get('X-Typecho-Cache')).toBe('MISS');
+    expect(first.headers.get('Cache-Control')).toBe('public, max-age=0');
+    expect(first.headers.get('Cloudflare-CDN-Cache-Control')).toBe('public, max-age=604800');
+    expect(first.headers.get('Cache-Tag')).toBe('tc:all, tc:home');
     expect(second.headers.get('X-Typecho-Cache')).toBe('L1');
+    expect(second.headers.get('Cache-Tag')).toBe('tc:all, tc:home');
     expect(await second.text()).toContain('first');
     expect(next).toHaveBeenCalledTimes(1);
   });
@@ -165,13 +169,17 @@ describe('typecho-plugin-cache provider', () => {
 
     const response = await earlyRequestProvider.handle(requestContext('https://example.com/archives/1/'), next);
     expect(response.headers.get('X-Typecho-Cache')).toBe('L2');
-    expect(response.headers.get('Cache-Control')).toContain('s-maxage=259200');
+    expect(response.headers.get('Cache-Control')).toBe('public, max-age=0');
+    expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('public, max-age=259200');
+    expect(response.headers.get('Cache-Tag')).toBe('tc:all, tc:post');
     expect(await response.text()).toContain('from d1');
     expect(next).toHaveBeenCalledTimes(1);
 
     const refilled = await earlyRequestProvider.handle(requestContext('https://example.com/archives/1/'), next);
     expect(refilled.headers.get('X-Typecho-Cache')).toBe('L1');
-    expect(refilled.headers.get('Cache-Control')).toContain('s-maxage=259200');
+    expect(refilled.headers.get('Cache-Control')).toBe('public, max-age=0');
+    expect(refilled.headers.get('Cloudflare-CDN-Cache-Control')).toBe('public, max-age=259200');
+    expect(refilled.headers.get('Cache-Tag')).toBe('tc:all, tc:post');
   });
 
   it('disables L1 reads and writes while keeping L2 available', async () => {
@@ -493,11 +501,19 @@ describe('typecho-plugin-cache provider', () => {
     context.request = new Request(context.request, {
       headers: { Cookie: '__typecho_unapproved_comment=private-token' },
     });
+    // The theme marks the page as public HTML, so a cacheable response is
+    // produced. It must still never be stored: the submitter's pending
+    // comment would otherwise leak to visitors without the cookie.
     const privateNext = vi.fn(async () => new Response('<html>waiting comment</html>', {
-      headers: { 'Content-Type': 'text/html' },
+      headers: { 'Content-Type': 'text/html', [PUBLIC_HTML_HEADER]: '1' },
     }));
     const response = await earlyRequestProvider.handle(context, privateNext);
     expect(response.headers.get('X-Typecho-Cache')).toBe('BYPASS');
+    expect(response.headers.get('Cache-Control')).toBe('no-store, no-cache, must-revalidate');
+    expect(response.headers.has('Cloudflare-CDN-Cache-Control')).toBe(false);
+    expect(response.headers.has('Cache-Tag')).toBe(false);
+    expect(await response.text()).toContain('waiting comment');
+    expect([...kv.store.keys()].some(key => key.includes(':p:'))).toBe(false);
 
     const publicNext = vi.fn(async () => new Response('<html>public</html>', {
       headers: { 'Content-Type': 'text/html', [PUBLIC_HTML_HEADER]: '1' },

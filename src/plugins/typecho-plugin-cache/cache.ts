@@ -64,6 +64,12 @@ const ADMIN_DATA_CACHE_DOMAINS = new Set<SharedCacheDomain>([
 ]);
 const TRACKING_PARAMS = new Set(['fbclid', 'gclid', 'dclid', 'msclkid']);
 const NO_CACHE_CONTROL = 'no-store, no-cache, must-revalidate';
+// Platform layer (Workers Caching) headers. @astrojs/cloudflare appends
+// `Cloudflare-CDN-Cache-Control: no-store` to responses that lack this header,
+// so only pages that explicitly set it are absorbed by the platform cache.
+const PLATFORM_CACHE_HEADER = 'Cloudflare-CDN-Cache-Control';
+const CACHE_TAG_HEADER = 'Cache-Tag';
+const PLATFORM_TAG_PREFIX = 'tc:';
 const L1_TTL_OPTIONS = [0, 3_600, 43_200, 86_400, 259_200, 604_800, 2_592_000];
 const L2_TTL_OPTIONS = [0, 86_400, 259_200, 604_800];
 const L3_TTL_OPTIONS = [0, 300, 3_600, 21_600, 43_200, 86_400];
@@ -513,12 +519,26 @@ function withCacheHeader(
   response: Response,
   value: 'L1' | 'L2' | 'L3' | 'MISS' | 'BYPASS',
   l1Ttl?: number,
+  domain?: PublicCacheDomain,
 ): Response {
   const headers = new Headers(response.headers);
   headers.delete(PUBLIC_HTML_HEADER);
   headers.set('X-Typecho-Cache', value);
-  if (l1Ttl === 0) headers.set('Cache-Control', NO_CACHE_CONTROL);
-  else if (l1Ttl) headers.set('Cache-Control', `public, max-age=0, s-maxage=${l1Ttl}`);
+  if (value !== 'BYPASS' && l1Ttl && l1Ttl > 0 && domain) {
+    // Platform layer (Workers Caching) absorbs this response at the edge with
+    // the plugin's L1 TTL and tags it for bulk purge. Browsers still
+    // revalidate on every visit so recent comments stay visible.
+    headers.set('Cache-Control', 'public, max-age=0');
+    headers.set(PLATFORM_CACHE_HEADER, `public, max-age=${l1Ttl}`);
+    headers.set(CACHE_TAG_HEADER, `${PLATFORM_TAG_PREFIX}all, ${PLATFORM_TAG_PREFIX}${domain}`);
+  } else {
+    // No platform headers: @astrojs/cloudflare appends no-store automatically.
+    // Never carry s-maxage here — a bypassed page (preview / password /
+    // pending-comment render) must not be cached by any shared layer.
+    headers.set('Cache-Control', NO_CACHE_CONTROL);
+    headers.delete(PLATFORM_CACHE_HEADER);
+    headers.delete(CACHE_TAG_HEADER);
+  }
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
@@ -863,7 +883,7 @@ async function renderAndCache(
   l2Key: string,
   l2Ttl: number,
   l3Ttl: number,
-  requirePublicHtml: boolean,
+  domain: PublicCacheDomain,
 ): Promise<Response> {
   let response = await next();
   try {
@@ -871,14 +891,14 @@ async function renderAndCache(
   } catch (error) {
     console.error('[edge-cache] HTML rewrite failed:', error);
   }
-  if (!canCacheResponse(response, requirePublicHtml)) return withCacheHeader(response, 'BYPASS', control.config.l1Ttl);
+  if (!canCacheResponse(response, true)) return withCacheHeader(response, 'BYPASS', control.config.l1Ttl);
 
   const cacheable = response.clone();
   const write = storeResponse(d1, kv, l1Key, l2Key, cacheable, control.config.l1Ttl, l2Ttl, l3Ttl)
     .catch(error => console.error('[edge-cache] Cache persistence failed:', error));
   if (context.waitUntil) context.waitUntil(write);
   else await write;
-  return withCacheHeader(response, 'MISS', control.config.l1Ttl);
+  return withCacheHeader(response, 'MISS', control.config.l1Ttl, domain);
 }
 
 async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNext): Promise<Response> {
@@ -930,7 +950,7 @@ async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNex
     l2Key = `${PAGE_PREFIX}${cacheId}`;
     if (control.config.l1Ttl > 0) {
       const l1 = await caches.default.match(l1Key);
-      if (l1) return withCacheHeader(l1, 'L1', control.config.l1Ttl);
+      if (l1) return withCacheHeader(l1, 'L1', control.config.l1Ttl, domain);
     }
 
     if (l2Ttl > 0) {
@@ -938,7 +958,7 @@ async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNex
       const l2Response = l2 ? responseFromStored(l2) : null;
       if (l2Response) {
         if (control.config.l1Ttl > 0) {
-          const refill = withCacheHeader(l2Response.clone(), 'L2', control.config.l1Ttl);
+          const refill = withCacheHeader(l2Response.clone(), 'L2', control.config.l1Ttl, domain);
           refill.headers.delete('X-Typecho-Cache');
           const write = caches.default.put(l1Key, refill).catch(error => {
             console.error('[edge-cache] L1 refill failed:', error);
@@ -946,7 +966,7 @@ async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNex
           if (context.waitUntil) context.waitUntil(write);
           else await write;
         }
-        return withCacheHeader(l2Response, 'L2', control.config.l1Ttl);
+        return withCacheHeader(l2Response, 'L2', control.config.l1Ttl, domain);
       }
     }
   } catch (error) {
@@ -961,7 +981,7 @@ async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNex
         const l3Response = responseFromStored(l3);
         if (l3Response) {
           await promoteStoredResponse(context, kv, l1Key, l2Key, l3, control.config.l1Ttl, l2Ttl);
-          return withCacheHeader(l3Response, 'L3', control.config.l1Ttl);
+          return withCacheHeader(l3Response, 'L3', control.config.l1Ttl, domain);
         }
       }
     } catch (error) {
@@ -970,18 +990,18 @@ async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNex
   }
 
   if (policy === 'read-only') {
-    return renderAndCache(
-      context,
-      next,
-      control,
-      d1,
-      kv,
-      l1Key,
-      l2Key,
-      l2Ttl,
-      l3Ttl,
-      true,
-    );
+    // The submitter's pending comment is rendered into this page. Render it
+    // fresh but never store it in any cache layer — a cached variant would
+    // leak the unapproved comment to visitors without the cookie. The BYPASS
+    // response carries no platform headers, so the adapter marks it no-store.
+    const response = await next();
+    const rewritten = await rewriteHtmlResponse(
+      response,
+      control.config,
+      context.url.origin,
+      control.options.siteUrl,
+    ).catch(() => response);
+    return withCacheHeader(rewritten, 'BYPASS', control.config.l1Ttl);
   }
 
   const inFlightKey = cacheId;
@@ -997,7 +1017,7 @@ async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNex
     l2Key,
     l2Ttl,
     l3Ttl,
-    true,
+    domain,
   );
   inFlight.set(inFlightKey, pending);
   try {
