@@ -65,6 +65,12 @@ compatibility_flags = [ "nodejs_compat" ]
 [vars]
 PBKDF2_ITERATIONS = ${tomlString(iterations)}
 
+# Workers Caching platform layer. The cache plugin opts responses in via the
+# Cloudflare-CDN-Cache-Control header; the adapter appends no-store to
+# everything else. Keep this in sync with astro.config.mjs cache.provider.
+[cache]
+enabled = true
+
 [assets]
 directory = "dist"
 binding = "ASSETS"
