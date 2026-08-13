@@ -918,7 +918,14 @@ async function renderAndCache(
   } catch (error) {
     console.error('[edge-cache] HTML rewrite failed:', error);
   }
-  if (!canCacheResponse(response, true)) return withCacheHeader(response, 'BYPASS', control.config.l1Ttl);
+  if (!canCacheResponse(response, true)) {
+    // Nested render: a permalink rewrite re-ran the middleware chain, so this
+    // response was already handled by an inner early-request pass and carries
+    // its cache headers (X-Typecho-Cache + platform header + Cache-Tag). Pass
+    // it through instead of overriding with a BYPASS that would drop the tags.
+    if (response.headers.has('X-Typecho-Cache')) return response;
+    return withCacheHeader(response, 'BYPASS', control.config.l1Ttl);
+  }
 
   const cacheable = response.clone();
   const write = storeResponse(d1, kv, l1Key, l2Key, cacheable, control.config.l1Ttl, l2Ttl, l3Ttl)

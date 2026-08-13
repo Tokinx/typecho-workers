@@ -1082,6 +1082,30 @@ describe('typecho-plugin-cache provider', () => {
     expect(kv.store.has(CACHE_CONTROL_KEY)).toBe(false);
   });
 
+  it('passes through a nested plugin-handled response instead of overriding with BYPASS', async () => {
+    // A permalink rewrite re-runs the middleware chain: the render already
+    // returned an inner plugin response (L1 hit with cache headers). The outer
+    // pass must not override it with a BYPASS that drops the Cache-Tag.
+    const kv = new MemoryKv();
+    await activate(kv, { ...defaultSettings, l1Ttl: '86400' });
+    const inner = new Response('<html>inner</html>', {
+      headers: {
+        'Content-Type': 'text/html',
+        'X-Typecho-Cache': 'L1',
+        'Cache-Control': 'public, max-age=0',
+        'Cloudflare-CDN-Cache-Control': 'public, max-age=86400',
+        'Cache-Tag': 'tc:all, tc:post',
+      },
+    });
+    const next = vi.fn(async () => inner);
+    const response = await earlyRequestProvider.handle(requestContext('https://example.com/2025/6053.html'), next);
+
+    expect(response.headers.get('X-Typecho-Cache')).toBe('L1');
+    expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('public, max-age=86400');
+    expect(response.headers.get('Cache-Tag')).toBe('tc:all, tc:post');
+    expect(await response.text()).toContain('inner');
+  });
+
   it('fails open when KV control lookup fails', async () => {
     const kv = new MemoryKv();
     kv.failGet = true;
