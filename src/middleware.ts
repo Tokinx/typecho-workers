@@ -324,6 +324,24 @@ const coreMiddleware = defineMiddleware(async (context, next) => {
 });
 
 export const onRequest = defineMiddleware(async (context, next) => {
+  // Streaming SSR makes `Astro.response.headers.set()` inside theme components
+  // unreliable (WarmShell's marker was silently dropped), so the cache
+  // plugin's public-HTML marker may be missing from rendered pages. Backfill
+  // it inside the render chain — before the early-request provider inspects
+  // the response — so the plugin can cache public pages again.
+  const renderNext = async (): Promise<Response> => {
+    const rendered = await coreMiddleware(context, next) as Response;
+    if (!rendered.headers.has('X-Typecho-Cache') && isPublicHtmlCandidate(context.request, rendered)) {
+      const headers = new Headers(rendered.headers);
+      headers.set(PUBLIC_HTML_HEADER, '1');
+      return new Response(rendered.body, {
+        status: rendered.status,
+        statusText: rendered.statusText,
+        headers,
+      });
+    }
+    return rendered;
+  };
   const response = await runEarlyRequestProviders({
     request: context.request,
     url: context.url,
@@ -331,7 +349,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
     waitUntil: context.locals.cfContext
       ? promise => context.locals.cfContext!.waitUntil(promise)
       : undefined,
-  }, () => coreMiddleware(context, next) as Promise<Response>);
+  }, renderNext);
   if (!response.headers.has(PUBLIC_HTML_HEADER)) return response;
   const headers = new Headers(response.headers);
   headers.delete(PUBLIC_HTML_HEADER);
@@ -341,6 +359,27 @@ export const onRequest = defineMiddleware(async (context, next) => {
     headers,
   });
 });
+
+/**
+ * True when a rendered response is a cacheable public page: GET, text/html,
+ * not a reserved path, and not already handled by the early-request cache
+ * plugin (which manages its own marker and cache headers).
+ */
+export function isPublicHtmlCandidate(request: Request, response: Response): boolean {
+  if (request.method !== 'GET') return false;
+  if (response.headers.has(PUBLIC_HTML_HEADER) || response.headers.has('X-Typecho-Cache')) return false;
+  if (!response.headers.get('Content-Type')?.toLowerCase().includes('text/html')) return false;
+  const path = new URL(request.url).pathname;
+  if (
+    path === '/install' ||
+    path === '/admin' || path.startsWith('/admin/') ||
+    path === '/api' || path.startsWith('/api/') ||
+    path === '/usr' || path.startsWith('/usr/')
+  ) {
+    return false;
+  }
+  return true;
+}
 
 /**
  * Paths that plugins MUST NOT be able to claim via route:request.
