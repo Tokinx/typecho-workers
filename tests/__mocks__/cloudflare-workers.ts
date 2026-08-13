@@ -42,6 +42,12 @@ export const env = {
   PASSWORD_PEPPER: undefined as string | undefined,
 };
 
+// Workers Caching programmatic invalidation (module-level `cache` export).
+// Tests spy on `purge` to assert platform cache invalidation by tag.
+export const cache = {
+  purge: async () => {},
+};
+
 // Export internal reset for test cleanup
 export const _resetCaches = () => {
   mockCache._reset();

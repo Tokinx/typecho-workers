@@ -337,6 +337,28 @@ export async function invalidateSharedDomains(
   }));
 }
 
+/**
+ * Purge the platform layer (Workers Caching) by tag. Tags are attached to
+ * cacheable page responses via Cache-Tag in withCacheHeader. The purge is
+ * global and immediate; KV/D1 generations are advanced separately by the
+ * callers, so a failure here only delays (never corrupts) invalidation.
+ */
+async function purgePlatformCache(tags: string[]): Promise<void> {
+  if (tags.length === 0) return;
+  try {
+    const { cache } = await import('cloudflare:workers');
+    await cache.purge({ tags });
+  } catch (error) {
+    console.error('[edge-cache] Platform cache purge failed:', error);
+  }
+}
+
+function platformTagsForDomains(domains: PublicCacheDomain[] | ['all']): string[] {
+  return domains[0] === 'all'
+    ? [`${PLATFORM_TAG_PREFIX}all`]
+    : [...new Set(domains)].map(domain => `${PLATFORM_TAG_PREFIX}${domain}`);
+}
+
 async function invalidateSharedDomainsD1(
   d1: D1Database,
   domains: SharedCacheDomain[] | ['all'],
@@ -1050,6 +1072,9 @@ async function lifecycle(event: EarlyRequestLifecycleEvent): Promise<void> {
     runtimeConfig = null;
     lastD1CleanupAt = 0;
     invalidateEarlyRequestSharedSnapshots(['all']);
+    // Stale platform entries would otherwise keep serving old pages until
+    // their TTL expires — the control doc no longer guards them.
+    await purgePlatformCache([`${PLATFORM_TAG_PREFIX}all`]);
     return;
   }
   if (!event.settings) return;
@@ -1061,6 +1086,7 @@ async function lifecycle(event: EarlyRequestLifecycleEvent): Promise<void> {
     await invalidateDomains(kv, ['all']);
   }
   await invalidateAllDataStores();
+  await purgePlatformCache([`${PLATFORM_TAG_PREFIX}all`]);
 }
 
 async function invalidate(event: PublicCacheInvalidation): Promise<boolean> {
@@ -1078,6 +1104,11 @@ async function invalidate(event: PublicCacheInvalidation): Promise<boolean> {
   if (kv && event.domains.length) {
     await invalidateDomains(kv, event.domains);
     pageHandled = true;
+  }
+  // Platform layer purge runs even without a KV binding: cacheable pages are
+  // tagged on the response itself, so stale entries exist independently of KV.
+  if (event.domains.length) {
+    await purgePlatformCache(platformTagsForDomains(event.domains));
   }
   const dataHandled = event.sharedDomains?.length
     ? await invalidateConfiguredDataDomains(event.sharedDomains)

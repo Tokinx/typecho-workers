@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { env } from 'cloudflare:workers';
+import { env, cache as platformCache } from 'cloudflare:workers';
 import { _resetCaches } from '../../../tests/__mocks__/cloudflare-workers';
 import type { PluginInitContext } from 'typecho/plugin-sdk';
 import init from './index';
@@ -1100,12 +1100,25 @@ describe('typecho-plugin-cache provider', () => {
     expect(next).toHaveBeenCalledOnce();
   });
 
-  it('deactivation removes the control document', async () => {
+  it('deactivation removes the control document and purges the platform cache', async () => {
     const kv = new MemoryKv();
     await activate(kv);
+    const purgeSpy = vi.spyOn(platformCache, 'purge');
     expect(kv.store.has(CACHE_CONTROL_KEY)).toBe(true);
     await earlyRequestProvider.lifecycle!({ type: 'deactivate' });
     expect(kv.store.has(CACHE_CONTROL_KEY)).toBe(false);
+    expect(purgeSpy).toHaveBeenCalledWith({ tags: ['tc:all'] });
+  });
+
+  it('purges the platform cache when the plugin configuration changes', async () => {
+    const kv = new MemoryKv();
+    await activate(kv);
+    const purgeSpy = vi.spyOn(platformCache, 'purge');
+    await earlyRequestProvider.lifecycle!({
+      type: 'config',
+      settings: { ...defaultSettings, l1Ttl: '86400' },
+    });
+    expect(purgeSpy).toHaveBeenCalledWith({ tags: ['tc:all'] });
   });
 });
 
@@ -1346,6 +1359,7 @@ describe('plugin registration and controls', () => {
     const kv = new MemoryKv();
     env.TYPECHO_CACHE = kv as any;
     const hooks = collectHooks();
+    const purgeSpy = vi.spyOn(platformCache, 'purge');
     const result = await hooks.get('plugin:typecho-plugin-cache:action')!({ handled: false }, {
       action: 'invalidate',
       payload: { domains: ['post', 'page', 'note'] },
@@ -1357,6 +1371,7 @@ describe('plugin registration and controls', () => {
       'typecho:edge-cache:v1:g:note',
     ]));
     expect([...kv.store.keys()]).not.toContain('typecho:edge-cache:v1:g:home');
+    expect(purgeSpy).toHaveBeenCalledWith({ tags: ['tc:post', 'tc:page', 'tc:note'] });
 
     // 空数组退化为全量刷新
     const empty = await hooks.get('plugin:typecho-plugin-cache:action')!({ handled: false }, {
@@ -1365,6 +1380,7 @@ describe('plugin registration and controls', () => {
     });
     expect(empty).toMatchObject({ handled: true, success: true });
     expect([...kv.store.keys()]).toContain('typecho:edge-cache:v1:g:all');
+    expect(purgeSpy).toHaveBeenCalledWith({ tags: ['tc:all'] });
 
     // 非法域被拒绝
     const invalid = await hooks.get('plugin:typecho-plugin-cache:action')!({ handled: false }, {
@@ -1372,12 +1388,15 @@ describe('plugin registration and controls', () => {
       payload: { domains: ['post', 'bogus'] },
     });
     expect(invalid).toMatchObject({ handled: true, success: false, error: '缓存域无效' });
+    // 非法域不触发平台层清除
+    expect(purgeSpy).toHaveBeenCalledTimes(2);
   });
 
   it('invalidates all page and shared-data generations on a manual full refresh', async () => {
     const kv = new MemoryKv();
     env.TYPECHO_CACHE = kv as any;
     const hooks = collectHooks();
+    const purgeSpy = vi.spyOn(platformCache, 'purge');
     const result = await hooks.get('plugin:typecho-plugin-cache:action')!({ handled: false }, {
       action: 'invalidate',
       payload: { domain: 'all' },
@@ -1390,6 +1409,7 @@ describe('plugin registration and controls', () => {
       'typecho:edge-cache:v1:sg:sidebar',
       'typecho:edge-cache:v1:sg:metas',
     ]));
+    expect(purgeSpy).toHaveBeenCalledWith({ tags: ['tc:all'] });
   });
 
   it('injects configured CDN origins into CSP without a KV binding', async () => {
