@@ -89,13 +89,20 @@ ${kvNamespaceId ? `[[kv_namespaces]]
 binding = "TYPECHO_CACHE"
 id = ${tomlString(kvNamespaceId)}
 
-` : ''}[observability.logs]
+` : ''}[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
 enabled = true
+head_sampling_rate = 1
 invocation_logs = false
 persist = false
 
 [observability.traces]
 enabled = false
+persist = true
+head_sampling_rate = 1
 `;
 }
 
