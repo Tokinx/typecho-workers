@@ -16,6 +16,16 @@ export default defineConfig({
     imageService: 'passthrough',
     inspectorPort: isBuild ? false : undefined,
   }),
+  // Workers Caching 平台缓存层：@astrojs/cloudflare 检测到 cloudflare cache
+  // provider 后自动生成 `cache: { enabled: true }` 部署配置，并对没有
+  // `Cloudflare-CDN-Cache-Control` 头的响应自动补 no-store（安全网）。
+  // 公共 HTML 的缓存语义由 typecho-plugin-cache 插件通过该头显式声明。
+  cache: {
+    provider: {
+      name: 'cloudflare',
+      entrypoint: '@astrojs/cloudflare/cache/provider',
+    },
+  },
   security: {
     checkOrigin: false,
     // Permit the two local origins to fetch each other's assets when one is
