@@ -17,6 +17,9 @@ export const GET: APIRoute = async () => {
     headers: {
       'Content-Type': 'text/plain; charset=utf-8',
       'Cache-Control': 'public, s-maxage=3600',
+      // Platform layer (Workers Caching) opt-in; otherwise @astrojs/cloudflare
+      // would mark this response no-store and the s-maxage caching would stop.
+      'Cloudflare-CDN-Cache-Control': 'public, max-age=3600',
     },
   });
 };

@@ -80,6 +80,10 @@ export function xmlResponse(xml: string, contentType: string): Response {
     headers: {
       'Content-Type': contentType,
       'Cache-Control': 'public, s-maxage=1800',
+      // Opt feeds into the platform layer (Workers Caching): without this
+      // header @astrojs/cloudflare marks the response no-store, and the
+      // previous s-maxage-only caching would silently stop working.
+      'Cloudflare-CDN-Cache-Control': 'public, max-age=1800',
     },
   });
 }
