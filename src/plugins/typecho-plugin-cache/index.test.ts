@@ -1006,6 +1006,82 @@ describe('typecho-plugin-cache provider', () => {
     }
   });
 
+  it('preserves a non-HTML response own cache declaration when bypassing', async () => {
+    // feed/sitemap/robots flow through the early-request provider but are not
+    // plugin-cacheable (non-HTML). Their own s-maxage and platform header must
+    // survive the BYPASS so the CDN / platform layer keeps caching them.
+    const kv = new MemoryKv();
+    await activate(kv);
+    const feed = new Response('<rss></rss>', {
+      headers: {
+        'Content-Type': 'application/rss+xml; charset=utf-8',
+        'Cache-Control': 'public, s-maxage=1800',
+        'Cloudflare-CDN-Cache-Control': 'public, max-age=1800',
+      },
+    });
+    const next = vi.fn(async () => feed.clone());
+    const response = await earlyRequestProvider.handle(requestContext('https://example.com/feed'), next);
+
+    expect(response.headers.get('X-Typecho-Cache')).toBe('BYPASS');
+    expect(response.headers.get('Cache-Control')).toBe('public, s-maxage=1800');
+    expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('public, max-age=1800');
+    expect(response.headers.has('Cache-Tag')).toBe(false);
+    expect([...kv.store.keys()].some(key => key.includes(':p:'))).toBe(false);
+  });
+
+  it('rebuilds a missing control document from the synced runtime config', async () => {
+    const kv = new MemoryKv();
+    env.TYPECHO_CACHE = kv as any;
+    const context = requestContext();
+    // Real request order: middleware syncs the activated plugin first, then
+    // the early-request provider runs. The KV namespace has no control
+    // document (e.g. namespace swapped), so the plugin must rebuild it.
+    await earlyRequestProvider.sync!({
+      request: context.request,
+      active: true,
+      options: {
+        siteUrl: 'https://example.com',
+        [`plugin:${CACHE_PLUGIN_ID}`]: JSON.stringify(defaultSettings),
+      },
+    });
+    expect(kv.store.has(CACHE_CONTROL_KEY)).toBe(false);
+
+    const next = vi.fn(async () => new Response('<html>rebuilt</html>', {
+      headers: { 'Content-Type': 'text/html', [PUBLIC_HTML_HEADER]: '1' },
+    }));
+    const response = await earlyRequestProvider.handle(context, next);
+
+    expect(response.headers.get('X-Typecho-Cache')).toBe('MISS');
+    expect(kv.store.has(CACHE_CONTROL_KEY)).toBe(true);
+    expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('public, max-age=604800');
+    expect(await response.text()).toContain('rebuilt');
+
+    // A later request (fresh Request object) reads the rebuilt control from KV.
+    _resetCaches();
+    const second = await earlyRequestProvider.handle(requestContext(), vi.fn(async () => new Response('<html>x</html>', {
+      headers: { 'Content-Type': 'text/html', [PUBLIC_HTML_HEADER]: '1' },
+    })));
+    // L1 was reset above, so the L2 entry written by the first render serves.
+    expect(['L1', 'L2']).toContain(second.headers.get('X-Typecho-Cache'));
+  });
+
+  it('does not rebuild the control document while the plugin is deactivated', async () => {
+    const kv = new MemoryKv();
+    await activate(kv);
+    await earlyRequestProvider.lifecycle!({ type: 'deactivate' });
+    expect(kv.store.has(CACHE_CONTROL_KEY)).toBe(false);
+    const context = requestContext();
+    await earlyRequestProvider.sync!({ request: context.request, active: false, options: {} });
+
+    const next = vi.fn(async () => new Response('<html>x</html>', {
+      headers: { 'Content-Type': 'text/html' },
+    }));
+    const response = await earlyRequestProvider.handle(context, next);
+    // Deactivated plugin is fully hands-off: no cache header, no rebuild.
+    expect(response.headers.get('X-Typecho-Cache')).toBeNull();
+    expect(kv.store.has(CACHE_CONTROL_KEY)).toBe(false);
+  });
+
   it('fails open when KV control lookup fails', async () => {
     const kv = new MemoryKv();
     kv.failGet = true;

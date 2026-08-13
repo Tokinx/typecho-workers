@@ -554,11 +554,16 @@ function withCacheHeader(
     headers.set(PLATFORM_CACHE_HEADER, `public, max-age=${l1Ttl}`);
     headers.set(CACHE_TAG_HEADER, `${PLATFORM_TAG_PREFIX}all, ${PLATFORM_TAG_PREFIX}${domain}`);
   } else {
-    // No platform headers: @astrojs/cloudflare appends no-store automatically.
-    // Never carry s-maxage here — a bypassed page (preview / password /
-    // pending-comment render) must not be cached by any shared layer.
-    headers.set('Cache-Control', NO_CACHE_CONTROL);
-    headers.delete(PLATFORM_CACHE_HEADER);
+    // The plugin does not cache this response, but the page's own cache
+    // declarations are preserved (feed/sitemap/robots carry s-maxage and a
+    // platform header). Only responses without any cache declaration get a
+    // no-store fallback so bypassed pages (preview / password / pending
+    // comment render) are never cached by any shared layer.
+    const existingControl = headers.get('Cache-Control')?.toLowerCase() || '';
+    const hasPlatformHeader = headers.has(PLATFORM_CACHE_HEADER);
+    if (!hasPlatformHeader && (!existingControl || existingControl.includes('no-store'))) {
+      headers.set('Cache-Control', NO_CACHE_CONTROL);
+    }
     headers.delete(CACHE_TAG_HEADER);
   }
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
@@ -935,7 +940,21 @@ async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNex
     console.error('[edge-cache] Control read failed:', error);
     return renderWithRuntimeRewrite(context, next);
   }
-  if (!control) return renderWithRuntimeRewrite(context, next);
+  if (!control) {
+    // Control document missing (e.g. the KV namespace was swapped or the doc
+    // was deleted). Rebuild it from the runtime config synced from DB options
+    // so the cache recovers without a manual re-enable. Plugins that are not
+    // activated never reach this branch (sync sets requestRuntime to null).
+    const runtime = requestRuntime.get(context.request);
+    if (runtime) {
+      control = runtime;
+      await writeControl(kv, runtime).catch(error => {
+        console.error('[edge-cache] Control rebuild failed:', error);
+      });
+    } else {
+      return renderWithRuntimeRewrite(context, next);
+    }
+  }
 
   const domain = classifyCacheDomain(context.url.pathname, control);
   const normalizedUrl = normalizeCacheUrl(context.url, domain);
