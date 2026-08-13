@@ -137,6 +137,9 @@ export const GET: APIRoute = async ({ locals, params }) => {
     headers: {
       'Content-Type': contentType,
       'Cache-Control': 'public, s-maxage=1800', // 30 min edge cache for feeds
+      // Platform layer (Workers Caching) opt-in; otherwise @astrojs/cloudflare
+      // would mark this response no-store and the s-maxage caching would stop.
+      'Cloudflare-CDN-Cache-Control': 'public, max-age=1800',
     },
   });
 };
@@ -206,6 +209,9 @@ async function generateCommentsFeed(
     headers: {
       'Content-Type': contentType,
       'Cache-Control': 'public, s-maxage=1800', // 30 min edge cache for comment feeds
+      // Platform layer (Workers Caching) opt-in; otherwise @astrojs/cloudflare
+      // would mark this response no-store and the s-maxage caching would stop.
+      'Cloudflare-CDN-Cache-Control': 'public, max-age=1800',
     },
   });
 }
