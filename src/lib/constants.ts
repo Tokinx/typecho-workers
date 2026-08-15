@@ -12,6 +12,9 @@ export const SLUG_RESOLVE_MAX_SUFFIX = 1000;
 /** Per-user upload rate limit (uploads per window). */
 export const UPLOAD_RATE_LIMIT = { windowSeconds: 60, maxRequests: 60 } as const;
 
+/** Per-IP scanner 404 rate limit (fast-fail 404s per window). */
+export const SCANNER_404_RATE_LIMIT = { windowSeconds: 60, maxRequests: 120 } as const;
+
 /** Options cache TTL (seconds). */
 export const OPTIONS_CACHE_TTL_SECONDS = 600;
 

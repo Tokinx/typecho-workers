@@ -2,6 +2,7 @@
 import { themeTemplates } from 'virtual:theme-templates';
 import { createContextAlongside } from '@/lib/context';
 import { prepareNotFoundData, preparePageData } from '@/lib/page-data';
+import { isKnownMissingSlug, markSlugMissing } from '@/lib/scanner-protection';
 import { and, eq } from 'drizzle-orm';
 import { schema } from '@/db';
 import { getCookieValue } from '@/lib/auth';
@@ -12,6 +13,14 @@ const { slug } = Astro.params;
 const cleanSlug = slug?.replace(/\.html$/, '') || '';
 if (!cleanSlug) return Astro.redirect('/');
 
+// Negative cache: a slug recently resolved to "no page exists" skips the
+// contents lookup entirely. Logged-in requests bypass it so a freshly
+// created page is never hidden from its owner (30s TTL otherwise).
+const loggedIn = !!getCookieValue(Astro.request.headers.get('cookie'), '__typecho_uid');
+if (!loggedIn && await isKnownMissingSlug(cleanSlug)) {
+  return Astro.rewrite('/404');
+}
+
 // Resolve auth and the page row in parallel. The middleware has already
 // installed the request-scoped DB core for normal page requests.
 const [ctx, pageRow] = await createContextAlongside(
@@ -21,6 +30,7 @@ const [ctx, pageRow] = await createContextAlongside(
     where: and(eq(schema.contents.slug, cleanSlug), eq(schema.contents.type, 'page')),
   }),
 );
+if (!loggedIn && !pageRow) markSlugMissing(cleanSlug);
 const { options } = ctx;
 
 // Select theme component

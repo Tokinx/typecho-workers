@@ -4,8 +4,10 @@ import { schema } from '@/db';
 import { loadOptions, ensureSecret } from '@/lib/options';
 import { applyFilterSafely, isPluginAdminPath, parseActivatedPlugins, setActivatedPlugins, type HookContext } from '@/lib/plugin';
 import { applySecurityHeaders } from '@/lib/security-headers';
-import { setRequestCoreContext } from '@/lib/context';
+import { setRequestCoreContext, getClientIp } from '@/lib/context';
 import { compilePermalinkPattern } from '@/lib/permalink-pattern';
+import { isScannerPath, FAST_404_HTML, shouldRateLimitScanner } from '@/lib/scanner-protection';
+import { SCANNER_404_RATE_LIMIT } from '@/lib/constants';
 import {
   ensureDatabaseReady,
   TablesMissingError,
@@ -31,6 +33,7 @@ const BUILT_IN_ROUTES = [
   /^\/archives\/\d+\/?$/,       // post: /archives/{cid}/
   /^\/[^/]+\.html$/,            // page: /{slug}.html
   /^\/category\/[^/]+\/?$/,     // category: /category/{slug}/
+  /^\/category\/[^/]+\/feed\.xml$/, // category feed
   /^\/tag\//,
   /^\/author\//,
   /^\/search\//,
@@ -295,6 +298,39 @@ const coreMiddleware = defineMiddleware(async (context, next) => {
         }
       }
     }
+
+    // ── Scanner fast-fail ────────────────────────────────────────────────
+    // Reaching here means no built-in route, no plugin route, and no
+    // permalink pattern matched this path. Multi-segment paths have no
+    // legitimate route under this system, and single-segment scanner
+    // targets (.php, .env, dotfiles) are never valid page slugs. Fail fast
+    // with a minimal 404 — no D1 reads, no theme render — and rate-limit
+    // the offender. /note/ is the notes plugin's public route and
+    // /.well-known/ hosts ACME challenges, so both are exempt.
+    if (
+      !path.startsWith('/note/') &&
+      !path.startsWith('/.well-known') &&
+      isScannerPath(path)
+    ) {
+      if (shouldRateLimitScanner(getClientIp(context.request))) {
+        return applySecurityHeaders(
+          new Response('Too Many Requests', {
+            status: 429,
+            headers: { 'Retry-After': String(SCANNER_404_RATE_LIMIT.windowSeconds) },
+          }),
+          { request: context.request },
+          pluginCtx,
+        );
+      }
+      return applySecurityHeaders(
+        new Response(FAST_404_HTML, {
+          status: 404,
+          headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        }),
+        { request: context.request },
+        pluginCtx,
+      );
+    }
   }
 
   // Execute the route handler
@@ -353,6 +389,12 @@ export const onRequest = defineMiddleware(async (context, next) => {
   if (!response.headers.has(PUBLIC_HTML_HEADER)) return response;
   const headers = new Headers(response.headers);
   headers.delete(PUBLIC_HTML_HEADER);
+  if (response.status === 404) {
+    // Absorb repeated 404s (scanner noise) at the CDN edge instead of
+    // re-running the Worker. The short TTL keeps stale-404 risk negligible.
+    headers.set('Cache-Control', 'public, max-age=60');
+    headers.set('Cloudflare-CDN-Cache-Control', 'public, max-age=60');
+  }
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
