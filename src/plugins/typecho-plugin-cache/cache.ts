@@ -281,7 +281,10 @@ async function generation(kv: KVNamespace, domain: PublicCacheDomain | 'all'): P
   const now = Date.now();
   const memo = generationMemo.get(key);
   if (memo && memo.expiresAt > now) return memo.value;
-  const value = await kv.get(key, { type: 'text', cacheTtl: 60 }) || '0';
+  // Same write-often rationale as sharedGeneration: the location-level read
+  // cache must stay at the 30s platform minimum so content updates become
+  // visible across PoPs within ~30s instead of 60s.
+  const value = await kv.get(key, { type: 'text', cacheTtl: 30 }) || '0';
   generationMemo.set(key, { value, expiresAt: now + GENERATION_MEMO_TTL_MS });
   return value;
 }
