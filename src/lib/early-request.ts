@@ -1,3 +1,16 @@
+/**
+ * Early-request provider registry and shared-data loading.
+ *
+ * Shared datasets (options, sidebar, metas, comment projections, admin
+ * lists, …) are loaded through the activated early-request providers (the
+ * cache plugin's KV/D1 data cache) with a D1 fallback. There is no
+ * per-isolate snapshot layer: in-memory L0 snapshots could not be
+ * invalidated across isolates, so writes became visible only after the
+ * snapshot TTL expired. Every read goes to the provider, whose
+ * generation-stamped keys provide cross-isolate invalidation; only
+ * in-flight deduplication and a stale-write generation guard remain local.
+ */
+
 import type { PublicCacheInvalidation, SharedCacheDomain } from '@/lib/cache';
 
 export interface EarlyRequestContext {
@@ -30,7 +43,7 @@ export interface EarlyRequestProvider {
   writeSharedData?<T>(domain: SharedCacheDomain, key: string, value: T): Promise<boolean>;
 }
 
-export type SharedCacheSource = 'L0' | 'KV' | 'D1' | 'MISS' | 'BYPASS';
+export type SharedCacheSource = 'KV' | 'D1' | 'MISS' | 'BYPASS';
 
 /** Request-local diagnostics for explicitly enabled query-cache debugging. */
 export interface SharedCacheTrace {
@@ -60,7 +73,7 @@ export interface SharedDataRead<T> {
   handled: boolean;
   value: T | null;
   /** Set only when the provider returned a value or explicitly bypassed it. */
-  source?: Exclude<SharedCacheSource, 'L0' | 'MISS'>;
+  source?: Exclude<SharedCacheSource, 'MISS'>;
 }
 
 export interface SharedDataFallbackContext {
@@ -72,82 +85,41 @@ export type EarlyRequestProviderLoader = () => Promise<EarlyRequestProvider | nu
 
 const providerLoaders = new Map<string, EarlyRequestProviderLoader>();
 const pendingProviders = new Map<string, Promise<EarlyRequestProvider | null>>();
-const SHARED_SNAPSHOT_TTL_MS = 60_000;
-const MAX_SHARED_SNAPSHOTS = 500;
-type SharedSnapshot = { value: unknown; expiresAt: number };
-const sharedSnapshots = new Map<string, SharedSnapshot>();
+const ALL_SHARED_DOMAINS: SharedCacheDomain[] = [
+  'options', 'navigation', 'sidebar', 'metas', 'comments', 'notes', 'archive', 'content',
+  'admin-dashboard', 'admin-content', 'admin-comments', 'admin-metas', 'admin-media',
+  'admin-users', 'admin-options',
+];
 const pendingSharedLoads = new Map<string, Promise<unknown>>();
-const sharedSnapshotGenerations = new Map<SharedCacheDomain, number>();
-let sharedScopeIds = new WeakMap<object, number>();
-let nextSharedScopeId = 1;
+const sharedDataGenerations = new Map<SharedCacheDomain, number>();
 
-function sharedSnapshotKey(domain: SharedCacheDomain, key: string, scope?: object, localVersion?: string | number): string {
-  let scopeId = 0;
-  if (scope) {
-    scopeId = sharedScopeIds.get(scope) || nextSharedScopeId++;
-    sharedScopeIds.set(scope, scopeId);
+function sharedDataGeneration(domain: SharedCacheDomain): number {
+  return sharedDataGenerations.get(domain) || 0;
+}
+
+function advanceSharedDataGeneration(domain: SharedCacheDomain): void {
+  sharedDataGenerations.set(domain, sharedDataGeneration(domain) + 1);
+}
+
+/**
+ * Local invalidation bookkeeping: drop in-flight dedup entries for the
+ * affected domains and advance their generation so a load that started
+ * before the invalidation cannot repopulate the provider cache with a
+ * stale fallback result. Cross-isolate invalidation is the providers' job
+ * (generation-stamped KV/D1 keys).
+ */
+function invalidateSharedDataGenerations(domains?: SharedCacheDomain[] | ['all']): void {
+  if (!domains?.length) return;
+  const targetDomains = domains[0] === 'all' ? ALL_SHARED_DOMAINS : (domains as SharedCacheDomain[]);
+  const prefixes = new Set(targetDomains.map(domain => `${domain}\0`));
+  for (const key of pendingSharedLoads.keys()) {
+    if ([...prefixes].some(prefix => key.startsWith(prefix))) pendingSharedLoads.delete(key);
   }
-  return `${domain}\0${scopeId}\0${localVersion ?? ''}\0${key}`;
+  for (const domain of targetDomains) advanceSharedDataGeneration(domain);
 }
 
 function cloneSharedValue<T>(value: T): T {
   return structuredClone(value);
-}
-
-function setSharedSnapshot<T>(key: string, value: T): void {
-  try {
-    const cloned = cloneSharedValue(value);
-    // Refresh insertion order so the Map doubles as a compact LRU.
-    sharedSnapshots.delete(key);
-    sharedSnapshots.set(key, { value: cloned, expiresAt: Date.now() + SHARED_SNAPSHOT_TTL_MS });
-    while (sharedSnapshots.size > MAX_SHARED_SNAPSHOTS) {
-      const oldest = sharedSnapshots.keys().next().value;
-      if (oldest === undefined) break;
-      sharedSnapshots.delete(oldest);
-    }
-  } catch (error) {
-    // Cacheability is an optimization only. A provider may still persist a
-    // serializable result even when a local clone is unavailable.
-    console.warn('[early-request] Shared snapshot was not cloneable:', error);
-  }
-}
-
-function sharedSnapshotGeneration(domain: SharedCacheDomain): number {
-  return sharedSnapshotGenerations.get(domain) || 0;
-}
-
-function advanceSharedSnapshotGeneration(domain: SharedCacheDomain): void {
-  sharedSnapshotGenerations.set(domain, sharedSnapshotGeneration(domain) + 1);
-}
-
-function invalidateSharedSnapshots(domains?: SharedCacheDomain[] | ['all']): void {
-  if (!domains?.length) return;
-  if (domains[0] === 'all') {
-    sharedSnapshots.clear();
-    pendingSharedLoads.clear();
-    for (const domain of [
-      'options', 'navigation', 'sidebar', 'metas', 'comments', 'notes', 'archive', 'content',
-      'admin-dashboard', 'admin-content', 'admin-comments', 'admin-metas', 'admin-media',
-      'admin-users', 'admin-options',
-    ] as SharedCacheDomain[]) {
-      advanceSharedSnapshotGeneration(domain);
-    }
-    return;
-  }
-  const targetDomains = domains as SharedCacheDomain[];
-  const prefixes = new Set(targetDomains.map(domain => `${domain}\0`));
-  for (const key of sharedSnapshots.keys()) {
-    if ([...prefixes].some(prefix => key.startsWith(prefix))) sharedSnapshots.delete(key);
-  }
-  for (const key of pendingSharedLoads.keys()) {
-    if ([...prefixes].some(prefix => key.startsWith(prefix))) pendingSharedLoads.delete(key);
-  }
-  for (const domain of targetDomains) advanceSharedSnapshotGeneration(domain);
-}
-
-/** Clear local query/shared snapshots when a provider lifecycle event changes storage policy. */
-export function invalidateEarlyRequestSharedSnapshots(domains: SharedCacheDomain[] | ['all']): void {
-  invalidateSharedSnapshots(domains);
 }
 
 export function registerEarlyRequestLoaders(loaders: Record<string, EarlyRequestProviderLoader>): void {
@@ -230,7 +202,7 @@ export async function runEarlyRequestProviders(
 }
 
 export async function notifyEarlyRequestInvalidation(event: PublicCacheInvalidation): Promise<boolean> {
-  invalidateSharedSnapshots(event.sharedDomains);
+  invalidateSharedDataGenerations(event.sharedDomains);
   const providers = await loadProviders();
   let handled = false;
   for (const [pluginId, provider] of providers) {
@@ -244,27 +216,16 @@ export async function notifyEarlyRequestInvalidation(event: PublicCacheInvalidat
   return handled;
 }
 
-/** Load a JSON-serializable shared dataset through L0 -> provider -> D1. */
+/** Load a JSON-serializable shared dataset through provider -> D1 fallback. */
 export async function loadEarlyRequestSharedData<T>(
   domain: SharedCacheDomain,
   key: string,
   fallback: (context: SharedDataFallbackContext) => Promise<T>,
-  scope?: object,
-  localVersion?: string | number,
   trace?: SharedCacheTrace,
 ): Promise<T> {
-  const snapshotKey = sharedSnapshotKey(domain, key, scope, localVersion);
-  const localGeneration = sharedSnapshotGeneration(domain);
-  const snapshot = sharedSnapshots.get(snapshotKey);
-  if (snapshot && snapshot.expiresAt > Date.now()) {
-    sharedSnapshots.delete(snapshotKey);
-    sharedSnapshots.set(snapshotKey, snapshot);
-    recordSharedCacheTrace(trace, domain, 'L0');
-    return cloneSharedValue(snapshot.value as T);
-  }
-  if (snapshot) sharedSnapshots.delete(snapshotKey);
-
-  const existing = pendingSharedLoads.get(snapshotKey);
+  const pendingKey = `${domain}\0${key}`;
+  const localGeneration = sharedDataGeneration(domain);
+  const existing = pendingSharedLoads.get(pendingKey);
   if (existing) {
     recordSharedCacheTrace(trace, domain, 'MISS');
     return cloneSharedValue(await existing as T);
@@ -280,10 +241,7 @@ export async function loadEarlyRequestSharedData<T>(
         providerHandled = providerHandled || result.handled;
         if (result.source) recordSharedCacheTrace(trace, domain, result.source);
         if (result.value !== null) {
-          if (sharedSnapshotGeneration(domain) === localGeneration) {
-            setSharedSnapshot(snapshotKey, result.value);
-          }
-          return cloneSharedValue(result.value);
+          return result.value;
         }
       } catch (error) {
         console.error(`[early-request] Shared cache read failed for ${pluginId}:`, error);
@@ -294,8 +252,7 @@ export async function loadEarlyRequestSharedData<T>(
       recordSharedCacheTrace(trace, domain, 'MISS');
     }
     const value = await fallback({ providerHandled });
-    if (sharedSnapshotGeneration(domain) !== localGeneration) return value;
-    setSharedSnapshot(snapshotKey, value);
+    if (sharedDataGeneration(domain) !== localGeneration) return value;
     for (const [pluginId, provider] of providers) {
       if (!provider.writeSharedData) continue;
       try {
@@ -306,11 +263,11 @@ export async function loadEarlyRequestSharedData<T>(
     }
     return value;
   })();
-  pendingSharedLoads.set(snapshotKey, pending);
+  pendingSharedLoads.set(pendingKey, pending);
   try {
     return cloneSharedValue(await pending);
   } finally {
-    if (pendingSharedLoads.get(snapshotKey) === pending) pendingSharedLoads.delete(snapshotKey);
+    if (pendingSharedLoads.get(pendingKey) === pending) pendingSharedLoads.delete(pendingKey);
   }
 }
 
@@ -344,9 +301,6 @@ export async function notifyEarlyRequestLifecycle(
 export function resetEarlyRequestProvidersForTests(): void {
   providerLoaders.clear();
   pendingProviders.clear();
-  sharedSnapshots.clear();
   pendingSharedLoads.clear();
-  sharedSnapshotGenerations.clear();
-  sharedScopeIds = new WeakMap<object, number>();
-  nextSharedScopeId = 1;
+  sharedDataGenerations.clear();
 }

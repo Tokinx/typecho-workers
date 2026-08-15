@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as schema from '@/db/schema';
 import { createTestDb, disposeTestDb, makeAuthCookie, type TestDatabase } from '../helpers';
 import { generateUnapprovedCommentToken } from '@/lib/auth';
-import { resetEarlyRequestProvidersForTests } from '@/lib/early-request';
+import { registerEarlyRequestLoaders, resetEarlyRequestProvidersForTests } from '@/lib/early-request';
 
 let testDb: TestDatabase;
 const { mockApplyFilter, mockLoadCommentPage, mockLoadPublicCommentPage } = vi.hoisted(() => ({
@@ -84,6 +84,30 @@ function requestWithQuery(cid: string, query: string, headers: HeadersInit = {})
     headers: { accept: 'application/json', ...headers },
   });
   return { request: req, url: new URL(req.url), locals: {} } as any;
+}
+
+/**
+ * Register an in-memory provider so the shared-data layer can persist and
+ * serve cached comment projections the way the cache plugin's KV backend
+ * does in production. Reset happens in beforeEach.
+ */
+function registerMemoryProvider(): void {
+  const store = new Map<string, string>();
+  registerEarlyRequestLoaders({
+    memory: async () => ({
+      handle: async (_context: any, next: any) => next(),
+      readSharedData: async (_domain: string, key: string) => {
+        const raw = store.get(key);
+        return raw === undefined
+          ? { handled: true, value: null }
+          : { handled: true, value: JSON.parse(raw), source: 'KV' as const };
+      },
+      writeSharedData: async (_domain: string, key: string, value: unknown) => {
+        store.set(key, JSON.stringify(value));
+        return true;
+      },
+    }),
+  });
 }
 
 describe('GET /api/comments', () => {
@@ -248,6 +272,7 @@ describe('GET /api/comments', () => {
   });
 
   it('reuses a cached anonymous result without reloading comment rows', async () => {
+    registerMemoryProvider();
     await seedOptions();
     const post = await seedPost();
     await testDb.insert(schema.comments).values({
@@ -270,6 +295,7 @@ describe('GET /api/comments', () => {
   });
 
   it('reports the query-cache source on every comments response', async () => {
+    registerMemoryProvider();
     await seedOptions();
     const post = await seedPost();
     await testDb.insert(schema.comments).values({
@@ -287,7 +313,7 @@ describe('GET /api/comments', () => {
 
     const second = await GET(request(String(post.cid)));
     expect(second.headers.get('X-Typecho-Comment-Cache')).toBe('HIT');
-    expect(second.headers.get('X-Typecho-Query-Cache')).toBe('comments=L0');
+    expect(second.headers.get('X-Typecho-Query-Cache')).toBe('comments=KV');
   });
 
   it('uses lookahead pagination for anonymous public comment pages', async () => {

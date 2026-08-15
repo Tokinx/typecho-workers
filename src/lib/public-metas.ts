@@ -21,7 +21,7 @@ export async function loadPublicMetaDictionary(db: Pick<Database, 'select'>): Pr
     })
     .from(schema.metas)
     .where(or(eq(schema.metas.type, 'category'), eq(schema.metas.type, 'tag')))
-    .orderBy(asc(schema.metas.type), asc(schema.metas.order)), db as object);
+    .orderBy(asc(schema.metas.type), asc(schema.metas.order)));
 }
 
 export async function findPublicMeta(

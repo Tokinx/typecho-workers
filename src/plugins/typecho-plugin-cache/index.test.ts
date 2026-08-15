@@ -530,14 +530,14 @@ describe('typecho-plugin-cache provider', () => {
 
     for (const domain of ['options', 'navigation', 'sidebar', 'metas'] as const) {
       const d1Read = vi.fn(async () => ({ domain, source: 'd1' }));
-      await loadEarlyRequestSharedData(domain, 'stable-key', d1Read, {});
+      await loadEarlyRequestSharedData(domain, 'stable-key', d1Read);
       expect(d1Read).toHaveBeenCalledOnce();
 
       resetEarlyRequestProvidersForTests();
       resetCacheProviderForTests();
       registerEarlyRequestLoaders({ [CACHE_PLUGIN_ID]: async () => earlyRequestProvider });
       const unexpectedD1Read = vi.fn(async () => ({ domain, source: 'unexpected' }));
-      const fromKv = await loadEarlyRequestSharedData(domain, 'stable-key', unexpectedD1Read, {});
+      const fromKv = await loadEarlyRequestSharedData(domain, 'stable-key', unexpectedD1Read);
       expect(fromKv).toEqual({ domain, source: 'd1' });
       expect(unexpectedD1Read).not.toHaveBeenCalled();
     }
@@ -554,7 +554,7 @@ describe('typecho-plugin-cache provider', () => {
     await activate(kv);
     registerEarlyRequestLoaders({ [CACHE_PLUGIN_ID]: async () => earlyRequestProvider });
 
-    await loadEarlyRequestSharedData('comments', 'cid:42:page:1', async () => ({ comments: [] }), {});
+    await loadEarlyRequestSharedData('comments', 'cid:42:page:1', async () => ({ comments: [] }));
 
     const entry = [...kv.putOptions.entries()].find(([key]) => key.includes(':s:comments:'));
     expect(entry?.[1]?.expirationTtl).toBe(604_800);
@@ -564,41 +564,22 @@ describe('typecho-plugin-cache provider', () => {
     const kv = new MemoryKv();
     await activate(kv);
     registerEarlyRequestLoaders({ [CACHE_PLUGIN_ID]: async () => earlyRequestProvider });
-    const scope = {};
 
     const missTrace = createSharedCacheTrace();
     await loadEarlyRequestSharedData(
       'comments',
       'private-query-key-auth-code',
       async () => ({ source: 'd1' }),
-      scope,
-      undefined,
       missTrace,
     );
     expect(formatSharedCacheTrace(missTrace)).toBe('comments=MISS');
     expect(formatSharedCacheTrace(missTrace)).not.toContain('private-query-key-auth-code');
 
-    const l0Trace = createSharedCacheTrace();
-    await loadEarlyRequestSharedData(
-      'comments',
-      'private-query-key-auth-code',
-      async () => ({ source: 'unexpected' }),
-      scope,
-      undefined,
-      l0Trace,
-    );
-    expect(formatSharedCacheTrace(l0Trace)).toBe('comments=L0');
-
-    resetEarlyRequestProvidersForTests();
-    resetCacheProviderForTests();
-    registerEarlyRequestLoaders({ [CACHE_PLUGIN_ID]: async () => earlyRequestProvider });
     const kvTrace = createSharedCacheTrace();
     await loadEarlyRequestSharedData(
       'comments',
       'private-query-key-auth-code',
       async () => ({ source: 'unexpected' }),
-      scope,
-      undefined,
       kvTrace,
     );
     expect(formatSharedCacheTrace(kvTrace)).toBe('comments=KV');
@@ -613,8 +594,6 @@ describe('typecho-plugin-cache provider', () => {
       'comments',
       'uncached-query',
       async () => ({ source: 'd1' }),
-      {},
-      undefined,
       bypassTrace,
     );
     expect(formatSharedCacheTrace(bypassTrace)).toBe('comments=BYPASS');
@@ -640,8 +619,6 @@ describe('typecho-plugin-cache provider', () => {
       'comments',
       'd1-query-key',
       async () => ({ source: 'd1-origin' }),
-      {},
-      undefined,
       firstTrace,
     );
     expect(formatSharedCacheTrace(firstTrace)).toBe('comments=MISS');
@@ -664,8 +641,6 @@ describe('typecho-plugin-cache provider', () => {
       'comments',
       'd1-query-key',
       async () => ({ source: 'unexpected' }),
-      {},
-      undefined,
       d1Trace,
     );
     expect(formatSharedCacheTrace(d1Trace)).toBe('comments=D1');
@@ -871,7 +846,7 @@ describe('typecho-plugin-cache provider', () => {
       .toThrow('前台数据缓存后端无效');
   });
 
-  it('keeps the L0 snapshot when a data group is configured as uncached', async () => {
+  it('does not cache a data group configured as uncached', async () => {
     const kv = new MemoryKv();
     await activate(kv, { ...defaultSettings, adminDataCacheBackend: 'none' });
     registerEarlyRequestLoaders({ [CACHE_PLUGIN_ID]: async () => earlyRequestProvider });
@@ -880,16 +855,16 @@ describe('typecho-plugin-cache provider', () => {
       isLoggedIn: true,
       user: { uid: 11, group: 'administrator', authCode: 'none-backend' },
     } as any;
-    const firstLoader = vi.fn(async () => ({ value: 'l0' }));
+    const firstLoader = vi.fn(async () => ({ value: 'fresh' }));
     expect(await loadQueryCache(context, {
       domain: 'admin-dashboard', scope: 'viewer', key: { view: 'dashboard' },
-    }, firstLoader)).toEqual({ value: 'l0' });
-    const secondLoader = vi.fn(async () => ({ value: 'unexpected' }));
+    }, firstLoader)).toEqual({ value: 'fresh' });
+    const secondLoader = vi.fn(async () => ({ value: 'reloaded' }));
     expect(await loadQueryCache(context, {
       domain: 'admin-dashboard', scope: 'viewer', key: { view: 'dashboard' },
-    }, secondLoader)).toEqual({ value: 'l0' });
+    }, secondLoader)).toEqual({ value: 'reloaded' });
     expect(firstLoader).toHaveBeenCalledOnce();
-    expect(secondLoader).not.toHaveBeenCalled();
+    expect(secondLoader).toHaveBeenCalledOnce();
     expect([...kv.store.keys()].some(key => key.includes(':s:admin-dashboard:'))).toBe(false);
   });
 
@@ -899,8 +874,8 @@ describe('typecho-plugin-cache provider', () => {
     registerEarlyRequestLoaders({ [CACHE_PLUGIN_ID]: async () => earlyRequestProvider });
     const firstSidebarRead = vi.fn(async () => ({ value: 1 }));
     const firstOptionsRead = vi.fn(async () => ({ value: 1 }));
-    await loadEarlyRequestSharedData('sidebar', 'shared', firstSidebarRead, {});
-    await loadEarlyRequestSharedData('options', 'shared', firstOptionsRead, {});
+    await loadEarlyRequestSharedData('sidebar', 'shared', firstSidebarRead);
+    await loadEarlyRequestSharedData('options', 'shared', firstOptionsRead);
 
     await notifyEarlyRequestInvalidation({
       reason: 'comment-visible',
@@ -909,8 +884,8 @@ describe('typecho-plugin-cache provider', () => {
     });
     const refreshedSidebar = vi.fn(async () => ({ value: 2 }));
     const unexpectedOptionsRead = vi.fn(async () => ({ value: 2 }));
-    expect(await loadEarlyRequestSharedData('sidebar', 'shared', refreshedSidebar, {})).toEqual({ value: 2 });
-    expect(await loadEarlyRequestSharedData('options', 'shared', unexpectedOptionsRead, {})).toEqual({ value: 1 });
+    expect(await loadEarlyRequestSharedData('sidebar', 'shared', refreshedSidebar)).toEqual({ value: 2 });
+    expect(await loadEarlyRequestSharedData('options', 'shared', unexpectedOptionsRead)).toEqual({ value: 1 });
     expect(refreshedSidebar).toHaveBeenCalledOnce();
     expect(unexpectedOptionsRead).not.toHaveBeenCalled();
   });
@@ -957,7 +932,7 @@ describe('typecho-plugin-cache provider', () => {
     kv.failGet = true;
     registerEarlyRequestLoaders({ [CACHE_PLUGIN_ID]: async () => earlyRequestProvider });
     const failedKvFallback = vi.fn(async () => ({ source: 'd1' }));
-    expect(await loadEarlyRequestSharedData('options', 'failed-kv', failedKvFallback, {}))
+    expect(await loadEarlyRequestSharedData('options', 'failed-kv', failedKvFallback))
       .toEqual({ source: 'd1' });
     expect(failedKvFallback).toHaveBeenCalledOnce();
 
@@ -966,7 +941,7 @@ describe('typecho-plugin-cache provider', () => {
     env.TYPECHO_CACHE = null as any;
     registerEarlyRequestLoaders({ [CACHE_PLUGIN_ID]: async () => earlyRequestProvider });
     const missingKvFallback = vi.fn(async () => ({ source: 'd1-no-kv' }));
-    expect(await loadEarlyRequestSharedData('sidebar', 'missing-kv', missingKvFallback, {}))
+    expect(await loadEarlyRequestSharedData('sidebar', 'missing-kv', missingKvFallback))
       .toEqual({ source: 'd1-no-kv' });
     expect(missingKvFallback).toHaveBeenCalledOnce();
   });

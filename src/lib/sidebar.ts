@@ -129,7 +129,7 @@ export async function loadSidebarData(
     }));
 
     return { recentPosts, recentComments, categories, archives };
-  }, db as object);
+  });
 
   // Apply widget:sidebar filter — plugins can add/modify sidebar widgets
   return await applyFilterSafely(ctx, 'widget:sidebar', cloneSidebarData(sidebarData), db, siteUrl);
@@ -174,5 +174,5 @@ export async function loadNavPages(
         pagePattern,
       ),
     }));
-  }, db as object);
+  });
 }

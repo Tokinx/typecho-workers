@@ -60,8 +60,8 @@
 
 ```
 src/middleware.ts       — 请求入口，安装检测，early-request 外层，URL 重写
-  ├─ src/lib/early-request.ts — early-request provider 注册表 + L0 共享快照/失效
-  ├─ src/lib/query-cache.ts   — 查询读模型缓存（L0 → provider → fallback）
+  ├─ src/lib/early-request.ts — early-request provider 注册表 + 共享数据加载/失效（provider → fallback）
+  ├─ src/lib/query-cache.ts   — 查询读模型缓存（provider → fallback）
   ├─ src/lib/isolate-boot.ts  — per-isolate 建表/索引启动检查
   ├─ src/lib/plugin.ts  — 插件注册表 + Hook 事件总线（核心）
   ├─ src/lib/options.ts — 站点配置 CRUD + computeUrls
@@ -394,7 +394,7 @@ Notes 插件的笔记管理页是完整参考实现：`admin:page` 返回包含 
 
 Cloudflare Workers 是单线程单 isolate，以下模块级变量是安全的：
 - `src/lib/plugin.ts`：`pluginRegistry`、`hookRegistry`（构建时写入，运行时只读；`pendingPluginInits` 用于懒初始化）
-- `src/lib/early-request.ts`：`providerLoaders`、`pendingProviders`、`sharedSnapshots`、`pendingSharedLoads`、`sharedSnapshotGenerations`、`sharedScopeIds` / `nextSharedScopeId`
+- `src/lib/early-request.ts`：`providerLoaders`、`pendingProviders`、`pendingSharedLoads`（并发去重）、`sharedDataGenerations`（失效防回写）
 - `src/lib/cache.ts`：`cachedVersion`、`cachedVersionAt`（cacheVersion 短 TTL 内存 memo）
 - `src/lib/isolate-boot.ts`：`databaseReadyPassed`、`tableCheckPassed`、`passwordResetSchemaPassed`、`indexEnsurePassed` 及对应 pending promise
 - `src/lib/login-rate-limit.ts`：登录限流（D1 持久化） + 上传限流（`trackSlidingWindow`，内存级滑动窗口）
@@ -484,7 +484,7 @@ src/
 │   ├── auth.ts                      # 密码哈希 + Session + CSRF
 │   ├── admin-auth.ts                # 管理后台认证中间件 + 安全重定向
 │   ├── options.ts                   # 站点配置 CRUD
-│   ├── early-request.ts             # early-request provider 注册表 + L0 共享快照
+│   ├── early-request.ts             # early-request provider 注册表 + 共享数据加载/失效
 │   ├── query-cache.ts               # 查询读模型缓存
 │   ├── cache.ts                     # 缓存域定义 + PUBLIC_HTML_HEADER + 失效通知
 │   ├── schema-sql.ts                # 建表 SQL 反射生成

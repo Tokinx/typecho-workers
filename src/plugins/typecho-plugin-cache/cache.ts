@@ -6,7 +6,6 @@ import type {
   EarlyRequestSyncContext,
   SharedDataRead,
 } from '@/lib/early-request';
-import { invalidateEarlyRequestSharedSnapshots } from '@/lib/early-request';
 import type { PublicCacheDomain, PublicCacheInvalidation, SharedCacheDomain } from '@/lib/cache';
 import { PUBLIC_HTML_HEADER } from '@/lib/cache';
 import { env } from 'cloudflare:workers';
@@ -292,7 +291,11 @@ async function sharedGeneration(kv: KVNamespace, domain: SharedCacheDomain): Pro
   const now = Date.now();
   const memo = generationMemo.get(key);
   if (memo && memo.expiresAt > now) return memo.value;
-  const value = await kv.get(key, { type: 'text', cacheTtl: 60 }) || '0';
+  // Generation keys change on every invalidation. cacheTtl caches the read
+  // at the accessed location, so a bump made elsewhere would stay invisible
+  // until the cached read expires — keep it at the platform minimum (30s)
+  // to bound that window; the per-isolate memo already limits read rate.
+  const value = await kv.get(key, { type: 'text', cacheTtl: 30 }) || '0';
   generationMemo.set(key, { value, expiresAt: now + GENERATION_MEMO_TTL_MS });
   return value;
 }
@@ -1097,7 +1100,6 @@ async function lifecycle(event: EarlyRequestLifecycleEvent): Promise<void> {
     generationMemo.clear();
     runtimeConfig = null;
     lastD1CleanupAt = 0;
-    invalidateEarlyRequestSharedSnapshots(['all']);
     // Stale platform entries would otherwise keep serving old pages until
     // their TTL expires — the control doc no longer guards them.
     await purgePlatformCache([`${PLATFORM_TAG_PREFIX}all`]);
@@ -1106,7 +1108,6 @@ async function lifecycle(event: EarlyRequestLifecycleEvent): Promise<void> {
   if (!event.settings) return;
   const control = buildControlDocument(event.settings, event.options);
   runtimeConfig = control.config;
-  invalidateEarlyRequestSharedSnapshots(['all']);
   if (kv) {
     await writeControl(kv, control);
     await invalidateDomains(kv, ['all']);

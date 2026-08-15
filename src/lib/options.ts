@@ -229,8 +229,6 @@ async function loadCachedOptionsFresh(db: Database): Promise<CachedSiteOptions> 
     'options',
     'public-v2',
     ({ providerHandled }) => loadCachedOptionsFromFallback(db, !providerHandled),
-    db,
-    getOptionsSnapshotGeneration(db),
   );
 }
 

@@ -160,8 +160,6 @@ export const GET: APIRoute = async ({ request, locals, url }) => {
         cacheMiss = true;
         return loadPublicPage();
       },
-      undefined,
-      undefined,
       queryCacheTrace,
     );
     cacheStatus = cacheMiss ? 'MISS' : 'HIT';

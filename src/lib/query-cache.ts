@@ -60,7 +60,7 @@ async function viewerScope(ctx: RequestContext): Promise<string> {
 }
 
 /**
- * Cache a read-model result through L0 -> configured provider -> loader.
+ * Cache a read-model result through the configured provider -> loader.
  * Remote keys are hashes only, so neither request parameters nor credentials
  * become visible in KV or D1 cache keys.
  */
@@ -78,7 +78,6 @@ export async function loadQueryCache<T>(
     options.domain,
     `query:${scope}:${key}`,
     async () => loader(),
-    ctx.db as object,
   );
 }
 

@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as schema from '@/db/schema';
 import { createTestDb, disposeTestDb, type TestDatabase } from '../helpers';
+import { registerEarlyRequestLoaders, resetEarlyRequestProvidersForTests } from '@/lib/early-request';
 
 let testDb: TestDatabase;
 
@@ -18,6 +19,7 @@ const siteUrl = 'https://example.com';
 const mockPluginCtx = { activatedPlugins: new Set<string>() };
 
 beforeEach(async () => {
+  resetEarlyRequestProvidersForTests();
   testDb = await createTestDb();
 });
 
@@ -110,6 +112,24 @@ describe('loadSidebarData', () => {
   });
 
   it('reuses the versioned sidebar snapshot and refreshes after a version change', async () => {
+    registerEarlyRequestLoaders({
+      memory: async () => {
+        const store = new Map<string, string>();
+        return {
+          handle: async (_context: any, next: any) => next(),
+          readSharedData: async (_domain: string, key: string) => {
+            const raw = store.get(key);
+            return raw === undefined
+              ? { handled: true, value: null }
+              : { handled: true, value: JSON.parse(raw), source: 'KV' as const };
+          },
+          writeSharedData: async (_domain: string, key: string, value: unknown) => {
+            store.set(key, JSON.stringify(value));
+            return true;
+          },
+        };
+      },
+    });
     const first = await loadSidebarData(mockPluginCtx, testDb, siteUrl, undefined, undefined, 1);
     expect(first.recentPosts).toEqual([]);
 
