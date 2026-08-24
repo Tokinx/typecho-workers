@@ -126,7 +126,15 @@ const attachmentChecked = (value: string) => attachmentSet.has(value)
         </li>
       </ul>
 
-      <ul class="typecho-option typecho-option-submit" id="typecho-option-item-submit-8">
+      <ul class="typecho-option" id="typecho-option-item-cspWhitelist-8">
+        <li>
+          <label class="typecho-label" for="cspWhitelist-0-9">CSP 白名单</label>
+          <textarea id="cspWhitelist-0-9" name="cspWhitelist" rows="6">{options.cspWhitelist || ''}</textarea>
+          <p class="description">每行一个外部域名，将增量追加到全站安全策略（不会覆盖默认白名单）。裸域名自动补全 https://，例如 <code>cdn.example.com</code> 或 <code>https://analytics.example.com</code>。包含 # 的行会被忽略。保存后自动生效，无需手动清理缓存。</p>
+        </li>
+      </ul>
+
+      <ul class="typecho-option typecho-option-submit" id="typecho-option-item-submit-9">
         <li>
           <button type="submit" class="btn primary">保存设置</button>
         </li>

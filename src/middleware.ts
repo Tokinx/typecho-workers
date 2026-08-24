@@ -144,6 +144,9 @@ const coreMiddleware = defineMiddleware(async (context, next) => {
   await syncEarlyRequestProviders(context.request, activatedIds, options);
   setRequestCoreContext(context.locals, { db, options, pluginCtx }, context.request);
 
+  // Admin-configured external domains appended to the CSP (basic settings).
+  const cspWhitelist = options.cspWhitelist ?? undefined;
+
   // Resolve custom category patterns only after options and plugin runtime
   // state are available so paginated HTML gets the same CDN and CSP handling.
   const paginated = await resolvePaginatedPath(
@@ -156,7 +159,7 @@ const coreMiddleware = defineMiddleware(async (context, next) => {
     context.locals._page = paginated.page;
     return applySecurityHeaders(
       await next(paginated.target),
-      { request: context.request },
+      { request: context.request, cspWhitelist },
       pluginCtx,
     );
   }
@@ -182,7 +185,7 @@ const coreMiddleware = defineMiddleware(async (context, next) => {
     if (isReservedCorePath(path)) {
       console.warn(`[middleware] plugin tried to claim reserved path ${path}; ignoring`);
     } else {
-      return await applySecurityHeaders(pluginRoute.response, { request: context.request }, pluginCtx);
+      return await applySecurityHeaders(pluginRoute.response, { request: context.request, cspWhitelist }, pluginCtx);
     }
   }
 
@@ -318,7 +321,7 @@ const coreMiddleware = defineMiddleware(async (context, next) => {
             status: 429,
             headers: { 'Retry-After': String(SCANNER_404_RATE_LIMIT.windowSeconds) },
           }),
-          { request: context.request },
+          { request: context.request, cspWhitelist },
           pluginCtx,
         );
       }
@@ -327,7 +330,7 @@ const coreMiddleware = defineMiddleware(async (context, next) => {
           status: 404,
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         }),
-        { request: context.request },
+        { request: context.request, cspWhitelist },
         pluginCtx,
       );
     }
@@ -339,7 +342,7 @@ const coreMiddleware = defineMiddleware(async (context, next) => {
     response = await next();
   } catch (err) {
     console.error('[middleware] next() threw:', path, err);
-    return applySecurityHeaders(new Response('Server error', { status: 500 }), { request: context.request }, pluginCtx);
+    return applySecurityHeaders(new Response('Server error', { status: 500 }), { request: context.request, cspWhitelist }, pluginCtx);
   }
   if (response.status === 404) {
     // Only warn for admin paths (should never 404); info for everything else
@@ -354,6 +357,7 @@ const coreMiddleware = defineMiddleware(async (context, next) => {
     // The editor's same-origin, sandboxed iframe is the sole exception to
     // the default anti-framing policy.
     allowSameOriginFrame: path === '/admin/preview',
+    cspWhitelist,
   }, pluginCtx);
 
   return response;

@@ -59,6 +59,7 @@ export interface SiteOptions {
   commentsAvatarRating: string;
   commentsAntiSpam: number;
   commentsHTMLTagAllowed: string | null;
+  cspWhitelist: string | null;
   attachmentTypes: string;
   secret: string;
   installed: number;
@@ -122,6 +123,7 @@ const defaultOptions: Partial<SiteOptions> = {
   commentsAvatarRating: 'G',
   commentsAntiSpam: 1,
   commentsHTMLTagAllowed: null,
+  cspWhitelist: null,
   attachmentTypes: '@image@',
   cacheVersion: 0,
   installed: 0,

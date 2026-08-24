@@ -353,10 +353,12 @@ Notes 插件的笔记管理页是完整参考实现：`admin:page` 返回包含 
 | `X-Frame-Options` | `DENY` |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` |
 | `Strict-Transport-Security` | `max-age=31536000; includeSubDomains`（仅 HTTPS） |
-| `Content-Security-Policy` | 宽型默认（允许 `'self'` + 内联样式 / 脚本 + Gravatar 图片 + R2/usr/uploads） |
+| `Content-Security-Policy` | 宽型默认（允许 `'self'` + 内联样式 / 脚本 + Gravatar 图片 + R2/usr/uploads），另叠加管理员配置的 CSP 白名单（见下） |
 | `Permissions-Policy` | 默认禁用 camera/microphone/geolocation/payment/usb |
 
 `csp:directives` filter hook 允许插件追加/调整 CSP directives；插件应只附加来源，不要清空默认 directive。
+
+管理员可在「基本设置」的 `cspWhitelist` 选项按行追加外部域名（每行一个，裸域名自动补 `https://`，`#` 行忽略），由 `parseCspWhitelist()` 解析后增量并入 `script-src`/`style-src`/`img-src`/`connect-src`/`font-src`/`media-src`/`frame-src` 七组指令（`CSP_WHITELIST_DIRECTIVES`），不覆盖默认策略、不影响 `csp:directives` 插件贡献；`frame-ancestors`/`base-uri`/`form-action` 与上传响应（`default-src 'none'; sandbox`）不受白名单影响。
 
 ### 8.6 安装窗口
 

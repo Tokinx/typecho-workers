@@ -48,6 +48,48 @@ export function addCspSource(directives: CspDirectives, key: string, sources: st
   directives[key] = Array.from(existing);
 }
 
+/**
+ * Fetch directives a whitelisted domain is added to. Administrators can
+ * list external domains (one per line) in the basic-settings page; each
+ * entry becomes an additional allowed source for these directives —
+ * incrementally, on top of the defaults and plugin contributions.
+ */
+export const CSP_WHITELIST_DIRECTIVES = [
+  'script-src',
+  'style-src',
+  'img-src',
+  'connect-src',
+  'font-src',
+  'media-src',
+  'frame-src',
+];
+
+const CSP_HOST_PATTERN =
+  /^(https?:\/\/)?(\*\.)?([a-z0-9]([a-z0-9-]*[a-z0-9])?)(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*(:[0-9]{1,5})?$/i;
+
+/**
+ * Parse the admin-configured CSP whitelist (one external domain per line)
+ * into normalized CSP sources. Bare hosts get `https://` prefixed; lines
+ * that aren't plain hosts (paths, scheme-less tokens like `data:`, or
+ * anything with whitespace/quotes/semicolons) are dropped so a typo can't
+ * break the serialized policy.
+ */
+export function parseCspWhitelist(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  const seen = new Set<string>();
+  const sources: string[] = [];
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    if (!CSP_HOST_PATTERN.test(trimmed)) continue;
+    const source = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+    if (seen.has(source)) continue;
+    seen.add(source);
+    sources.push(source);
+  }
+  return sources;
+}
+
 export function serializeCsp(directives: CspDirectives): string {
   return Object.entries(directives)
     .filter(([, srcs]) => srcs && srcs.length > 0)
@@ -65,6 +107,12 @@ export interface SecurityHeaderContext {
   upload?: boolean;
   /** Allow the authenticated /admin/preview response to be framed by its editor. */
   allowSameOriginFrame?: boolean;
+  /**
+   * Raw multi-line whitelist from the basic-settings page (one external
+   * domain per line). Parsed and merged into `CSP_WHITELIST_DIRECTIVES`
+   * on top of the defaults — never replacing them.
+   */
+  cspWhitelist?: string;
 }
 
 /**
@@ -95,6 +143,16 @@ export async function applySecurityHeaders(
       }
     } catch {
       // Plugin failures already logged by applyFilterSafely.
+    }
+    // The admin whitelist is applied after plugin contributions so user
+    // configuration is always present, no matter what a plugin did.
+    if (secCtx.cspWhitelist) {
+      const sources = parseCspWhitelist(secCtx.cspWhitelist);
+      for (const src of sources) {
+        for (const key of CSP_WHITELIST_DIRECTIVES) {
+          addCspSource(directives, key, [src]);
+        }
+      }
     }
     if (secCtx.allowSameOriginFrame) {
       directives['frame-ancestors'] = ["'self'"];

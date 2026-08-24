@@ -128,6 +128,16 @@ describe('POST /api/admin/options', () => {
     expect(await getOption(testDb, 'siteUrl')).toBe('https://myblog.com');
   });
 
+  it('saves the csp whitelist verbatim (multi-line)', async () => {
+    const req = await makeAdminRequest(testDb, {
+      cspWhitelist: 'cdn.example.com\n# comment lines are kept for display\nplayer.twitch.tv',
+    });
+    const res = await POST({ request: req, locals: {} } as any);
+    expect(res.status).toBe(302);
+    expect(await getOption(testDb, 'cspWhitelist'))
+      .toBe('cdn.example.com\n# comment lines are kept for display\nplayer.twitch.tv');
+  });
+
   it('serializes upload groups and custom extensions from the basic page', async () => {
     const req = await makeAdminRequest(testDb, {
       'attachmentTypes[]': ['@image@', '@other@'],

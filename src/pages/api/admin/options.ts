@@ -27,7 +27,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     'frontArchive',
     'loginFailBanEnabled', 'loginFailBanWindowSeconds',
     'loginFailBanMaxFailures', 'loginFailBanSeconds',
-    'feedItems', 'robotsTxt',
+    'feedItems', 'robotsTxt', 'cspWhitelist',
   ];
 
   // Handle permalinkPattern specially: if "custom" is selected, use customPattern value

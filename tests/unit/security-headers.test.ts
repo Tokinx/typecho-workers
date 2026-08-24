@@ -2,11 +2,24 @@
  * Unit tests for src/lib/security-headers.ts (G3-5).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { applySecurityHeaders, defaultCspDirectives, addCspSource, serializeCsp } from '@/lib/security-headers';
+import {
+  applySecurityHeaders,
+  defaultCspDirectives,
+  addCspSource,
+  serializeCsp,
+  parseCspWhitelist,
+  CSP_WHITELIST_DIRECTIVES,
+} from '@/lib/security-headers';
 
 vi.mock('@/lib/plugin', () => ({
   applyFilterSafely: vi.fn(async (_ctx: any, _hook: string, value: any) => value),
 }));
+
+/** Split one directive's source list out of a serialized CSP. */
+function directiveSources(csp: string, name: string): string[] {
+  const entry = csp.split(';').map((s) => s.trim()).find((s) => s.startsWith(`${name} `));
+  return entry ? entry.slice(name.length).trim().split(/\s+/) : [];
+}
 
 describe('CSP directive helpers', () => {
   it('serializeCsp joins directives with semicolons', () => {
@@ -31,6 +44,46 @@ describe('CSP directive helpers', () => {
     expect(csp).not.toContain('https://challenges.cloudflare.com');
     expect(csp).not.toContain('https://static.cloudflareinsights.com');
     expect(csp).not.toContain('https://cloudflareinsights.com');
+  });
+});
+
+describe('parseCspWhitelist', () => {
+  it('normalizes bare hosts to https and preserves explicit schemes and ports', () => {
+    expect(parseCspWhitelist('cdn.example.com\nhttps://sub.example.com\nhttp://assets.example.org:8080')).toEqual([
+      'https://cdn.example.com',
+      'https://sub.example.com',
+      'http://assets.example.org:8080',
+    ]);
+  });
+
+  it('keeps subdomain wildcards and dedupes normalized sources', () => {
+    expect(parseCspWhitelist('*.cdn.example.com\nhttps://cdn.example.com\ncdn.example.com')).toEqual([
+      'https://*.cdn.example.com',
+      'https://cdn.example.com',
+    ]);
+  });
+
+  it('drops blank lines, comments, and anything that is not a host', () => {
+    const raw = [
+      '# first comment',
+      '', // blank
+      '   ', // whitespace-only
+      'cdn.example.com',
+      "'unsafe-inline'", // directive token
+      'data:', // scheme source
+      'https://cdn.example.com/path', // paths are not hosts
+      'bad host.com', // internal whitespace
+      '*', // bare wildcard
+      'https://', // no host
+    ].join('\n');
+    expect(parseCspWhitelist(raw)).toEqual(['https://cdn.example.com']);
+  });
+
+  it('returns an empty list for null, undefined, empty, or comment-only input', () => {
+    expect(parseCspWhitelist(null)).toEqual([]);
+    expect(parseCspWhitelist(undefined)).toEqual([]);
+    expect(parseCspWhitelist('')).toEqual([]);
+    expect(parseCspWhitelist('# only a comment')).toEqual([]);
   });
 });
 
@@ -100,5 +153,61 @@ describe('applySecurityHeaders', () => {
     }, { activatedPlugins: new Set<string>() });
     const csp = response.headers.get('Content-Security-Policy') || '';
     expect(csp).toContain('https://my-cdn.example');
+  });
+
+  it('merges the csp whitelist into the common fetch directives incrementally', async () => {
+    const response = await applySecurityHeaders(new Response('ok'), {
+      request: new Request('https://example.com/'),
+      cspWhitelist: 'cdn.example.com\nplayer.twitch.tv',
+    }, { activatedPlugins: new Set<string>() });
+    const csp = response.headers.get('Content-Security-Policy') || '';
+    for (const directive of CSP_WHITELIST_DIRECTIVES) {
+      const sources = directiveSources(csp, directive);
+      expect(sources).toContain('https://cdn.example.com');
+      expect(sources).toContain('https://player.twitch.tv');
+    }
+    // Default sources remain — the whitelist appends, never replaces.
+    expect(directiveSources(csp, 'frame-src')).toContain('https://www.youtube.com');
+    expect(directiveSources(csp, 'frame-ancestors')).toEqual(["'none'"]);
+    expect(directiveSources(csp, 'default-src')).toEqual(["'self'"]);
+    expect(directiveSources(csp, 'base-uri')).toEqual(["'self'"]);
+  });
+
+  it('ignores the csp whitelist for upload responses', async () => {
+    const response = await applySecurityHeaders(new Response('image'), {
+      request: new Request('https://example.com/usr/uploads/x.png'),
+      upload: true,
+      cspWhitelist: 'cdn.example.com',
+    });
+    const csp = response.headers.get('Content-Security-Policy') || '';
+    expect(csp).toContain("default-src 'none'");
+    expect(csp).not.toContain('cdn.example.com');
+  });
+
+  it('keeps the admin preview frame allowance despite the whitelist', async () => {
+    const response = await applySecurityHeaders(new Response('preview'), {
+      request: new Request('https://example.com/admin/preview?cid=1'),
+      allowSameOriginFrame: true,
+      cspWhitelist: 'cdn.example.com',
+    }, { activatedPlugins: new Set<string>() });
+    const csp = response.headers.get('Content-Security-Policy') || '';
+    expect(directiveSources(csp, 'frame-ancestors')).toEqual(["'self'"]);
+    expect(directiveSources(csp, 'script-src')).toContain('https://cdn.example.com');
+  });
+
+  it('combines plugin csp:directives contributions with the whitelist', async () => {
+    const { applyFilterSafely } = await import('@/lib/plugin');
+    (applyFilterSafely as any).mockImplementationOnce(async (_ctx: any, _hook: string, directives: any) => {
+      addCspSource(directives, 'img-src', ['https://my-cdn.example']);
+      return directives;
+    });
+    const response = await applySecurityHeaders(new Response('ok'), {
+      request: new Request('https://example.com/'),
+      cspWhitelist: 'cdn.example.com',
+    }, { activatedPlugins: new Set<string>() });
+    const csp = response.headers.get('Content-Security-Policy') || '';
+    const imgSrc = directiveSources(csp, 'img-src');
+    expect(imgSrc).toContain('https://my-cdn.example');
+    expect(imgSrc).toContain('https://cdn.example.com');
   });
 });
