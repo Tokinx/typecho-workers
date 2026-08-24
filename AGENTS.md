@@ -530,3 +530,9 @@ scripts/
 ```
 
 另：`src/lib` 与 `src/plugins` 下共有 8 个测试文件，全部测试文件数为 104。
+
+## 13. 前端 vendor 库维护
+
+- `public/vendor/pagedown.js` 是 WMD 编辑器（pagedown Typecho 系 fork）的**维护源，保持未压缩**；历史上是单行压缩版，直接在压缩文件上修改易出错且 diff 不可读，故反格式化后提交
+- 修改后必须运行 `bun run test tests/unit/pagedown-editor.test.ts`（该测试从文件提取 `doCode` / `doLinkOrImage` 做行为断言），**禁止重新压缩该文件**
+- 有意行为差异见文件头部注释：链接/图片为内联 Markdown（`[text](url)` / `![desc](url)`）；多行代码段用 ``` 围栏，单行用单个反引号
