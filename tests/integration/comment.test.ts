@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as schema from '@/db/schema';
 import { createTestDb, makeAuthCookie, randomPassword, type TestDatabase } from '../helpers';
 import { generateCommentToken } from '@/lib/auth';
+import { resetSlidingWindow } from '@/lib/login-rate-limit';
 
 let testDb: TestDatabase;
 const { mockApplyFilter, mockDoHook } = vi.hoisted(() => ({
@@ -94,6 +95,7 @@ function makeCommentRequest(
 
 describe('POST /api/comment', () => {
   beforeEach(async () => {
+    resetSlidingWindow();
     testDb = await createTestDb();
     mockApplyFilter.mockImplementation(async (_ctx: any, _hook: string, data: any) => data);
     mockDoHook.mockClear();
@@ -277,24 +279,44 @@ describe('POST /api/comment', () => {
     });
     const content = await seedContent(testDb);
 
-    // Insert a recent comment from the same IP
-    await testDb.insert(schema.comments).values({
-      cid: content.cid,
-      created: Math.floor(Date.now() / 1000) - 5, // 5 seconds ago
-      author: 'Spammer',
-      ip: '5.5.5.5',
-      text: 'spam',
-      status: 'approved',
-      type: 'comment',
-      parent: 0,
-    });
-
-    const req = makeCommentRequest(
-      { cid: String(content.cid), text: 'Too fast!', author: 'Spammer' },
+    // First comment from the IP succeeds; an immediate second one is rejected
+    // by the in-isolate sliding window (no D1 dependency).
+    const first = await POST({ request: makeCommentRequest(
+      { cid: String(content.cid), text: 'First comment', author: 'Visitor' },
       { 'cf-connecting-ip': '5.5.5.5' },
-    );
-    const res = await POST({ request: req, locals: {} } as any);
-    expect(res.status).toBe(429);
+    ), locals: {} } as any);
+    expect(first.status).toBe(302);
+
+    const second = await POST({ request: makeCommentRequest(
+      { cid: String(content.cid), text: 'Too fast!', author: 'Visitor' },
+      { 'cf-connecting-ip': '5.5.5.5' },
+    ), locals: {} } as any);
+    expect(second.status).toBe(429);
+    await expect(second.text()).resolves.toContain('评论过于频繁');
+  });
+
+  it('rate-limits logged-in users on the same post (interval applies to everyone)', async () => {
+    await seedOptions(testDb, {
+      commentsPostIntervalEnable: '1',
+      commentsPostInterval: '60',
+    });
+    const content = await seedContent(testDb);
+    const [user] = await testDb.insert(schema.users).values({
+      name: 'member', screenName: 'Member', authCode: 'member-auth',
+    }).returning();
+    const cookie = await makeAuthCookie(testDb, user.uid, 'member-auth', 'test-secret');
+
+    const first = await POST({ request: makeCommentRequest(
+      { cid: String(content.cid), text: 'Logged-in comment', author: 'x' },
+      { Cookie: cookie },
+    ), locals: {} } as any);
+    expect(first.status).toBe(302);
+
+    const second = await POST({ request: makeCommentRequest(
+      { cid: String(content.cid), text: 'Again!', author: 'x' },
+      { Cookie: cookie },
+    ), locals: {} } as any);
+    expect(second.status).toBe(429);
   });
 
   it('enforces commentsAutoClose when article is too old', async () => {

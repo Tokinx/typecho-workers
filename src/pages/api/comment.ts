@@ -18,6 +18,7 @@ import { env } from 'cloudflare:workers';
 import { jsonError } from '@/lib/http';
 import { invalidatePublicCache } from '@/lib/cache';
 import { appendRememberedCommenterCookies } from '@/lib/commenter';
+import { slidingWindowRetryAfterSeconds, trackSlidingWindow } from '@/lib/login-rate-limit';
 
 export const POST: APIRoute = async ({ request, locals }) => {
   const wantsJson = request.headers.get('accept')?.includes('application/json') ?? false;
@@ -158,23 +159,13 @@ export const POST: APIRoute = async ({ request, locals }) => {
     }
   }
 
-  // Resolve client IP once — used for anti-spam rate-limit and stored with the comment
+  // Resolve client IP once — used for the comment interval limit and stored
+  // with the comment itself.
   const ip = getClientIp(request);
 
   // These moderation checks depend on normalized identity, but not on each
   // other. Execute only the enabled checks and share one latency wave.
-  const [recentComment, approved, parentComment] = await Promise.all([
-    options.commentsPostIntervalEnable && !userId
-      ? db
-      .select({ created: schema.comments.created })
-      .from(schema.comments)
-      .where(and(
-        eq(schema.comments.cid, cid),
-        eq(schema.comments.ip, ip)
-      ))
-      .orderBy(sql`${schema.comments.created} DESC`)
-      .limit(1)
-      : Promise.resolve([]),
+  const [approved, parentComment] = await Promise.all([
     options.commentsWhitelist && !userId
       ? db.query.comments.findFirst({
           where: and(
@@ -192,13 +183,6 @@ export const POST: APIRoute = async ({ request, locals }) => {
         })
       : Promise.resolve(null),
   ]);
-
-  if (options.commentsPostIntervalEnable && !userId && recentComment[0]) {
-      const elapsed = Math.floor(Date.now() / 1000) - (recentComment[0].created || 0);
-      if (elapsed < (options.commentsPostInterval || 60)) {
-        return commentError(wantsJson, 429, `评论过于频繁，请等待 ${options.commentsPostInterval - elapsed} 秒后再试`);
-      }
-  }
 
   // Determine comment status
   let status = 'approved';
@@ -271,6 +255,21 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const finalStatus = commentData.status;
   if (finalStatus !== 'approved' && finalStatus !== 'waiting' && finalStatus !== 'spam') {
     return commentError(wantsJson, 400, '插件返回了无效的评论状态');
+  }
+
+  // Same-IP comment interval, enforced with an in-isolate sliding window
+  // (no D1 round-trip). Keyed by cid + ip so one article's limit doesn't
+  // block comments on another. Placed after every rejection path: only
+  // comments that actually get written consume the window, so a failed
+  // captcha/CSRF attempt can't lock a legit user out. Applies to logged-in
+  // commenters too — the admin reply flow uses a separate endpoint.
+  if (options.commentsPostIntervalEnable) {
+    const interval = options.commentsPostInterval || 60;
+    const windowKey = `comment:${cid}:${ip}`;
+    if (!trackSlidingWindow(windowKey, { windowSeconds: interval, maxRequests: 1 })) {
+      const retryAfter = slidingWindowRetryAfterSeconds(windowKey) || interval;
+      return commentError(wantsJson, 429, `评论过于频繁，请等待 ${retryAfter} 秒后再试`);
+    }
   }
 
   const writeStatements: any[] = [

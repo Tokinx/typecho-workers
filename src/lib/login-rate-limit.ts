@@ -139,6 +139,7 @@ export async function purgeExpiredLoginFailures(
 interface SlidingWindowState {
   count: number;
   windowStartedAt: number;
+  windowSeconds: number;
 }
 
 const slidingWindows = new Map<string, SlidingWindowState>();
@@ -162,12 +163,24 @@ export function trackSlidingWindow(
   const windowMs = config.windowSeconds * 1000;
   const state = slidingWindows.get(key);
   if (!state || now - state.windowStartedAt > windowMs) {
-    slidingWindows.set(key, { count: 1, windowStartedAt: now });
+    slidingWindows.set(key, { count: 1, windowStartedAt: now, windowSeconds: config.windowSeconds });
     return true;
   }
   if (state.count >= config.maxRequests) return false;
   state.count += 1;
   return true;
+}
+
+/**
+ * Seconds remaining until the sliding window for the key resets, or 0 when
+ * no window is currently active for the key. Lets callers report a precise
+ * retry delay instead of the full window.
+ */
+export function slidingWindowRetryAfterSeconds(key: string, now = Date.now()): number {
+  const state = slidingWindows.get(key);
+  if (!state) return 0;
+  const remainingMs = state.windowStartedAt + state.windowSeconds * 1000 - now;
+  return remainingMs > 0 ? Math.ceil(remainingMs / 1000) : 0;
 }
 
 /** For tests only. */

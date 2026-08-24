@@ -14,6 +14,9 @@ import {
   readLoginRateLimitConfig,
   recordLoginFailure,
   purgeExpiredLoginFailures,
+  resetSlidingWindow,
+  slidingWindowRetryAfterSeconds,
+  trackSlidingWindow,
   type LoginRateLimitConfig,
 } from '@/lib/login-rate-limit';
 import { createTestDb, disposeTestDb, type TestDatabase } from '../helpers';
@@ -150,5 +153,51 @@ describe('readLoginRateLimitConfig', () => {
     expect(readLoginRateLimitConfig({ loginFailBanEnabled: 1 }).enabled).toBe(true);
     expect(readLoginRateLimitConfig({ loginFailBanEnabled: '1' }).enabled).toBe(true);
     expect(readLoginRateLimitConfig({ loginFailBanEnabled: true }).enabled).toBe(true);
+  });
+});
+
+describe('trackSlidingWindow', () => {
+  beforeEach(() => resetSlidingWindow());
+
+  it('allows requests up to maxRequests, then rejects within the window', () => {
+    const config = { windowSeconds: 60, maxRequests: 3 };
+    expect(trackSlidingWindow('k', config, 1_000)).toBe(true);
+    expect(trackSlidingWindow('k', config, 2_000)).toBe(true);
+    expect(trackSlidingWindow('k', config, 3_000)).toBe(true);
+    expect(trackSlidingWindow('k', config, 4_000)).toBe(false);
+  });
+
+  it('resets the window once windowSeconds elapse', () => {
+    const config = { windowSeconds: 60, maxRequests: 1 };
+    expect(trackSlidingWindow('k', config, 1_000)).toBe(true);
+    expect(trackSlidingWindow('k', config, 2_000)).toBe(false);
+    // Window holds until strictly past windowSeconds (60_000 ms later).
+    expect(trackSlidingWindow('k', config, 61_001)).toBe(true);
+  });
+
+  it('tracks keys independently', () => {
+    const config = { windowSeconds: 60, maxRequests: 1 };
+    expect(trackSlidingWindow('a', config, 1_000)).toBe(true);
+    expect(trackSlidingWindow('b', config, 1_000)).toBe(true);
+    expect(trackSlidingWindow('a', config, 2_000)).toBe(false);
+    expect(trackSlidingWindow('b', config, 2_000)).toBe(false);
+  });
+});
+
+describe('slidingWindowRetryAfterSeconds', () => {
+  beforeEach(() => resetSlidingWindow());
+
+  it('returns 0 when no window is active for the key', () => {
+    expect(slidingWindowRetryAfterSeconds('missing')).toBe(0);
+  });
+
+  it('reports the seconds remaining until the window resets', () => {
+    trackSlidingWindow('k', { windowSeconds: 60, maxRequests: 1 }, 10_000);
+    expect(slidingWindowRetryAfterSeconds('k', 25_000)).toBe(45);
+  });
+
+  it('returns 0 after the window has expired', () => {
+    trackSlidingWindow('k', { windowSeconds: 60, maxRequests: 1 }, 10_000);
+    expect(slidingWindowRetryAfterSeconds('k', 70_000)).toBe(0);
   });
 });
