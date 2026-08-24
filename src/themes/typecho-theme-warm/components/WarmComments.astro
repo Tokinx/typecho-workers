@@ -5,9 +5,11 @@ interface Props {
   cid: number;
   componentLoadMode: WarmCommentComponentLoadMode;
   initialLoadMode: WarmCommentInitialLoadMode;
+  /** Seconds the submit button stays locked after a submit attempt (0 disables). */
+  cooldownSeconds?: number;
 }
 
-const { cid, componentLoadMode, initialLoadMode } = Astro.props;
+const { cid, componentLoadMode, initialLoadMode, cooldownSeconds = 0 } = Astro.props;
 const requestedCommentPage = Astro.url.searchParams.get('commentPage');
 ---
 <section
@@ -15,6 +17,7 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
   id="comments"
   data-comments-root
   data-cid={cid}
+  data-comment-cooldown={cooldownSeconds > 0 ? cooldownSeconds : undefined}
   data-comment-component-load={componentLoadMode}
   data-current-page={requestedCommentPage || undefined}
   data-comment-initial-load={initialLoadMode}
@@ -134,6 +137,56 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
       let componentScrollHandler = null;
       const componentInitialScrollTop = window.scrollY;
       const autoLimit = initialMode === 'auto-2' ? 2 : initialMode === 'infinite' ? Infinity : 0;
+
+      const cooldownMs = Math.max(0, Number(root.dataset.commentCooldown || 0) * 1000);
+      const cooldownStorageKey = `typecho-comment-cooldown:${cid}`;
+      let cooldownUntil = 0;
+      let cooldownTimer = null;
+
+      // Client-side submit cooldown mirroring the server's same-IP comment
+      // interval (the server stays authoritative). The deadline is persisted
+      // in sessionStorage so a refresh or a bfcache-restored page can't
+      // resubmit with a fresh, unlocked form.
+      const applyCooldownLock = () => {
+        const submit = root.querySelector('[data-comment-form] button[type="submit"]');
+        if (!submit) return;
+        if (cooldownUntil <= Date.now()) {
+          submit.disabled = false;
+          if (cooldownTimer) {
+            window.clearTimeout(cooldownTimer);
+            cooldownTimer = null;
+          }
+          return;
+        }
+        submit.disabled = true;
+        if (!cooldownTimer) {
+          cooldownTimer = window.setTimeout(() => {
+            cooldownTimer = null;
+            applyCooldownLock();
+          }, cooldownUntil - Date.now());
+        }
+      };
+
+      const startCooldown = () => {
+        if (cooldownMs <= 0) return;
+        cooldownUntil = Date.now() + cooldownMs;
+        try {
+          sessionStorage.setItem(cooldownStorageKey, String(cooldownUntil));
+        } catch { /* private mode — the in-memory lock still holds */ }
+        applyCooldownLock();
+      };
+
+      const restoreCooldown = () => {
+        try {
+          const stored = sessionStorage.getItem(cooldownStorageKey);
+          if (stored) {
+            const ts = Number(stored);
+            if (Number.isFinite(ts) && ts > Date.now()) cooldownUntil = ts;
+            else sessionStorage.removeItem(cooldownStorageKey);
+          }
+        } catch { /* storage unavailable */ }
+        applyCooldownLock();
+      };
 
       const setDeferredPrompt = (text, showButton, loadingState) => {
         const deferred = root.querySelector('[data-comment-deferred]');
@@ -285,6 +338,7 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
           const data = await response.json();
           if (!response.ok) throw new Error(data.error || '评论配置加载失败');
           renderFrame(root, data);
+          applyCooldownLock();
           metadataLoaded = true;
           return data;
         })().finally(() => {
@@ -357,7 +411,13 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
         event.preventDefault();
         const submit = form.querySelector('button[type="submit"]');
         const message = form.querySelector('[data-comment-message]');
-        if (submit) submit.disabled = true;
+        // The cooldown fires before the request leaves, so a double-tap, a
+        // second tab, or a bfcache-restored form can't produce a duplicate.
+        if (Date.now() < cooldownUntil) {
+          setCommentMessage(message, '评论提交过于频繁，请稍后再试。');
+          return;
+        }
+        startCooldown();
         setCommentMessage(message, '正在发送...');
         try {
           const response = await fetch(form.action, {
@@ -378,7 +438,7 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
         } catch (error) {
           setCommentMessage(message, error instanceof Error ? error.message : '评论发送失败');
         } finally {
-          if (submit) submit.disabled = false;
+          applyCooldownLock();
         }
       });
 
@@ -458,6 +518,10 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
       };
 
       startComponentLoader();
+      restoreCooldown();
+      window.addEventListener('pageshow', event => {
+        if (event.persisted) restoreCooldown();
+      });
       window.addEventListener('instantclick:newpage', cleanupStalePage);
     });
   })();

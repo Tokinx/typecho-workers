@@ -56,4 +56,15 @@ describe('Warm post comments', () => {
     expect(page).toContain("pageContext={{ hasComments: page.allowComment, pageType: 'page' }}");
     expect(shell).toContain('pageContext={pageContext}');
   });
+
+  it('exposes a submit cooldown on the SSR root and restores it from sessionStorage', () => {
+    const comments = readFileSync(join(warmRoot, 'components/WarmComments.astro'), 'utf-8');
+    const ssrPlaceholder = comments.slice(0, comments.indexOf('<script is:inline>'));
+
+    expect(ssrPlaceholder).toContain('data-comment-cooldown');
+    expect(comments).toContain('typecho-comment-cooldown');
+    expect(comments).toContain("sessionStorage.getItem(cooldownStorageKey)");
+    expect(comments).toContain("'pageshow'");
+    expect(comments).toContain('event.persisted');
+  });
 });

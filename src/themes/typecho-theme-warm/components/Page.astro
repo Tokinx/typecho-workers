@@ -38,6 +38,7 @@ const settings = warmSettings(options);
       cid={page.cid}
       componentLoadMode={settings.commentComponentLoadMode}
       initialLoadMode={settings.commentInitialLoadMode}
+      cooldownSeconds={options.commentsPostIntervalEnable ? (options.commentsPostInterval || 60) : 0}
     />
   )}
 </WarmShell>

@@ -97,6 +97,7 @@ const description = plainExcerpt(isNote ? note.source : post.content, 160);
       cid={post.cid}
       componentLoadMode={settings.commentComponentLoadMode}
       initialLoadMode={settings.commentInitialLoadMode}
+      cooldownSeconds={options.commentsPostIntervalEnable ? (options.commentsPostInterval || 60) : 0}
     />
   )}
 
