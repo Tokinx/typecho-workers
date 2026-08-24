@@ -79,7 +79,7 @@ src/lib/plugin.ts       — 插件系统核心（826 行）
   ├─ doHook() — call 钩子（副作用，无返回值）
   ├─ applyFilter() — filter 钩子（链式变换，抛异常中断）
   ├─ applyFilterSafely() — filter 钩子（吞异常，展示用）
-  └─ HookPoints 常量 — 68 个挂载点定义
+  └─ HookPoints 常量 — 69 个挂载点定义
 
 src/lib/theme.ts        — 主题系统
 src/integrations/theme-loader.ts   — 构建时发现主题包 → 虚拟模块
@@ -242,7 +242,7 @@ src/pages/admin/plugin/[slug].astro  — 通用插件页面容器
 Notes 插件的笔记管理页是完整参考实现：`admin:page` 返回包含 CRUD UI 的 HTML + 内联 JS，`admin:footer` 注入导航菜单项。
 
 **关键规则**：
-- `admin:page` 是 `[slug].astro` 使用的 filter 风格注入点，但不属于 `HookPoints` 常量，因此不计入 6.6 的 68 个 Hook 点
+- `admin:page` 是 `[slug].astro` 使用的 filter 风格注入点，但不属于 `HookPoints` 常量，因此不计入 6.6 的 69 个 Hook 点
 - `[slug].astro` 使用 `applyFilterSafely`（不是 `applyFilter`），单个插件异常不会导致整页 500
 - 插件通过 `admin:footer` hook 向导航栏注入菜单入口（JSON 注入 + JS DOM 操作）
 - 插件返回的 HTML 中所有用户数据必须转义（参考 Notes 中的 `E()` 辅助函数）
@@ -254,13 +254,13 @@ Notes 插件的笔记管理页是完整参考实现：`admin:page` 返回包含 
 - 本地插件放在 `src/plugins/<name>/`，根 `package.json` 的 `workspaces` 已包含 `src/plugins/*`，依赖使用 `workspace:*`
 - 入口优先发现 `index.ts`，其次 `index.js` / `index.mjs` / `plugin.ts` / `plugin.js`
 
-### 6.6 完整 Hook 点（68）
+### 6.6 完整 Hook 点（69）
 
 **call 类型**：
 `system:begin`, `system:end`, `admin:header`, `admin:footer`, `admin:navBar`, `admin:begin`, `admin:end`, `admin:writePost:option`, `admin:writePost:advanceOption`, `admin:writePost:bottom`, `admin:writePage:option`, `admin:writePage:advanceOption`, `admin:writePage:bottom`, `admin:profile:bottom`, `post:finishPublish`, `post:finishSave`, `post:delete`, `post:finishDelete`, `page:finishPublish`, `page:finishSave`, `page:delete`, `page:finishDelete`, `feedback:finishComment`, `feedback:reply`, `comment:action`, `user:login`, `user:loginSucceed`, `user:loginFail`, `user:logout`, `user:finishRegister`, `upload:beforeUpload`, `upload:upload`, `upload:delete`
 
 **filter 类型**：
-`route:request`, `admin:loginHead`, `admin:loginForm`, `admin:managePosts:titleActions`, `archive:select`, `archive:header`, `archive:footer`, `archive:indexHandle`, `archive:singleHandle`, `archive:categoryHandle`, `archive:tagHandle`, `archive:searchHandle`, `archive:handleInit`, `archive:beforeRender`, `archive:afterRender`, `content:filter`, `content:title`, `content:excerpt`, `content:markdown`, `content:content`, `comment:filter`, `comment:content`, `comment:markdown`, `comment:allowContent`, `comment:avatarMap`, `post:write`, `page:write`, `feedback:comment`, `feed:item`, `feed:generate`, `widget:sidebar`, `user:register`, `plugin:config:beforeSave`, `csp:directives`, `mail:send`
+`route:request`, `admin:loginHead`, `admin:loginForm`, `admin:managePosts:titleActions`, `archive:select`, `archive:header`, `archive:footer`, `archive:indexHandle`, `archive:singleHandle`, `archive:categoryHandle`, `archive:tagHandle`, `archive:searchHandle`, `archive:handleInit`, `archive:beforeRender`, `archive:afterRender`, `content:filter`, `content:title`, `content:excerpt`, `content:markdown`, `content:content`, `comment:filter`, `comment:content`, `comment:markdown`, `comment:allowContent`, `comment:avatarMap`, `comment:list`, `post:write`, `page:write`, `feedback:comment`, `feed:item`, `feed:generate`, `widget:sidebar`, `user:register`, `plugin:config:beforeSave`, `csp:directives`, `mail:send`
 
 ### 6.7 新增 Hook 点步骤
 

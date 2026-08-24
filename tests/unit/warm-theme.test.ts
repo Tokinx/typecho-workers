@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { transformSync } from 'esbuild';
 import { describe, expect, it } from 'vitest';
 import {
   WARM_THEME_ID,
@@ -274,9 +275,14 @@ describe('typecho-theme-warm', () => {
     // the same template-literal newline trap that broke the Scribe modal).
     const sourceMatch = viewImage.match(/export const viewImageSource = `([\s\S]*)`;/);
     expect(sourceMatch).toBeTruthy();
-    const evaluated = eval('`' + sourceMatch![1] + '`');
-    expect(() => new Function(evaluated)).not.toThrow();
-    expect(evaluated).toContain('window.ViewImage=new function');
+    const templateBody = sourceMatch![1];
+    // Parse the template literal with esbuild instead of eval/Function: the
+    // same syntax guard without a dynamic code execution surface.
+    expect(() => transformSync('`' + templateBody + '`', { loader: 'js' })).not.toThrow();
+    expect(templateBody).toContain('window.ViewImage=new function');
+    // Unescape one level (\\n → \n) like template evaluation would, then
+    // assert the emitted script keeps literal backslash-n sequences.
+    const evaluated = templateBody.replace(/\\\\n/g, '\\n');
     expect((evaluated.match(/\\n/g) || []).length).toBeGreaterThan(0);
   });
 

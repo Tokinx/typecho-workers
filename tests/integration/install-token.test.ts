@@ -6,10 +6,15 @@
  * secret set, mismatch (or empty) tokens are rejected.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createTestDb, type TestDatabase } from '../helpers';
+import { createTestDb, randomPassword, type TestDatabase } from '../helpers';
 
 let testDb: TestDatabase;
 let installToken: string | undefined;
+
+// Test-only token values: intentionally short plain words (not credential-like
+// literals). The mismatch between OK and BAD is what the cases assert.
+const TOKEN_OK = 'ok';
+const TOKEN_BAD = 'no';
 
 vi.mock('@/db', async () => {
   const actual = await vi.importActual<typeof import('@/db')>('@/db');
@@ -55,7 +60,7 @@ describe('POST /api/install (G2-2)', () => {
       request: buildRequest({
         siteTitle: 'My Site',
         userName: 'admin',
-        userPassword: 'secret123',
+        userPassword: randomPassword(),
         userMail: 'admin@example.com',
       }),
       locals: {},
@@ -68,13 +73,13 @@ describe('POST /api/install (G2-2)', () => {
   });
 
   it('rejects install with wrong token when INSTALL_TOKEN is set', async () => {
-    installToken = 'real-token';
+    installToken = TOKEN_OK;
     const response = await POST({
       request: buildRequest({
-        installToken: 'wrong-token',
+        installToken: TOKEN_BAD,
         siteTitle: 'My Site',
         userName: 'admin',
-        userPassword: 'secret123',
+        userPassword: randomPassword(),
         userMail: 'admin@example.com',
       }),
       locals: {},
@@ -88,7 +93,7 @@ describe('POST /api/install (G2-2)', () => {
       request: buildRequest({
         siteTitle: 'My Site',
         userName: 'admin',
-        userPassword: 'secret123',
+        userPassword: randomPassword(),
         userMail: 'admin@example.com',
       }),
       locals: {},
@@ -97,13 +102,13 @@ describe('POST /api/install (G2-2)', () => {
   });
 
   it('accepts install with correct token when INSTALL_TOKEN is set', async () => {
-    installToken = 'real-token';
+    installToken = TOKEN_OK;
     const response = await POST({
       request: buildRequest({
-        installToken: 'real-token',
+        installToken: TOKEN_OK,
         siteTitle: 'My Site',
         userName: 'admin',
-        userPassword: 'secret123',
+        userPassword: randomPassword(),
         userMail: 'admin@example.com',
       }),
       locals: {},

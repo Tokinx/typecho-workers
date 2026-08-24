@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as schema from '@/db/schema';
-import { createTestDb, type TestDatabase } from '../helpers';
+import { createTestDb, randomPassword, type TestDatabase } from '../helpers';
 import { eq } from 'drizzle-orm';
 
 let testDb: TestDatabase;
@@ -40,7 +40,7 @@ function buildInstallRequest(extra: Record<string, string> = {}) {
     body: new URLSearchParams({
       siteTitle: 'Reinstall Site',
       userName: 'admin',
-      userPassword: 'secret123',
+      userPassword: randomPassword(),
       userMail: 'admin@example.com',
       ...extra,
     }).toString(),

@@ -343,7 +343,11 @@ describe('PBKDF2 password hashing', () => {
   it('verifies legacy 100k-iteration hashes against current 600k default', async () => {
     // Legacy hashes embed their iteration count, so verify still works
     // even after the default was raised (G1-6 forward compatibility).
-    const password = 'legacy-pw';
+    // Any password text works; keep a generated one so no credential-shaped
+    // literal sits in the source.
+    const password = Array.from(crypto.getRandomValues(new Uint8Array(9)))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
     // Fixed legacy hash format with 100000 iterations.
     const legacyIter = 100000;
     // Recreate via the same crypto.subtle call shape: pretend we have a

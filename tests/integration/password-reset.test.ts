@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createTestDb, type TestDatabase } from '../helpers';
+import { createTestDb, randomPassword, type TestDatabase } from '../helpers';
 import * as schema from '@/db/schema';
 import {
   generateResetToken,
@@ -15,6 +15,10 @@ let testDb: TestDatabase;
 const { mockSendMail } = vi.hoisted(() => ({
   mockSendMail: vi.fn(),
 }));
+
+// Non-credential-like fixture values; assertions only need the mismatch
+// between successive passwords / the rotated session code.
+const TEST_AUTH_CODE = 'ac1';
 
 vi.mock('@/db', async () => {
   const actual = await vi.importActual<typeof import('@/db')>('@/db');
@@ -34,7 +38,7 @@ vi.mock('@/lib/plugin', () => ({
 import { POST as forgotPassword } from '@/pages/api/users/forgot-password';
 import { POST as resetPassword } from '@/pages/api/users/reset-password';
 
-async function seedUser() {
+async function seedUser(password = randomPassword()) {
   await testDb.insert(schema.options).values([
     { name: 'siteUrl', user: 0, value: 'https://example.com' },
     { name: 'title', user: 0, value: 'Test Blog' },
@@ -44,11 +48,12 @@ async function seedUser() {
   await testDb.insert(schema.users).values({
     name: 'alice',
     mail: 'alice@example.com',
-    password: await hashPassword('old-password'),
-    authCode: 'existing-session-code',
+    password: await hashPassword(password),
+    authCode: TEST_AUTH_CODE,
     group: 'subscriber',
   });
-  return (await testDb.query.users.findFirst())!;
+  const user = (await testDb.query.users.findFirst())!;
+  return { user, password };
 }
 
 function formRequest(path: string, fields: Record<string, string>) {
@@ -72,7 +77,7 @@ describe('password reset flow', () => {
   });
 
   it('stores only a token hash and leaves authCode unchanged after successful delivery', async () => {
-    const user = await seedUser();
+    const { user } = await seedUser();
     mockSendMail.mockResolvedValue({ sent: true, provider: 'test' });
 
     const response = await forgotPassword({
@@ -82,7 +87,7 @@ describe('password reset flow', () => {
     expect(response.status).toBe(200);
     const currentUser = await testDb.query.users.findFirst();
     const pending = await testDb.query.passwordResetRequests.findFirst();
-    expect(currentUser?.authCode).toBe('existing-session-code');
+    expect(currentUser?.authCode).toBe(TEST_AUTH_CODE);
     expect(pending?.uid).toBe(user.uid);
     expect(pending?.tokenHash).toMatch(/^[a-f0-9]{64}$/);
     const payload = mockSendMail.mock.calls[0][1];
@@ -97,7 +102,7 @@ describe('password reset flow', () => {
       request: formRequest('/api/users/forgot-password', { email: 'alice@example.com' }),
     } as any);
 
-    expect((await testDb.query.users.findFirst())?.authCode).toBe('existing-session-code');
+    expect((await testDb.query.users.findFirst())?.authCode).toBe(TEST_AUTH_CODE);
     expect(await testDb.query.passwordResetRequests.findFirst()).toBeUndefined();
   });
 
@@ -125,7 +130,7 @@ describe('password reset flow', () => {
   });
 
   it('parses a valid pending token and rejects it after expiry', async () => {
-    const user = await seedUser();
+    const { user } = await seedUser();
     const token = generateResetToken();
     const tokenHash = await hashResetToken(token);
     const now = Math.floor(Date.now() / 1000);
@@ -142,7 +147,9 @@ describe('password reset flow', () => {
   });
 
   it('consumes the token once and invalidates sessions only after reset succeeds', async () => {
-    const user = await seedUser();
+    const { user } = await seedUser();
+    const firstPassword = randomPassword();
+    const secondPassword = randomPassword();
     const token = generateResetToken();
     const tokenHash = await hashResetToken(token);
     const now = Math.floor(Date.now() / 1000);
@@ -155,28 +162,28 @@ describe('password reset flow', () => {
     });
 
     const first = await resetPassword({
-      request: formRequest('/api/users/reset-password', { token, password: 'new-password' }),
+      request: formRequest('/api/users/reset-password', { token, password: firstPassword }),
     } as any);
     expect(first.status).toBe(302);
 
     const updated = await testDb.query.users.findFirst();
-    expect(updated?.authCode).not.toBe('existing-session-code');
-    expect(await verifyPassword('new-password', updated?.password || '')).toBe(true);
+    expect(updated?.authCode).not.toBe(TEST_AUTH_CODE);
+    expect(await verifyPassword(firstPassword, updated?.password || '')).toBe(true);
     expect((await testDb.query.passwordResetRequests.findFirst())?.tokenHash).toBeNull();
 
     const second = await resetPassword({
-      request: formRequest('/api/users/reset-password', { token, password: 'another-password' }),
+      request: formRequest('/api/users/reset-password', { token, password: secondPassword }),
     } as any);
     expect(second.status).toBe(400);
-    expect(await verifyPassword('new-password', (await testDb.query.users.findFirst())?.password || '')).toBe(true);
+    expect(await verifyPassword(firstPassword, (await testDb.query.users.findFirst())?.password || '')).toBe(true);
   });
 
   it('recovers an account after PASSWORD_PEPPER is replaced', async () => {
     env.PBKDF2_ITERATIONS = '50000';
-    env.PASSWORD_PEPPER = 'lost-old-pepper';
-    const user = await seedUser();
-    env.PASSWORD_PEPPER = 'replacement-pepper';
-    expect(await verifyPassword('old-password', user.password || '')).toBe('wrong_password');
+    env.PASSWORD_PEPPER = 'p1';
+    const { user, password: initialPassword } = await seedUser();
+    env.PASSWORD_PEPPER = 'p2';
+    expect(await verifyPassword(initialPassword, user.password || '')).toBe('wrong_password');
 
     const token = generateResetToken();
     const tokenHash = await hashResetToken(token);
@@ -189,12 +196,13 @@ describe('password reset flow', () => {
       expiresAt: now + 3600,
     });
 
+    const recoveredPassword = randomPassword();
     const response = await resetPassword({
-      request: formRequest('/api/users/reset-password', { token, password: 'recovered-password' }),
+      request: formRequest('/api/users/reset-password', { token, password: recoveredPassword }),
     } as any);
     expect(response.status).toBe(302);
     const updated = await testDb.query.users.findFirst();
     expect(updated?.password).toMatch(/^\$PBKDF2P\$50000\$/);
-    expect(await verifyPassword('recovered-password', updated?.password || '')).toBe(true);
+    expect(await verifyPassword(recoveredPassword, updated?.password || '')).toBe(true);
   });
 });

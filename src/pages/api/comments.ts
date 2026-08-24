@@ -52,6 +52,13 @@ interface FormattedPublicCommentNode extends Omit<PublicCommentNode, 'children'>
   children: FormattedPublicCommentNode[];
 }
 
+/**
+ * Payload of the public comment list API. Extensible via the `comment:list`
+ * filter hook so plugins can attach extra fields (e.g. an antispam token)
+ * without the core knowing any plugin-specific detail.
+ */
+type CommentListPayload = Record<string, unknown>;
+
 export const GET: APIRoute = async ({ request, locals, url }) => {
   const cid = Number.parseInt(url.searchParams.get('cid') || '0', 10);
   if (!Number.isSafeInteger(cid) || cid <= 0) {
@@ -125,12 +132,16 @@ export const GET: APIRoute = async ({ request, locals, url }) => {
   // needed to render the form.
   if (!includeComments) {
     recordSharedCacheTrace(queryCacheTrace, 'comments', 'BYPASS');
-    return finishResponse(jsonOk({
+    const payload: CommentListPayload = {
       comments: [],
       gravatarMap: {},
       options: { ...buildCommentOptions(options, securityToken), allowComment },
       commenter,
-    }, {
+    };
+    const extendedPayload = await applyFilterSafely(
+      pluginCtx, 'comment:list', payload, { request, options, cid },
+    ) ?? payload;
+    return finishResponse(jsonOk(extendedPayload, {
       ...PRIVATE_HEADERS,
       'X-Typecho-Comment-Cache': 'BYPASS',
       'X-Typecho-Query-Cache': formatSharedCacheTrace(queryCacheTrace),
@@ -195,13 +206,17 @@ export const GET: APIRoute = async ({ request, locals, url }) => {
   const numericTimezone = Number(options.timezone);
   const commentTimezone = Number.isFinite(numericTimezone) ? numericTimezone : 28800;
 
-  const response = jsonOk({
+  const payload: CommentListPayload = {
     comments: formatPublicCommentDates(commentData.comments, commentDateFormat, commentTimezone),
     gravatarMap: publicAvatarMap,
     pagination: commentData.pagination,
     options: { ...buildCommentOptions(options, securityToken), allowComment },
     commenter,
-  }, {
+  };
+  const extendedPayload = await applyFilterSafely(
+    pluginCtx, 'comment:list', payload, { request, options, cid },
+  ) ?? payload;
+  const response = jsonOk(extendedPayload, {
     ...PRIVATE_HEADERS,
     'X-Typecho-Comment-Cache': includeComments ? cacheStatus : 'BYPASS',
     'X-Typecho-Query-Cache': formatSharedCacheTrace(queryCacheTrace),

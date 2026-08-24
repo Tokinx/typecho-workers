@@ -49,7 +49,7 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
       element.textContent = value || element.dataset.defaultMessage || '';
     };
 
-    const renderForm = (options, commenter, password, cid) => {
+    const renderForm = (options, commenter, password, cid, antispamToken) => {
       if (!options.allowComment) return '<p class="warm-comments__closed">评论已关闭。</p>';
       const loggedIn = commenter?.loggedIn === true;
       const defaultMessage = options.markdown ? '支持 Markdown 语法' : '良言善语';
@@ -73,10 +73,16 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
       const passwordInput = password
         ? `<input type="hidden" name="password" value="${escapeHtml(password)}">`
         : '';
+      // antispam time token is issued with the comment list API response (the
+      // static page HTML is cached and must not carry a token that ages with it)
+      const antispamInput = antispamToken
+        ? `<input type="hidden" name="antispam_token" value="${escapeHtml(antispamToken)}">`
+        : '';
       return `<form class="warm-comment-form" method="post" action="/api/comment" data-comment-form>
         <input type="hidden" name="cid" value="${escapeHtml(cid)}">
         <input type="hidden" name="parent" value="0" data-comment-parent>
         <input type="hidden" name="_" value="${escapeHtml(options.securityToken)}" data-comment-token>
+        ${antispamInput}
         ${passwordInput}
         <div class="warm-replying" data-replying hidden><span>回复 <strong data-replying-author></strong></span><button type="button" data-cancel-reply>取消</button></div>
         ${identity}
@@ -91,7 +97,7 @@ const requestedCommentPage = Astro.url.searchParams.get('commentPage');
     const renderFrame = (root, data) => {
       const password = new URL(window.location.href).searchParams.get('password') || '';
       root.innerHTML = `<div class="warm-comments__heading"><h2>讨论与交流</h2><p>欢迎分享你的思考</p></div>
-        ${renderForm(data.options, data.commenter, password, root.dataset.cid)}
+        ${renderForm(data.options, data.commenter, password, root.dataset.cid, data.antispamToken)}
         <div class="warm-comment-list" data-comment-list aria-live="polite">
           <div class="warm-comment-deferred" data-comment-deferred>
             <span class="warm-comments__empty" data-comment-loading data-comment-deferred-message aria-live="polite"></span>

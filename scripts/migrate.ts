@@ -26,13 +26,11 @@
 import { createClient, type Client } from '@libsql/client/node';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { execSync, exec } from 'node:child_process';
-import { promisify } from 'node:util';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const execAsync = promisify(exec);
 
 // ─── CLI Arguments ───────────────────────────────────────────────────────────
 
@@ -91,6 +89,18 @@ function parseArgs(): MigrateOptions {
 
   if (!fs.existsSync(opts.source)) {
     console.error(`❌ Source database not found: ${opts.source}`);
+    process.exit(1);
+  }
+
+  // Wrangler binding names are passed to the CLI as argv; constrain them to
+  // a safe charset so no value can smuggle extra arguments.
+  const BINDING_NAME_PATTERN = /^[a-zA-Z0-9_-]+$/;
+  if (opts.d1Name && !BINDING_NAME_PATTERN.test(opts.d1Name)) {
+    console.error('❌ --d1-name allows only letters, digits, "-" and "_"');
+    process.exit(1);
+  }
+  if (opts.r2Bucket && !BINDING_NAME_PATTERN.test(opts.r2Bucket)) {
+    console.error('❌ --r2-bucket allows only letters, digits, "-" and "_"');
     process.exit(1);
   }
 
@@ -478,20 +488,48 @@ class WranglerWriter extends TargetWriter {
     return this.isLocal ? '--local' : '--remote';
   }
 
-  private exec(cmd: string): string {
-    try {
-      return execSync(cmd, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
-    } catch (e: any) {
-      throw new Error(`Command failed: ${cmd}\n${e.stderr || e.message}`);
+  /**
+   * Run a wrangler d1 subcommand without a shell: every argument is fixed at
+   * the call site and passed verbatim via spawnSync with shell explicitly
+   * disabled. The only dynamic values are this.d1Name (validated against a
+   * safe charset at CLI parse time) and the temp file path written below.
+   */
+  private execD1Execute(fileArg: string): string {
+    const result = spawnSync('wrangler', ['d1', 'execute', this.d1Name, this.locationFlag, fileArg], {
+      shell: false,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    if (result.status !== 0) {
+      const detail = (result.stderr || '').trim() || ('exit code ' + result.status);
+      throw new Error(detail);
     }
+    return (result.stdout || '').trim();
+  }
+
+  private applyMigrations(): string {
+    const result = spawnSync('wrangler', ['d1', 'migrations', 'apply', this.d1Name, this.locationFlag], {
+      shell: false,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    if (result.status !== 0) {
+      const detail = (result.stderr || '').trim() || ('exit code ' + result.status);
+      throw new Error(detail);
+    }
+    return (result.stdout || '').trim();
   }
 
   private execD1SQL(sql: string): void {
-    // Write SQL to temp file then execute via wrangler
-    const tmpFile = path.join(this.tempDir, `migrate_${Date.now()}.sql`);
+    // Write SQL to temp file then execute via wrangler (spawn arg list, no shell)
+    const tmpBase = 'migrate_' + Date.now() + '.sql';
+    const tmpFile = path.join(this.tempDir, tmpBase);
+    if (!tmpFile.startsWith(this.tempDir + path.sep)) {
+      throw new Error('unexpected temp path');
+    }
     fs.writeFileSync(tmpFile, sql, 'utf-8');
     try {
-      this.exec(`wrangler d1 execute ${this.d1Name} ${this.locationFlag} --file="${tmpFile}"`);
+      this.execD1Execute('--file=' + tmpFile);
     } finally {
       fs.unlinkSync(tmpFile);
     }
@@ -503,7 +541,7 @@ class WranglerWriter extends TargetWriter {
     const target = this.isLocal ? 'local' : 'remote';
     console.log(`  🔄 Applying D1 migrations (${target})...`);
     try {
-      this.exec(`wrangler d1 migrations apply ${this.d1Name} ${this.locationFlag}`);
+      this.applyMigrations();
       console.log('  ✅ D1 migrations applied');
     } catch (e: any) {
       console.log('  ⚠️  D1 migrations may already be applied:', e.message?.substring(0, 100));
@@ -718,15 +756,27 @@ class WranglerWriter extends TargetWriter {
     return mapped.length;
   }
 
-  async uploadFile(relativePath: string, absolutePath: string): Promise<boolean> {
+  uploadFile(relativePath: string, absolutePath: string): Promise<boolean> {
     const r2Key = `usr/uploads/${relativePath}`;
-    const cmd = `wrangler r2 object put "${this.r2Bucket}/${r2Key}" --file="${absolutePath}" ${this.locationFlag}`;
-    try {
-      await execAsync(cmd, { encoding: 'utf-8' });
-      return true;
-    } catch (e: any) {
-      throw new Error(`Upload failed: ${cmd}\n${e.stderr || e.message}`);
-    }
+    // spawn with an argument list (no shell): r2Key/absolutePath can never
+    // be interpreted as shell syntax
+    return new Promise((resolve) => {
+      const child = spawn(
+        'wrangler',
+        ['r2', 'object', 'put', `${this.r2Bucket}/${r2Key}`, '--file=' + absolutePath, this.locationFlag],
+        { shell: false, stdio: ['pipe', 'pipe', 'pipe'] },
+      );
+      let stderr = '';
+      child.stderr.on('data', chunk => { stderr += String(chunk); });
+      child.on('error', err => {
+        rejectUpload(new Error(`Upload failed: ${err.message}`));
+      });
+      child.on('close', code => {
+        if (code === 0) resolve(true);
+        else rejectUpload(new Error(`Upload failed (exit ${code}): ${stderr.slice(0, 300)}`));
+      });
+      function rejectUpload(err: Error) { resolve(false); throw err; }
+    });
   }
 
   finalize() {

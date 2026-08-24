@@ -69,6 +69,16 @@ export async function seedAdmin(
 }
 
 /**
+ * Fresh random password for tests that only assert flow behaviour; keeps
+ * credential-shaped literals out of the test sources.
+ */
+export function randomPassword(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(9)))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+/**
  * Generate the auth cookie header for a seeded user.
  */
 export async function makeAuthCookie(

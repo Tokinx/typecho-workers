@@ -46,6 +46,7 @@ describe('typecho-plugin-antispam', () => {
 
     expect([...hooks.keys()].sort()).toEqual([
       'archive:footer',
+      'comment:list',
       'feedback:comment',
     ]);
   });
@@ -268,13 +269,15 @@ describe('typecho-plugin-antispam', () => {
     });
 
     expect(result).toContain(HONEYPOT_FIELD);
-    expect(result).toContain(TOKEN_FIELD);
     expect(result).toContain('data-typecho-antispam-honeypot');
     expect(result).toContain('typecho-antispam-fields');
     expect(result).toContain('[data-comment-form],#comment-form');
     expect(result).toContain('/api/comment');
     expect(result).toContain('MutationObserver');
     expect(result).toContain('cloneNode(true)');
+    // the time token is issued by the comment list API, never embedded in the page
+    expect(result).not.toContain(TOKEN_FIELD);
+    expect(result).not.toContain('antispam_token');
   });
 
   it('skips injection when page lacks comment form', async () => {
@@ -287,5 +290,64 @@ describe('typecho-plugin-antispam', () => {
     });
 
     expect(result).toBe('');
+  });
+
+  // ── comment:list token issuance ──
+
+  it('injects a time token into comment list payload when timeCheck is on', async () => {
+    const hooks = collectHooks();
+    const handler = hooks.get('comment:list')!;
+
+    const payload: Record<string, unknown> = { comments: [], options: {} };
+    const result = await handler(payload, {
+      options: options({ timeCheck: '1' }),
+    }) as Record<string, unknown>;
+
+    expect(typeof result.antispamToken).toBe('string');
+    expect(String(result.antispamToken)).toContain(':');
+
+    // the issued token must pass the plugin's own validation path
+    const feedbackHandler = hooks.get('feedback:comment')!;
+    const formData = new FormData();
+    formData.set(TOKEN_FIELD, String(result.antispamToken));
+    const check = await feedbackHandler({ text: 'ok' }, {
+      options: options({ timeCheck: '1', minTime: 0 }),
+      formData,
+      request: new Request('https://blog.example.com/post'),
+    });
+    expect(check).not.toHaveProperty('_rejected');
+    expect(check).not.toHaveProperty('status');
+  });
+
+  it('does not inject token when timeCheck is disabled', async () => {
+    const hooks = collectHooks();
+    const handler = hooks.get('comment:list')!;
+
+    const payload: Record<string, unknown> = { comments: [], options: {} };
+    const result = await handler(payload, {
+      options: options({ timeCheck: '0' }),
+    }) as Record<string, unknown>;
+
+    expect(result).not.toHaveProperty('antispamToken');
+  });
+
+  it('does not inject token when site secret is missing', async () => {
+    const hooks = collectHooks();
+    const handler = hooks.get('comment:list')!;
+
+    const payload: Record<string, unknown> = { comments: [], options: {} };
+    const result = await handler(payload, {
+      options: { 'plugin:typecho-plugin-antispam': JSON.stringify({ timeCheck: '1' }) },
+    }) as Record<string, unknown>;
+
+    expect(result).not.toHaveProperty('antispamToken');
+  });
+
+  it('passes through non-object payload untouched', async () => {
+    const hooks = collectHooks();
+    const handler = hooks.get('comment:list')!;
+
+    await expect(handler(null, { options: options({ timeCheck: '1' }) })).resolves.toBeNull();
+    await expect(handler(undefined, { options: options({ timeCheck: '1' }) })).resolves.toBeUndefined();
   });
 });

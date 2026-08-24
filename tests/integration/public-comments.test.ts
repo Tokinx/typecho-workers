@@ -155,6 +155,9 @@ describe('GET /api/comments', () => {
       mail: 'reader@example.com',
       url: 'https://reader.example.com/',
     });
+    // no plugin (e.g. antispam) is activated in this test env; the core must
+    // not fabricate an antispamToken field on its own
+    expect(body).not.toHaveProperty('antispamToken');
     expect(mockLoadCommentPage).not.toHaveBeenCalled();
     expect(mockLoadPublicCommentPage).not.toHaveBeenCalled();
   });
@@ -235,6 +238,7 @@ describe('GET /api/comments', () => {
     expect(body.comments[0].text).toContain('有用的评论');
     expect(body.comments[0].date).toBe('1970-01-01 00:01:40');
     expect(body.options.securityToken).toBeTruthy();
+    expect(body).not.toHaveProperty('antispamToken');
   });
 
   it('filters the public avatar map while keeping the browser response private', async () => {

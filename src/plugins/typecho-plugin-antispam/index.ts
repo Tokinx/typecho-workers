@@ -158,10 +158,6 @@ function buildHoneypotHtml(): string {
 </div>`;
 }
 
-function buildTokenHtml(token: string): string {
-  return `<input type="hidden" name="${escapeAttr(TOKEN_FIELD)}" value="${escapeAttr(token)}">`;
-}
-
 async function buildSnippet(options?: Record<string, unknown>): Promise<{ headHtml: string; bodyHtml: string }> {
   const config = getConfig(options);
 
@@ -171,39 +167,26 @@ async function buildSnippet(options?: Record<string, unknown>): Promise<{ headHt
     bodyHtml += buildHoneypotHtml();
   }
 
-  if (config.timeCheck) {
-    const secret = getSecret(options);
-    if (secret) {
-      const token = await generateToken(secret);
-      bodyHtml += buildTokenHtml(token);
-    }
-  }
-
   if (!bodyHtml) return { headHtml: '', bodyHtml: '' };
 
-  // Some themes render the comment form after the page has loaded. Keep the
-  // fields in a temporary container and copy them into every supported form
-  // when it appears, so the server receives the same protection on SSR and
-  // API-backed comment forms.
-  const fieldNames = JSON.stringify([HONEYPOT_FIELD, TOKEN_FIELD]);
+  // The time token is not embedded in the page anymore: comments pages are
+  // statically cached, so a token born at render time ages with the cache and
+  // every reader of a long-lived copy submits an "expired" token. Instead the
+  // token is issued by the comment list API (`comment:list` hook) when the
+  // reader actually loads the comment component, and the component's JS writes
+  // it into the form. Here we only carry the honeypot field into the form.
   const formSelector = '[data-comment-form],#comment-form,form[action$="/api/comment"]';
   const attachScript = `<script>
 (() => {
   const source = document.getElementById(${JSON.stringify(SNIPPET_ID)});
   if (!source) return;
-  const fieldNames = ${fieldNames};
   const attachFields = () => {
     document.querySelectorAll(${JSON.stringify(formSelector)}).forEach(form => {
       if (!(form instanceof HTMLFormElement)) return;
-      fieldNames.forEach(name => {
-        if (form.elements.namedItem(name)) return;
-        const field = source.querySelector('[name="' + name + '"]');
-        if (!field) return;
-        const copy = name === ${JSON.stringify(HONEYPOT_FIELD)}
-          ? field.closest('[data-typecho-antispam-honeypot]') || field
-          : field;
-        form.appendChild(copy.cloneNode(true));
-      });
+      if (form.elements.namedItem(${JSON.stringify(HONEYPOT_FIELD)})) return;
+      const field = source.querySelector('[name="' + ${JSON.stringify(HONEYPOT_FIELD)} + '"]');
+      if (!field) return;
+      form.appendChild(field.closest('[data-typecho-antispam-honeypot]') || field.cloneNode(true));
     });
   };
   attachFields();
@@ -276,6 +259,23 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
     }
 
     return commentData;
+  });
+
+  // Issue the time token with the comment list API response instead of the
+  // static page HTML. Pages are cached, so a render-time token would expire
+  // with the cached copy; the reader fetching the comment component gets a
+  // token that starts counting when they actually load the form.
+  addHook('comment:list', pluginId, async (
+    payload: unknown,
+    extra?: { options?: Record<string, unknown> },
+  ) => {
+    if (!payload || typeof payload !== 'object') return payload;
+    const config = getConfig(extra?.options);
+    if (!config.timeCheck) return payload;
+    const secret = getSecret(extra?.options);
+    if (!secret) return payload;
+    (payload as MutableCommentData).antispamToken = await generateToken(secret);
+    return payload;
   });
 
   addHook('archive:footer', pluginId, async (

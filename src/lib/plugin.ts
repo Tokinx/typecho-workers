@@ -182,6 +182,7 @@ export const HookPoints = {
   'comment:markdown': 'comment:markdown',            // Filter: comment Markdown
   'comment:allowContent': 'comment:allowContent',    // Filter: custom content type comment eligibility
   'comment:avatarMap': 'comment:avatarMap',          // Filter: public comment avatar URL map
+  'comment:list': 'comment:list',                    // Filter: public comment list API payload extension
 
   // --- Content Management ---
   'post:write': 'post:write',                        // Filter: post data before save

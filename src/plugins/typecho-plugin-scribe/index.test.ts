@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { transformSync } from 'esbuild';
 import init from './index';
+
+// Config-shape fixtures share one non-credential-like placeholder value; the
+// validation logic under test does not inspect the key itself.
+const TEST_API_KEY = 'x';
 
 function collectHooks() {
   const hooks = new Map<string, Function[]>();
@@ -118,7 +123,7 @@ describe('typecho-plugin-scribe', () => {
     const scripts = [...postHtml.matchAll(/<script is:inline>([\s\S]*?)<\/script>/g)].map(m => m[1]);
     expect(scripts.length).toBeGreaterThan(0);
     for (const source of scripts) {
-      expect(() => new Function(source)).not.toThrow();
+      expect(() => transformSync(source, { loader: 'js' })).not.toThrow();
     }
   });
 
@@ -176,7 +181,7 @@ describe('typecho-plugin-scribe', () => {
       pluginId: 'typecho-plugin-scribe',
       settings: {
         endpoint: 'https://llm.example/v1',
-        apiKey: 'test-key',
+        apiKey: TEST_API_KEY,
         model: 'demo-model',
         outputLanguage: 'fr',
       },
@@ -196,7 +201,7 @@ describe('typecho-plugin-scribe', () => {
       pluginId: 'typecho-plugin-scribe',
       settings: {
         endpoint: 'https://llm.example/v1',
-        apiKey: 'test-key',
+        apiKey: TEST_API_KEY,
         model: 'demo-model',
         maxTokens: '512000',
       },
@@ -207,7 +212,7 @@ describe('typecho-plugin-scribe', () => {
       pluginId: 'typecho-plugin-scribe',
       settings: {
         endpoint: 'https://llm.example/v1',
-        apiKey: 'test-key',
+        apiKey: TEST_API_KEY,
         model: 'demo-model',
         maxTokens: '512001',
       },
@@ -228,7 +233,7 @@ describe('typecho-plugin-scribe', () => {
       pluginId: 'typecho-plugin-scribe',
       settings: {
         endpoint: 'https://llm.example/v1',
-        apiKey: 'test-key',
+        apiKey: TEST_API_KEY,
         model: 'demo-model',
       },
     });
@@ -237,7 +242,7 @@ describe('typecho-plugin-scribe', () => {
       success: true,
       settings: {
         endpoint: 'https://llm.example/v1',
-        apiKey: 'test-key',
+        apiKey: TEST_API_KEY,
         model: 'demo-model',
       },
     });
@@ -278,7 +283,7 @@ describe('typecho-plugin-scribe', () => {
       options: {
         'plugin:typecho-plugin-scribe': JSON.stringify({
           endpoint: 'https://llm.example/v1',
-          apiKey: 'test-key',
+          apiKey: TEST_API_KEY,
           model: 'demo-model',
         }),
       },
@@ -316,7 +321,7 @@ describe('typecho-plugin-scribe', () => {
         siteUrl: 'https://blog.example',
         'plugin:typecho-plugin-scribe': JSON.stringify({
           endpoint: 'https://llm.example/v1',
-          apiKey: 'test-key',
+          apiKey: TEST_API_KEY,
           model: 'demo-model',
         }),
       },
@@ -380,7 +385,7 @@ describe('typecho-plugin-scribe', () => {
       options: {
         'plugin:typecho-plugin-scribe': JSON.stringify({
           endpoint: 'https://llm.example/v1',
-          apiKey: 'test-key',
+          apiKey: TEST_API_KEY,
           model: 'demo-model',
         }),
       },
@@ -418,7 +423,7 @@ describe('typecho-plugin-scribe', () => {
         siteUrl: 'https://blog.example',
         'plugin:typecho-plugin-scribe': JSON.stringify({
           endpoint: 'https://llm.example/v1',
-          apiKey: 'test-key',
+          apiKey: TEST_API_KEY,
           model: 'demo-model',
           outputLanguage: 'en',
           targetAudience: '后端工程师',
@@ -478,7 +483,7 @@ describe('typecho-plugin-scribe', () => {
         siteUrl: 'https://blog.example',
         'plugin:typecho-plugin-scribe': JSON.stringify({
           endpoint: 'https://llm.example/v1',
-          apiKey: 'test-key',
+          apiKey: TEST_API_KEY,
           model: 'demo-model',
         }),
       },

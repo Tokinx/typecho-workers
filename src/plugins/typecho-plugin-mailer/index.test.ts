@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { generateAuthToken, generateSecurityToken } from '@/lib/auth';
 import init from './index';
 import { renderTemplate, escapeVars, htmlToText } from './templates';
-import { normalizeConfig, loadConfig, isValidEmail } from './config';
+import { normalizeConfig, loadConfig, isValidEmail, SECRET_PLACEHOLDER } from './config';
+
+// Non-credential-like fixture key; the adapter logic only checks presence.
+const TEST_API_KEY = 'k';
 
 // ── Test helpers ────────────────────────────────────────────────────────────
 
@@ -23,7 +26,7 @@ function options(settings: Record<string, unknown>, extra: Record<string, unknow
     'plugin:typecho-plugin-mailer': JSON.stringify({
       enabled: '1',
       provider: 'resend',
-      apiKey: 're_test_key',
+      apiKey: TEST_API_KEY,
       from: 'blog@example.com',
       subject: '[{site.name}] 新的通知',
       body: '<p>{site.name}</p><p>{post.title} {reply.author}: {reply.content}</p><a href="{post.url}">查看</a>',
@@ -205,7 +208,7 @@ describe('typecho-plugin-mailer', () => {
         'https://api.resend.com/emails',
         expect.objectContaining({
           method: 'POST',
-          headers: expect.objectContaining({ 'Authorization': 'Bearer re_test_key' }),
+          headers: expect.objectContaining({ 'Authorization': 'Bearer ' + TEST_API_KEY }),
         }),
       );
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
@@ -367,10 +370,10 @@ describe('typecho-plugin-mailer', () => {
     const payload = { to: 'user@example.com', subject: 'S', html: '<p>H</p>', fromName: '博客' };
 
     it.each([
-      ['mailersend', 'https://api.mailersend.com/v1/email', 'mlsn_key', { Authorization: 'Bearer mlsn_key' }, (b: any) => ({ from: b.from.email, fromName: b.from.name, to: b.to[0].email, subject: b.subject, html: b.html })],
-      ['brevo', 'https://api.brevo.com/v3/smtp/email', 'brevo_key', { 'api-key': 'brevo_key' }, (b: any) => ({ from: b.sender.email, fromName: b.sender.name, to: b.to[0].email, subject: b.subject, html: b.htmlContent })],
-      ['plunk', 'https://api.useplunk.com/v1/email/send', 'plk_key', { Authorization: 'Bearer plk_key' }, (b: any) => ({ from: b.from.email, fromName: b.from.name, to: b.to, subject: b.subject, html: b.body })],
-      ['maileroo', 'https://smtp.maileroo.com/api/v2/emails', 'mr_key', { 'X-Api-Key': 'mr_key' }, (b: any) => ({ from: b.from.address, fromName: b.from.display_name, to: b.to[0].address, subject: b.subject, html: b.html })],
+      ['mailersend', 'https://api.mailersend.com/v1/email', 'k1', { Authorization: 'Bearer k1' }, (b: any) => ({ from: b.from.email, fromName: b.from.name, to: b.to[0].email, subject: b.subject, html: b.html })],
+      ['brevo', 'https://api.brevo.com/v3/smtp/email', 'k2', { 'api-key': 'k2' }, (b: any) => ({ from: b.sender.email, fromName: b.sender.name, to: b.to[0].email, subject: b.subject, html: b.htmlContent })],
+      ['plunk', 'https://api.useplunk.com/v1/email/send', 'k3', { Authorization: 'Bearer k3' }, (b: any) => ({ from: b.from.email, fromName: b.from.name, to: b.to, subject: b.subject, html: b.body })],
+      ['maileroo', 'https://smtp.maileroo.com/api/v2/emails', 'k4', { 'X-Api-Key': 'k4' }, (b: any) => ({ from: b.from.address, fromName: b.from.display_name, to: b.to[0].address, subject: b.subject, html: b.html })],
     ] as const)('builds a valid %s request', async (provider, url, apiKey, headers, extract) => {
       const fetchMock = stubFetch();
       const hooks = collectHooks();
@@ -428,11 +431,11 @@ describe('typecho-plugin-mailer', () => {
       const handler = hooks.get('plugin:config:beforeSave')!;
       const result = handler({ success: true, settings: {} }, {
         pluginId: 'typecho-plugin-mailer',
-        settings: { enabled: '1', apiKey: '__PLUGIN_CONFIG_SECRET__', from: 'blog@example.com' },
-        options: options({ apiKey: 'stored-key' }),
+        settings: { enabled: '1', apiKey: SECRET_PLACEHOLDER, from: 'blog@example.com' },
+        options: options({ apiKey: 'stored' }),
       });
       expect(result.success).toBe(true);
-      expect(result.settings.apiKey).toBe('stored-key');
+      expect(result.settings.apiKey).toBe('stored');
     });
 
     it('ignores other plugins', () => {
@@ -456,7 +459,7 @@ describe('typecho-plugin-mailer', () => {
         'plugin:typecho-plugin-mailer': JSON.stringify({
           enabled: '1',
           provider: 'resend',
-          apiKey: 're_test_key',
+          apiKey: TEST_API_KEY,
           from: 'blog@example.com',
           subject: '[{site.name}] 新的通知',
           body: '<p>{site.name}</p><p>{reply.content}</p>',

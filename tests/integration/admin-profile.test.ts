@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as schema from '@/db/schema';
-import { createTestDb, seedAdmin, disposeTestDb, makeAuthCookie, type TestDatabase } from '../helpers';
+import { createTestDb, seedAdmin, disposeTestDb, makeAuthCookie, randomPassword, type TestDatabase } from '../helpers';
 import { generateAuthToken, hashPassword, validateAuthToken } from '@/lib/auth';
 import { and, eq } from 'drizzle-orm';
 
@@ -91,11 +91,12 @@ describe('POST /api/admin/profile', () => {
 
   it('updates password when provided', async () => {
     const cookie = await makeAuthCookie(testDb, 1, AUTH_CODE, SECRET);
+    const newPassword = randomPassword();
     const formData = new URLSearchParams({
       do: 'password',
       mail: 'admin@example.com',
-      password: 'newpassword123',
-      passwordConfirm: 'newpassword123',
+      password: newPassword,
+      passwordConfirm: newPassword,
     });
     const req = new Request('https://example.com/api/admin/profile', {
       method: 'POST',
@@ -115,7 +116,7 @@ describe('POST /api/admin/profile', () => {
     const formData = new URLSearchParams({
       do: 'password',
       mail: 'admin@example.com',
-      password: 'newpassword123',
+      password: randomPassword(),
       passwordConfirm: 'different',
     });
     const req = new Request('https://example.com/api/admin/profile', {
@@ -215,10 +216,11 @@ describe('POST /api/admin/profile', () => {
   it('rotates existing sessions when changing the password and refreshes this browser session', async () => {
     const oldToken = await generateAuthToken(1, AUTH_CODE, SECRET);
     const cookie = await makeAuthCookie(testDb, 1, AUTH_CODE, SECRET);
+    const newPassword = randomPassword();
     const formData = new URLSearchParams({
       do: 'password',
-      password: 'newpassword123',
-      passwordConfirm: 'newpassword123',
+      password: newPassword,
+      passwordConfirm: newPassword,
     });
     const req = new Request('https://example.com/api/admin/profile', {
       method: 'POST',

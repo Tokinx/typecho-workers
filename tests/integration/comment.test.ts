@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as schema from '@/db/schema';
-import { createTestDb, makeAuthCookie, type TestDatabase } from '../helpers';
+import { createTestDb, makeAuthCookie, randomPassword, type TestDatabase } from '../helpers';
 import { generateCommentToken } from '@/lib/auth';
 
 let testDb: TestDatabase;
@@ -132,7 +132,7 @@ describe('POST /api/comment', () => {
 
   it('returns 403 when content is password-protected', async () => {
     await seedOptions(testDb);
-    const content = await seedContent(testDb, { password: 'secret123' });
+    const content = await seedContent(testDb, { password: randomPassword() });
     const req = makeCommentRequest({ cid: String(content.cid), text: 'Hi', author: 'Alice' });
     const res = await POST({ request: req, locals: {} } as any);
     expect(res.status).toBe(403);

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { transformSync } from 'esbuild';
 import { eq } from 'drizzle-orm';
 import { generateSecurityToken } from '@/lib/auth';
 import { loadOptions } from '@/lib/options';
@@ -189,7 +190,7 @@ describe('typecho-plugin-notes', () => {
     expect(html).toContain('"csrf-value"');
     const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(match => match[1]);
     expect(scripts).toHaveLength(1);
-    expect(() => new Function(scripts[0])).not.toThrow();
+    expect(() => transformSync(scripts[0], { loader: 'js' })).not.toThrow();
   });
 
   it('injects write and manage links immediately after the native post links', () => {
