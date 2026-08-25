@@ -532,6 +532,28 @@ describe('typecho-plugin-scribe', () => {
     expect(SCRIBE_DIFF_ALGO_JS).toContain('scribeRestoreMarks');
   });
 
+  it('binds dual-pane scroll sync for the compare view', () => {
+    const hooks = collectHooks();
+    const postHtml = hooks.get('admin:writePost:bottom')![0]('');
+
+    // 双向互绑：左右两栏的 scroll 事件都走 onCompareScroll
+    expect(postHtml).toContain("compareOriginal.addEventListener('scroll', function() {");
+    expect(postHtml).toContain("compareGenerated.addEventListener('scroll', function() {");
+    expect(postHtml).toContain('onCompareScroll(compareOriginal, compareGenerated)');
+    expect(postHtml).toContain('onCompareScroll(compareGenerated, compareOriginal)');
+    // 比例同步逻辑：以最近滚动源为准，±2px 阈值防回环抖动
+    expect(postHtml).toContain('var compareScrollSource = null;');
+    expect(postHtml).toContain('var compareScrollSyncing = false;');
+    expect(postHtml).toContain('syncCompareScroll(source, target)');
+    expect(postHtml).toContain('Math.abs(target.scrollTop - next) >= 2');
+    expect(postHtml).toContain('compareScrollSource = source;');
+    // 内容重渲染后按最近滚动源恢复同步；关闭弹窗时重置滚动源
+    expect(postHtml).toContain('if (compareScrollSource === generatedEl) {');
+    expect(postHtml).toContain('syncCompareScroll(generatedEl, originalEl);');
+    expect(postHtml).toContain('syncCompareScroll(originalEl, generatedEl);');
+    expect(postHtml).toContain('compareScrollSource = null;');
+  });
+
   describe('diff highlight algorithm', () => {
     const { scribeDiffMarkup, scribeRestoreMarks, scribeTokenize } = scribeDiffAlgo;
 

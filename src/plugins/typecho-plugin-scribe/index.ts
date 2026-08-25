@@ -1698,6 +1698,37 @@ ${SCRIBE_DIFF_ALGO_JS}
     }
     originalEl.innerHTML = '<pre class="typecho-scribe-modal-compare-md">' + oldHtml + '</pre>';
     generatedEl.innerHTML = '<pre class="typecho-scribe-modal-compare-md">' + newHtml + '</pre>';
+    // 内容重渲染后（流式/编辑变化）按最近滚动源恢复同步，避免两侧比例漂移
+    if (compareScrollSource === generatedEl) {
+      syncCompareScroll(generatedEl, originalEl);
+    } else if (compareScrollSource === originalEl) {
+      syncCompareScroll(originalEl, generatedEl);
+    }
+  }
+
+  // 比对双栏同步滚动：以最近一次滚动的栏为源，按滚动比例同步另一栏
+  var compareScrollSource = null;
+  var compareScrollSyncing = false;
+
+  function syncCompareScroll(source, target) {
+    var maxSource = source.scrollHeight - source.clientHeight;
+    var maxTarget = target.scrollHeight - target.clientHeight;
+    if (maxTarget <= 0) {
+      if (target.scrollTop !== 0) target.scrollTop = 0;
+      return;
+    }
+    var ratio = maxSource > 0 ? source.scrollTop / maxSource : 0;
+    var next = ratio * maxTarget;
+    // 阈值避免程序化赋值再次派发 scroll 事件造成的 1px 级回环抖动
+    if (Math.abs(target.scrollTop - next) >= 2) target.scrollTop = next;
+  }
+
+  function onCompareScroll(source, target) {
+    if (compareScrollSyncing) return;
+    compareScrollSyncing = true;
+    compareScrollSource = source;
+    syncCompareScroll(source, target);
+    compareScrollSyncing = false;
   }
 
   function scrollActiveViewToBottom() {
@@ -1779,6 +1810,7 @@ ${SCRIBE_DIFF_ALGO_JS}
     previewState.open = false;
     previewState.controller = null;
     previewState.userEdited = false;
+    compareScrollSource = null;
   }
 
   function mergeAiCompletion(oldText, streamedText, mode) {
@@ -2342,6 +2374,15 @@ ${SCRIBE_DIFF_ALGO_JS}
       previewState.currentText = this.value;
       renderModalViews();
       updateModalControls();
+    });
+    // 比对双栏同步滚动（双向互绑；程序化赋值与用户滚动都走同一事件通道）
+    var compareOriginal = modal.querySelector('.typecho-scribe-modal-compare-original');
+    var compareGenerated = modal.querySelector('.typecho-scribe-modal-compare-generated');
+    compareOriginal.addEventListener('scroll', function() {
+      onCompareScroll(compareOriginal, compareGenerated);
+    });
+    compareGenerated.addEventListener('scroll', function() {
+      onCompareScroll(compareGenerated, compareOriginal);
     });
     modal.querySelector('.typecho-scribe-modal-close').addEventListener('click', closeModal);
     modal.querySelector('.typecho-scribe-modal-cancel').addEventListener('click', closeModal);
