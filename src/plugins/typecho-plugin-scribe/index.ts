@@ -4,6 +4,239 @@ import type { Database } from 'typecho/db';
 import { schema } from 'typecho/db';
 import { and, desc, eq, inArray, or } from 'drizzle-orm';
 
+// ===== 比对页签 diff 高亮算法（浏览器端执行）=====
+// 浏览器端内联脚本无法 import 模块，以下纯函数经 toString() 序列化后拼入模板字符串注入页面；
+// 单元测试直接 import 这些函数断言行为，与线上执行代码同源。
+// 约定：函数体不使用模板字面量、不引用模块级常量（阈值等魔法数字直接内联），
+// 保证序列化后自包含可执行；转译器可能重写字符串引号风格，测试断言按值而非精确源码文本。
+// 比对视图为纯 markdown 源码对比（无 HTML 渲染层）：占位符删除词 \u0001…\u0002、新增词 \u0003…\u0004，
+// 标记文本经 HTML 转义后由 scribeRestoreMarks 还原为 span——只产生文本节点内的高亮，任何语法都不会被破坏；
+// 渲染效果由独立的「预览」页签负责。
+export const scribeDiffAlgo = {
+  scribeTokenize,
+  scribeAppendLcs,
+  scribeLcsOps,
+  scribeWrapTokens,
+  scribeRestoreMarks,
+  scribeFinalizeDiff,
+  scribeDiffMarkup,
+};
+
+export const SCRIBE_DIFF_ALGO_JS = Object.values(scribeDiffAlgo)
+  .map((fn) => fn.toString())
+  .join('\n');
+
+function scribeTokenize(text: string): string[] {
+  const re = /[\u4e00-\u9fffA-Za-z0-9_]+|\n|[^\u4e00-\u9fffA-Za-z0-9_\n]/g;
+  return text.match(re) || [];
+}
+
+function scribeAppendLcs(a: string[], b: string[], ops: DiffOp[]): void {
+  const n = a.length;
+  const m = b.length;
+  if (n === 0 && m === 0) return;
+  if (n === 0) {
+    for (let j = 0; j < m; j++) ops.push({ t: 'i', s: b[j] });
+    return;
+  }
+  if (m === 0) {
+    for (let i = 0; i < n; i++) ops.push({ t: 'd', s: a[i] });
+    return;
+  }
+  // 超大差异区放弃对齐、整块标记，避免 O(n*m) DP 拖垮页面
+  if (n * m > 400000) {
+    for (let i = 0; i < n; i++) ops.push({ t: 'd', s: a[i] });
+    for (let j = 0; j < m; j++) ops.push({ t: 'i', s: b[j] });
+    return;
+  }
+  const dp: number[][] = [];
+  for (let r = 0; r <= n; r++) {
+    dp.push(new Array(m + 1));
+    for (let c = 0; c <= m; c++) dp[r][c] = 0;
+  }
+  for (let i = 1; i <= n; i++) {
+    for (let j = 1; j <= m; j++) {
+      if (a[i - 1] === b[j - 1]) dp[i][j] = dp[i - 1][j - 1] + 1;
+      else dp[i][j] = dp[i - 1][j] >= dp[i][j - 1] ? dp[i - 1][j] : dp[i][j - 1];
+    }
+  }
+  const rev: DiffOp[] = [];
+  let i = n;
+  let j = m;
+  while (i > 0 && j > 0) {
+    if (a[i - 1] === b[j - 1]) {
+      rev.push({ t: 'e', s: a[i - 1] });
+      i--;
+      j--;
+    } else if (dp[i - 1][j] >= dp[i][j - 1]) {
+      rev.push({ t: 'd', s: a[i - 1] });
+      i--;
+    } else {
+      rev.push({ t: 'i', s: b[j - 1] });
+      j--;
+    }
+  }
+  while (i > 0) {
+    rev.push({ t: 'd', s: a[i - 1] });
+    i--;
+  }
+  while (j > 0) {
+    rev.push({ t: 'i', s: b[j - 1] });
+    j--;
+  }
+  for (i = rev.length - 1; i >= 0; i--) ops.push(rev[i]);
+}
+
+// 通用 LCS diff：先裁剪相同前后缀缩小 DP 规模
+function scribeLcsOps(a: string[], b: string[]): DiffOp[] {
+  let start = 0;
+  while (start < a.length && start < b.length && a[start] === b[start]) start++;
+  let endA = a.length;
+  let endB = b.length;
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) {
+    endA--;
+    endB--;
+  }
+  const ops: DiffOp[] = [];
+  for (let i = 0; i < start; i++) ops.push({ t: 'e', s: a[i] });
+  scribeAppendLcs(a.slice(start, endA), b.slice(start, endB), ops);
+  for (let i = endA; i < a.length; i++) ops.push({ t: 'e', s: a[i] });
+  return ops;
+}
+
+// 按 ops 重建单侧文本：del 侧取 e/d token、ins 侧取 e/i token，另一侧 token 跳过；
+// 指定类型 token 用控制字符占位符包裹；连续同型 token 合并成一次包裹（\n 断开合并且不包裹），
+// 避免 markdown 语法/URL 的符号 token 被逐字符高亮成碎片
+function scribeWrapTokens(ops: DiffOp[], kind: 'del' | 'ins'): string {
+  let out = '';
+  let i = 0;
+  while (i < ops.length) {
+    const op = ops[i];
+    if (kind === 'del') {
+      if (op.t === 'i') {
+        i++;
+        continue;
+      }
+      if (op.t === 'd' && op.s !== '\n') {
+        let buf = '';
+        while (i < ops.length && ops[i].t === 'd' && ops[i].s !== '\n') {
+          buf += ops[i].s;
+          i++;
+        }
+        out += '\u0001' + buf + '\u0002';
+        continue;
+      }
+      out += op.s;
+      i++;
+    } else {
+      if (op.t === 'd') {
+        i++;
+        continue;
+      }
+      if (op.t === 'i' && op.s !== '\n') {
+        let buf = '';
+        while (i < ops.length && ops[i].t === 'i' && ops[i].s !== '\n') {
+          buf += ops[i].s;
+          i++;
+        }
+        out += '\u0003' + buf + '\u0004';
+        continue;
+      }
+      out += op.s;
+      i++;
+    }
+  }
+  return out;
+}
+
+// 把占位符还原为高亮 span（纯文本对比视图：标记文本经 HTML 转义后还原，只产生文本节点内的 span，安全）
+function scribeRestoreMarks(html: string): string {
+  return html
+    .replace(/\u0001([\s\S]*?)\u0002/g, (_match, text: string) => {
+      return '<span class="typecho-scribe-diff-del">' + text + '</span>';
+    })
+    .replace(/\u0003([\s\S]*?)\u0004/g, (_match, text: string) => {
+      return '<span class="typecho-scribe-diff-ins">' + text + '</span>';
+    });
+}
+
+function scribeFinalizeDiff(pending: { oldLines: string[]; newLines: string[] }): ScribeDiffBlock {
+  let oldText = pending.oldLines.join('\n');
+  let newText = pending.newLines.join('\n');
+  // words === null 表示两侧相同块；'whole' 表示超限降级、整块标记（不进入词级对齐）
+  let words: DiffOp[] | 'whole' | null = null;
+  if (oldText.length + newText.length <= 20000) {
+    const oldTokens = scribeTokenize(oldText);
+    const newTokens = scribeTokenize(newText);
+    if (oldTokens.length * newTokens.length <= 400000) {
+      words = scribeLcsOps(oldTokens, newTokens);
+      oldText = scribeWrapTokens(words, 'del');
+      newText = scribeWrapTokens(words, 'ins');
+      return { old: oldText, new: newText, words };
+    }
+  }
+  words = 'whole';
+  oldText = oldText ? '\u0001' + oldText + '\u0002' : '';
+  newText = newText ? '\u0003' + newText + '\u0004' : '';
+  return { old: oldText, new: newText, words };
+}
+
+// 行级 diff + 相邻差异块合并（间隔 ≤ 2 行相同行并入作上下文，避免段落被割裂渲染）
+// 返回 { hasDiff, blocks }；blocks 元素 { old, new, words }，words === null 表示两侧相同块
+function scribeDiffMarkup(
+  oldText: string,
+  newText: string,
+): { hasDiff: boolean; blocks: ScribeDiffBlock[] } {
+  const oldLines = oldText.split('\n');
+  const newLines = newText.split('\n');
+  const ops = scribeLcsOps(oldLines, newLines);
+  const blocks: ScribeDiffBlock[] = [];
+  let pending: { oldLines: string[]; newLines: string[] } | null = null;
+  let i = 0;
+  while (i < ops.length) {
+    if (ops[i].t === 'e') {
+      const eLines: string[] = [];
+      while (i < ops.length && ops[i].t === 'e') {
+        eLines.push(ops[i].s);
+        i++;
+      }
+      const hasLater = i < ops.length;
+      if (pending && hasLater && eLines.length <= 2) {
+        for (let k = 0; k < eLines.length; k++) {
+          pending.oldLines.push(eLines[k]);
+          pending.newLines.push(eLines[k]);
+        }
+      } else {
+        if (pending) {
+          blocks.push(scribeFinalizeDiff(pending));
+          pending = null;
+        }
+        blocks.push({ old: eLines.join('\n'), new: eLines.join('\n'), words: null });
+      }
+    } else {
+      if (!pending) pending = { oldLines: [], newLines: [] };
+      if (ops[i].t === 'd') pending.oldLines.push(ops[i].s);
+      else pending.newLines.push(ops[i].s);
+      i++;
+    }
+  }
+  if (pending) blocks.push(scribeFinalizeDiff(pending));
+  let hasDiff = false;
+  for (let b = 0; b < blocks.length; b++) {
+    if (blocks[b].words !== null) {
+      hasDiff = true;
+      break;
+    }
+  }
+  return { hasDiff, blocks };
+}
+
+// diff 算法操作序列：t 为 e(equal)/d(del)/i(ins)，s 为 token（行或词）
+type DiffOp = { t: 'e' | 'd' | 'i'; s: string };
+// 渲染块：words === null 表示两侧相同块（直接渲染）；
+// words === 'whole' 表示超限降级块（old/new 已整块带占位符标记）；否则为词级差异块
+type ScribeDiffBlock = { old: string; new: string; words: DiffOp[] | 'whole' | null };
+
 type WriterMode = 'generate' | 'polish' | 'correct' | 'continue';
 type ContentType = 'post' | 'page';
 type LengthPreset = 'concise' | 'balanced' | 'detailed';
@@ -956,7 +1189,7 @@ function editorHtml(contentType: ContentType): string {
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  width: min(860px, 100%);
+  width: min(1280px, 100%);
   max-height: calc(100vh - 40px);
   background: #fff;
   border-radius: 4px;
@@ -1088,6 +1321,38 @@ function editorHtml(contentType: ContentType): string {
 .typecho-scribe-modal-compare-content.typecho-scribe-modal-compare-empty {
   color: #999;
 }
+.typecho-scribe-diff-del {
+  padding: 0 1px;
+  border-radius: 2px;
+  background: #ffe3e3;
+  color: #b3382c;
+  text-decoration: line-through;
+}
+.typecho-scribe-diff-ins {
+  padding: 0 1px;
+  border-radius: 2px;
+  background: #ddf3dd;
+  color: #257a25;
+}
+.typecho-scribe-modal-compare-md {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: 13px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  color: #333;
+}
+.typecho-scribe-diff-note {
+  padding: 4px 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: #999;
+  background: #fafafa;
+  border: 1px dashed #ddd;
+  border-radius: 2px;
+}
 .typecho-scribe-tab-hidden {
   display: none !important;
 }
@@ -1169,11 +1434,11 @@ function editorHtml(contentType: ContentType): string {
       <div class="typecho-scribe-modal-compare typecho-scribe-tab-hidden">
         <div class="typecho-scribe-modal-compare-pane">
           <div class="typecho-scribe-modal-compare-label">原文</div>
-          <div class="typecho-scribe-modal-compare-content wmd-preview typecho-scribe-modal-compare-original"></div>
+          <div class="typecho-scribe-modal-compare-content typecho-scribe-modal-compare-original"></div>
         </div>
         <div class="typecho-scribe-modal-compare-pane">
           <div class="typecho-scribe-modal-compare-label">AI 生成</div>
-          <div class="typecho-scribe-modal-compare-content wmd-preview typecho-scribe-modal-compare-generated"></div>
+          <div class="typecho-scribe-modal-compare-content typecho-scribe-modal-compare-generated"></div>
         </div>
       </div>
     </div>
@@ -1368,6 +1633,8 @@ function editorHtml(contentType: ContentType): string {
     return '<p>' + escapeHtmlText(source).replace(/\\n/g, '<br>') + '</p>';
   }
 
+${SCRIBE_DIFF_ALGO_JS}
+
   function setModalTab(tab) {
     previewState.tab = tab;
     var modal = document.querySelector('.typecho-scribe-modal');
@@ -1399,8 +1666,38 @@ function editorHtml(contentType: ContentType): string {
       writeEl.value = text;
     }
     previewEl.innerHTML = renderMarkdown(text);
-    originalEl.innerHTML = renderMarkdown(previewState.oldText);
-    generatedEl.innerHTML = renderMarkdown(text);
+    // 比对视图只在页签激活时计算（流式期间每帧重算成本低，关闭后不更新）
+    if (previewState.tab === 'compare') {
+      renderComparePanes(originalEl, generatedEl, previewState.oldText, text);
+    }
+  }
+
+  // 比对页签：纯 markdown 源码对比。行级/词级 diff 标记文本经 HTML 转义后
+  // 由 scribeRestoreMarks 还原为高亮 span——只产生文本节点内的 span，
+  // 任何 markdown 语法（引用式图片/链接、分割线、表格、代码块）都不会被破坏；
+  // 渲染效果由「预览」页签查看
+  function renderComparePanes(originalEl, generatedEl, oldText, newText) {
+    var diff = scribeDiffMarkup(oldText || '', newText || '');
+    if (!diff.hasDiff) {
+      var note = '<div class="typecho-scribe-diff-note">内容无差异</div>';
+      originalEl.innerHTML = note + '<pre class="typecho-scribe-modal-compare-md">' + escapeHtmlText(oldText) + '</pre>';
+      generatedEl.innerHTML = note + '<pre class="typecho-scribe-modal-compare-md">' + escapeHtmlText(newText) + '</pre>';
+      return;
+    }
+    var oldHtml = '';
+    var newHtml = '';
+    for (var i = 0; i < diff.blocks.length; i++) {
+      var block = diff.blocks[i];
+      if (block.words === null) {
+        oldHtml += escapeHtmlText(block.old);
+        newHtml += escapeHtmlText(block.new);
+      } else {
+        oldHtml += scribeRestoreMarks(escapeHtmlText(block.old));
+        newHtml += scribeRestoreMarks(escapeHtmlText(block.new));
+      }
+    }
+    originalEl.innerHTML = '<pre class="typecho-scribe-modal-compare-md">' + oldHtml + '</pre>';
+    generatedEl.innerHTML = '<pre class="typecho-scribe-modal-compare-md">' + newHtml + '</pre>';
   }
 
   function scrollActiveViewToBottom() {

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { transformSync } from 'esbuild';
-import init from './index';
+import init, { scribeDiffAlgo, SCRIBE_DIFF_ALGO_JS } from './index';
 
 // Config-shape fixtures share one non-credential-like placeholder value; the
 // validation logic under test does not inspect the key itself.
@@ -102,9 +102,10 @@ describe('typecho-plugin-scribe', () => {
     expect(postHtml).toContain('typecho-scribe-modal-compare-original');
     expect(postHtml).toContain('typecho-scribe-modal-compare-generated');
     expect(postHtml).toContain('typecho-scribe-modal-compare-label');
-    // 预览与比对容器复用 #wmd-preview 排版（wmd-preview class）
+    // 预览容器复用 #wmd-preview 排版（wmd-preview class）；比对容器为纯 markdown 源码视图
     expect(postHtml).toContain('typecho-scribe-modal-preview wmd-preview');
-    expect(postHtml).toContain('typecho-scribe-modal-compare-content wmd-preview');
+    expect(postHtml).toContain('typecho-scribe-modal-compare-content typecho-scribe-modal-compare-original');
+    expect(postHtml).toContain('typecho-scribe-modal-compare-content typecho-scribe-modal-compare-generated');
     expect(postHtml).toContain('setModalTab(button.getAttribute(\'data-scribe-tab\') || \'write\')');
     expect(postHtml).toContain('previewState.userEdited = true;');
     expect(postHtml).toContain('renderModalViews();');
@@ -501,5 +502,190 @@ describe('typecho-plugin-scribe', () => {
     expect(body.messages[1].content).toContain('事实策略：允许基于常识做低风险推断');
     expect(body.messages[1].content).toContain('避免营销腔。');
     expect(body.messages[1].content).toContain('<assets>');
+  });
+
+  it('injects the wider modal and diff highlight markup into the editor HTML', () => {
+    const hooks = collectHooks();
+    const postHtml = hooks.get('admin:writePost:bottom')![0]('');
+    const pageHtml = hooks.get('admin:writePage:bottom')![0]('');
+
+    expect(postHtml).toContain('width: min(1280px, 100%)');
+    expect(pageHtml).toContain('width: min(1280px, 100%)');
+    // 高亮样式与无差异提示
+    expect(postHtml).toContain('typecho-scribe-diff-del');
+    expect(postHtml).toContain('typecho-scribe-diff-ins');
+    expect(postHtml).toContain('typecho-scribe-diff-note');
+    // 比对视图走 diff 渲染管线，仅在比对页签激活时计算；纯 markdown 源码对比（pre + 转义 + span）
+    expect(postHtml).toContain("if (previewState.tab === 'compare') {");
+    expect(postHtml).toContain('renderComparePanes(originalEl, generatedEl, previewState.oldText, text)');
+    expect(postHtml).toContain("var diff = scribeDiffMarkup(oldText || '', newText || '')");
+    expect(postHtml).toContain('scribeRestoreMarks(escapeHtmlText(block.old))');
+    expect(postHtml).toContain('typecho-scribe-modal-compare-md');
+    // 比对视图不再依赖 HyperDown/DOMPurify 渲染与 wmd-preview 排版
+    expect(postHtml).toContain('<pre class="typecho-scribe-modal-compare-md">' + "' + oldHtml + '</pre>'");
+    expect(postHtml).not.toContain('wmd-preview typecho-scribe-modal-compare');
+    // 算法源码经 toString() 序列化注入内联脚本（可执行，语法检查由上方用例覆盖）；
+    // 还原 span 的 class 与 CSS 定义一致（转译器会重写字符串引号风格，故按值断言）
+    expect(postHtml).toContain('function scribeDiffMarkup(');
+    expect(SCRIBE_DIFF_ALGO_JS).toContain('typecho-scribe-diff-del');
+    expect(SCRIBE_DIFF_ALGO_JS).toContain('typecho-scribe-diff-ins');
+    expect(SCRIBE_DIFF_ALGO_JS).toContain('scribeRestoreMarks');
+  });
+
+  describe('diff highlight algorithm', () => {
+    const { scribeDiffMarkup, scribeRestoreMarks, scribeTokenize } = scribeDiffAlgo;
+
+    it('reports no difference for identical texts', () => {
+      const result = scribeDiffMarkup('同一段文字\n第二行', '同一段文字\n第二行');
+      expect(result.hasDiff).toBe(false);
+      expect(result.blocks).toHaveLength(1);
+      expect(result.blocks[0].words).toBeNull();
+      expect(result.blocks[0].old).toBe('同一段文字\n第二行');
+    });
+
+    it('marks word-level deletion and insertion around a local replacement', () => {
+      const result = scribeDiffMarkup('a b c', 'a X c');
+      expect(result.hasDiff).toBe(true);
+      const diffBlock = result.blocks.find((b) => b.words !== null)!;
+      expect(diffBlock.old).toBe('a \u0001b\u0002 c');
+      expect(diffBlock.new).toBe('a \u0003X\u0004 c');
+      expect(diffBlock.old).not.toContain('\u0003');
+      expect(diffBlock.new).not.toContain('\u0001');
+    });
+
+    it('keeps unchanged markdown syntax markers unmarked', () => {
+      const result = scribeDiffMarkup('**bold** text', '**bold** changed');
+      const diffBlock = result.blocks.find((b) => b.words !== null)!;
+      expect(diffBlock.old).toBe('**bold** \u0001text\u0002');
+      expect(diffBlock.old).not.toContain('\u0001bold\u0002');
+      expect(diffBlock.new).toBe('**bold** \u0003changed\u0004');
+    });
+
+    it('handles whole-block insertion and deletion', () => {
+      const inserted = scribeDiffMarkup('', '新段落');
+      expect(inserted.hasDiff).toBe(true);
+      expect(inserted.blocks[0].old).toBe('');
+      expect(inserted.blocks[0].new).toBe('\u0003新段落\u0004');
+
+      const deleted = scribeDiffMarkup('旧段落', '');
+      expect(deleted.hasDiff).toBe(true);
+      expect(deleted.blocks[0].old).toBe('\u0001旧段落\u0002');
+      expect(deleted.blocks[0].new).toBe('');
+    });
+
+    it('keeps line-level equal runs in separate blocks', () => {
+      const result = scribeDiffMarkup('a\nb', 'a\nb\nc');
+      expect(result.blocks).toHaveLength(2);
+      expect(result.blocks[0].words).toBeNull();
+      expect(result.blocks[0].old).toBe('a\nb');
+      expect(result.blocks[1].words).not.toBeNull();
+      expect(result.blocks[1].new).toBe('\u0003c\u0004');
+    });
+
+    it('merges nearby diff blocks with short equal context into one block', () => {
+      const result = scribeDiffMarkup('p1\nctx\np2', 'p1x\nctx\np2y');
+      const diffBlocks = result.blocks.filter((b) => b.words !== null);
+      expect(diffBlocks).toHaveLength(1);
+      expect(diffBlocks[0].old).toBe('\u0001p1\u0002\nctx\n\u0001p2\u0002');
+      expect(diffBlocks[0].new).toBe('\u0003p1x\u0004\nctx\n\u0003p2y\u0004');
+      expect(diffBlocks[0].old).not.toContain('\u0001ctx\u0002');
+    });
+
+    it('does not wrap newline tokens inside word-level diffs', () => {
+      const result = scribeDiffMarkup('x\ny', 'x y');
+      const diffBlock = result.blocks.find((b) => b.words !== null)!;
+      expect(diffBlock.old).toBe('x\ny');
+      expect(diffBlock.new).toBe('x\u0003 \u0004y');
+    });
+
+    it('degrades to whole-block marking for very large difference regions', () => {
+      const big = 'x'.repeat(20000);
+      const result = scribeDiffMarkup(big, 'y'.repeat(20000));
+      expect(result.hasDiff).toBe(true);
+      const diffBlock = result.blocks.find((b) => b.words !== null)!;
+      expect(diffBlock.words).toBe('whole');
+      expect(diffBlock.old).toBe('\u0001' + big + '\u0002');
+      expect(diffBlock.new).toBe('\u0003' + 'y'.repeat(20000) + '\u0004');
+    });
+
+    it('tokenizes CJK words, latin words, and punctuation separately', () => {
+      expect(scribeTokenize('你好世界 abc_123.')).toEqual(['你好世界', ' ', 'abc_123', '.']);
+      expect(scribeTokenize('a\nb')).toEqual(['a', '\n', 'b']);
+    });
+
+    it('restores del/ins placeholders to highlight spans', () => {
+      expect(scribeRestoreMarks('x\u0001y\u0002z')).toBe('x<span class="typecho-scribe-diff-del">y</span>z');
+      expect(scribeRestoreMarks('x\u0003y\u0004z')).toBe('x<span class="typecho-scribe-diff-ins">y</span>z');
+      expect(scribeRestoreMarks('plain')).toBe('plain');
+    });
+
+    it('keeps unchanged images renderable (identical markdown stays in equal blocks)', () => {
+      const result = scribeDiffMarkup('![图](https://x/y.png)', '![图](https://x/y.png)');
+      expect(result.hasDiff).toBe(false);
+      expect(result.blocks[0].words).toBeNull();
+      expect(result.blocks[0].old).toBe('![图](https://x/y.png)');
+    });
+
+    it('marks a removed image as one del-highlighted markdown run', () => {
+      const result = scribeDiffMarkup('![图](https://x/y.png)\n正文', '正文');
+      const diffBlock = result.blocks.find((b) => b.words !== null)!;
+      expect(diffBlock.old).toBe('\u0001![图](https://x/y.png)\u0002');
+      expect(scribeRestoreMarks(diffBlock.old)).toBe(
+        '<span class="typecho-scribe-diff-del">![图](https://x/y.png)</span>',
+      );
+    });
+
+    it('marks an added image as one ins-highlighted markdown run', () => {
+      const result = scribeDiffMarkup('正文', '正文\n\n![新图](https://x/z.png)');
+      const diffBlock = result.blocks.find((b) => b.words !== null)!;
+      expect(diffBlock.new).toBe('\n\u0003![新图](https://x/z.png)\u0004');
+      expect(scribeRestoreMarks(diffBlock.new)).toBe(
+        '\n<span class="typecho-scribe-diff-ins">![新图](https://x/z.png)</span>',
+      );
+    });
+
+    it('keeps identical markdown syntax tokens unmarked (image stays untouched)', () => {
+      const result = scribeDiffMarkup('![图](https://x/y.png) 说明', '![图](https://x/y.png) 新说明');
+      const diffBlock = result.blocks.find((b) => b.words !== null)!;
+      // 语法 token（! [ ] ( ) https://…）相等 → 不高亮；CJK 词级分词把「新说明」视为一个词
+      expect(diffBlock.old).toBe('![图](https://x/y.png) \u0001说明\u0002');
+      expect(diffBlock.new).toBe('![图](https://x/y.png) \u0003新说明\u0004');
+    });
+
+    it('highlights changed link URLs at word level without breaking the syntax', () => {
+      const result = scribeDiffMarkup('[链接](https://x/a)', '[链接](https://x/b)');
+      const diffBlock = result.blocks.find((b) => b.words !== null)!;
+      expect(diffBlock.old).toBe('[链接](https://x/\u0001a\u0002)');
+      expect(diffBlock.new).toBe('[链接](https://x/\u0003b\u0004)');
+    });
+
+    it('highlights changed link labels while keeping the url tokens equal', () => {
+      const result = scribeDiffMarkup('[旧名](https://x/u)', '[新名](https://x/u)');
+      const diffBlock = result.blocks.find((b) => b.words !== null)!;
+      expect(diffBlock.old).toBe('[\u0001旧名\u0002](https://x/u)');
+      expect(diffBlock.new).toBe('[\u0003新名\u0004](https://x/u)');
+    });
+
+    it('highlights the changed definition URL of a reference-style image', () => {
+      const result = scribeDiffMarkup('![图][1]\n\n[1]: https://x/y.png', '![图][1]\n\n[1]: https://x/z.png');
+      // 引用行与定义语法 token 相等 → 原样；仅定义 URL 中变化的词级 token 高亮（y → z，扩展名不变）
+      const diffBlock = result.blocks.find((b) => b.words !== null)!;
+      expect(diffBlock.old).toBe('[1]: https://x/\u0001y\u0002.png');
+      expect(diffBlock.new).toBe('[1]: https://x/\u0003z\u0004.png');
+    });
+
+    it('marks a replaced horizontal rule as a single highlighted run', () => {
+      const result = scribeDiffMarkup('标题\n---\n正文', '标题\n***\n正文');
+      const diffBlock = result.blocks.find((b) => b.words !== null)!;
+      expect(diffBlock.old).toBe('\u0001---\u0002');
+      expect(diffBlock.new).toBe('\u0003***\u0004');
+    });
+
+    it('keeps table pipe tokens unmarked when only cell content changes', () => {
+      const result = scribeDiffMarkup('| a | b |', '| a | c |');
+      const diffBlock = result.blocks.find((b) => b.words !== null)!;
+      expect(diffBlock.old).toBe('| a | \u0001b\u0002 |');
+      expect(diffBlock.new).toBe('| a | \u0003c\u0004 |');
+    });
   });
 });
