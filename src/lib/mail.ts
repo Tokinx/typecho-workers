@@ -6,7 +6,7 @@
  * handled by a plugin that registers a `mail:send` filter hook.
  *
  * Enablement and sender-address decisions live inside the adapter plugin
- * (e.g. typecho-plugin-mailer); without an email plugin, sendMail() returns
+ * (e.g. typecho-plugin-notifier); without an email plugin, sendMail() returns
  * { sent: false } and all email-dependent features (password reset,
  * comment notifications) will degrade gracefully.
  */

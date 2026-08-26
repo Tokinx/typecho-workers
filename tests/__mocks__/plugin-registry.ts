@@ -19,7 +19,7 @@ import { registerEarlyRequestLoaders } from '@/lib/early-request';
 registerPluginLoaders({
   'typecho-plugin-antispam': () => import('@/plugins/typecho-plugin-antispam/index').then((module) => module.default),
   'typecho-plugin-cache': () => import('@/plugins/typecho-plugin-cache/index').then((module) => module.default),
-  'typecho-plugin-mailer': () => import('@/plugins/typecho-plugin-mailer/index').then((module) => module.default),
+  'typecho-plugin-notifier': () => import('@/plugins/typecho-plugin-notifier/index').then((module) => module.default),
   'typecho-plugin-notes': () => import('@/plugins/typecho-plugin-notes/index').then((module) => module.default),
   'typecho-plugin-scribe': () => import('@/plugins/typecho-plugin-scribe/index').then((module) => module.default),
   'typecho-plugin-turnstile': () => import('@/plugins/typecho-plugin-turnstile/index').then((module) => module.default),

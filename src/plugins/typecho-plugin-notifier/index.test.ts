@@ -12,7 +12,7 @@ const TEST_API_KEY = 'k';
 function collectHooks(): Map<string, Function> {
   const hooks = new Map<string, Function>();
   init({
-    pluginId: 'typecho-plugin-mailer',
+    pluginId: 'typecho-plugin-notifier',
     HookPoints: {} as any,
     addHook: (point: string, _pluginId: string, handler: Function) => {
       hooks.set(point, handler);
@@ -23,7 +23,7 @@ function collectHooks(): Map<string, Function> {
 
 function options(settings: Record<string, unknown>, extra: Record<string, unknown> = {}) {
   return {
-    'plugin:typecho-plugin-mailer': JSON.stringify({
+    'plugin:typecho-plugin-notifier': JSON.stringify({
       enabled: '1',
       provider: 'resend',
       apiKey: TEST_API_KEY,
@@ -109,7 +109,7 @@ async function adminSession(group = 'administrator') {
 
 // ── Tests ───────────────────────────────────────────────────────────────────
 
-describe('typecho-plugin-mailer', () => {
+describe('typecho-plugin-notifier', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -164,10 +164,33 @@ describe('typecho-plugin-mailer', () => {
     });
 
     it('falls back to defaults on invalid JSON and invalid provider', () => {
-      const cfg = loadConfig({ 'plugin:typecho-plugin-mailer': 'not json' });
+      const cfg = loadConfig({ 'plugin:typecho-plugin-notifier': 'not json' });
       expect(cfg.provider).toBe('resend');
       expect(cfg.enabled).toBe(false);
       expect(normalizeConfig({ provider: 'smtp' }).provider).toBe('resend');
+    });
+
+    it('reads legacy Mailer config when the new key is absent', () => {
+      const cfg = loadConfig({ 'plugin:typecho-plugin-mailer': JSON.stringify({
+        enabled: '1',
+        provider: 'brevo',
+        apiKey: TEST_API_KEY,
+        from: 'legacy@example.com',
+        commentNotifyEnabled: '1',
+      }) });
+      expect(cfg.enabled).toBe(true);
+      expect(cfg.provider).toBe('brevo');
+      expect(cfg.apiKey).toBe(TEST_API_KEY);
+      expect(cfg.commentNotifyEnabled).toBe(true);
+    });
+
+    it('prefers the new config key over the legacy key', () => {
+      const cfg = loadConfig({
+        'plugin:typecho-plugin-notifier': JSON.stringify({ enabled: '1', provider: 'plunk' }),
+        'plugin:typecho-plugin-mailer': JSON.stringify({ enabled: '0', provider: 'brevo' }),
+      });
+      expect(cfg.enabled).toBe(true);
+      expect(cfg.provider).toBe('plunk');
     });
 
     it('validates email addresses', () => {
@@ -394,7 +417,7 @@ describe('typecho-plugin-mailer', () => {
       const hooks = collectHooks();
       const handler = hooks.get('plugin:config:beforeSave')!;
       const result = handler({ success: true, settings: {} }, {
-        pluginId: 'typecho-plugin-mailer',
+        pluginId: 'typecho-plugin-notifier',
         settings: { enabled: '1', apiKey: 'k', from: 'blog@example.com', provider: 'resend', testTo: 't@example.com' },
         options: options({}),
       });
@@ -406,7 +429,7 @@ describe('typecho-plugin-mailer', () => {
       const hooks = collectHooks();
       const handler = hooks.get('plugin:config:beforeSave')!;
       const result = handler({ success: true, settings: {} }, {
-        pluginId: 'typecho-plugin-mailer',
+        pluginId: 'typecho-plugin-notifier',
         settings: { enabled: '1', apiKey: '', from: 'blog@example.com' },
         options: options({}),
       });
@@ -418,7 +441,7 @@ describe('typecho-plugin-mailer', () => {
       const hooks = collectHooks();
       const handler = hooks.get('plugin:config:beforeSave')!;
       const result = handler({ success: true, settings: {} }, {
-        pluginId: 'typecho-plugin-mailer',
+        pluginId: 'typecho-plugin-notifier',
         settings: { enabled: '1', apiKey: 'k', from: 'not-an-email' },
         options: options({}),
       });
@@ -430,7 +453,7 @@ describe('typecho-plugin-mailer', () => {
       const hooks = collectHooks();
       const handler = hooks.get('plugin:config:beforeSave')!;
       const result = handler({ success: true, settings: {} }, {
-        pluginId: 'typecho-plugin-mailer',
+        pluginId: 'typecho-plugin-notifier',
         settings: { enabled: '1', apiKey: SECRET_PLACEHOLDER, from: 'blog@example.com' },
         options: options({ apiKey: 'stored' }),
       });
@@ -456,7 +479,7 @@ describe('typecho-plugin-mailer', () => {
     function adminOptions(auth: Awaited<ReturnType<typeof adminSession>>, settings: Record<string, unknown> = {}) {
       return {
         secret: auth.secret,
-        'plugin:typecho-plugin-mailer': JSON.stringify({
+        'plugin:typecho-plugin-notifier': JSON.stringify({
           enabled: '1',
           provider: 'resend',
           apiKey: TEST_API_KEY,
@@ -471,7 +494,7 @@ describe('typecho-plugin-mailer', () => {
     }
 
     async function postTestRequest(auth: Awaited<ReturnType<typeof adminSession>>, body: unknown, overrides: Record<string, unknown> = {}) {
-      return new Request('https://example.com/api/admin/plugin-mail/test', {
+      return new Request('https://example.com/api/admin/plugin-notifier/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': auth.csrf, cookie: auth.cookie },
         body: JSON.stringify(body),
@@ -488,8 +511,8 @@ describe('typecho-plugin-mailer', () => {
     it('rejects unauthenticated requests', async () => {
       const handler = routeHandler();
       const result = await handler({ handled: false }, {
-        request: new Request('https://example.com/api/admin/plugin-mail/test', { method: 'POST' }),
-        path: '/api/admin/plugin-mail/test',
+        request: new Request('https://example.com/api/admin/plugin-notifier/test', { method: 'POST' }),
+        path: '/api/admin/plugin-notifier/test',
         db: {},
         options: {},
       });
@@ -502,7 +525,7 @@ describe('typecho-plugin-mailer', () => {
       const handler = routeHandler();
       const result = await handler({ handled: false }, {
         request: await postTestRequest(auth, { to: 't@example.com' }),
-        path: '/api/admin/plugin-mail/test',
+        path: '/api/admin/plugin-notifier/test',
         db: auth.authDb,
         options: adminOptions(auth),
       });
@@ -514,8 +537,8 @@ describe('typecho-plugin-mailer', () => {
       const auth = await adminSession();
       const handler = routeHandler();
       const result = await handler({ handled: false }, {
-        request: new Request('https://example.com/api/admin/plugin-mail/test', { method: 'GET', headers: { cookie: auth.cookie } }),
-        path: '/api/admin/plugin-mail/test',
+        request: new Request('https://example.com/api/admin/plugin-notifier/test', { method: 'GET', headers: { cookie: auth.cookie } }),
+        path: '/api/admin/plugin-notifier/test',
         db: auth.authDb,
         options: adminOptions(auth),
       });
@@ -527,12 +550,12 @@ describe('typecho-plugin-mailer', () => {
       const auth = await adminSession();
       const handler = routeHandler();
       const result = await handler({ handled: false }, {
-        request: new Request('https://example.com/api/admin/plugin-mail/test', {
+        request: new Request('https://example.com/api/admin/plugin-notifier/test', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', cookie: auth.cookie },
           body: JSON.stringify({ to: 't@example.com' }),
         }),
-        path: '/api/admin/plugin-mail/test',
+        path: '/api/admin/plugin-notifier/test',
         db: auth.authDb,
         options: adminOptions(auth),
       });
@@ -545,14 +568,14 @@ describe('typecho-plugin-mailer', () => {
       const handler = routeHandler();
       const noTo = await handler({ handled: false }, {
         request: await postTestRequest(auth, {}),
-        path: '/api/admin/plugin-mail/test',
+        path: '/api/admin/plugin-notifier/test',
         db: auth.authDb,
         options: adminOptions(auth),
       });
       expect(await noTo.response.json()).toMatchObject({ success: false });
       const badTo = await handler({ handled: false }, {
         request: await postTestRequest(auth, { to: 'nope' }),
-        path: '/api/admin/plugin-mail/test',
+        path: '/api/admin/plugin-notifier/test',
         db: auth.authDb,
         options: adminOptions(auth),
       });
@@ -564,7 +587,7 @@ describe('typecho-plugin-mailer', () => {
       const handler = routeHandler();
       const result = await handler({ handled: false }, {
         request: await postTestRequest(auth, { to: 't@example.com' }),
-        path: '/api/admin/plugin-mail/test',
+        path: '/api/admin/plugin-notifier/test',
         db: auth.authDb,
         options: adminOptions(auth, { apiKey: '' }),
       });
@@ -579,7 +602,7 @@ describe('typecho-plugin-mailer', () => {
       const handler = routeHandler();
       const result = await handler({ handled: false }, {
         request: await postTestRequest(auth, { to: 't@example.com' }),
-        path: '/api/admin/plugin-mail/test',
+        path: '/api/admin/plugin-notifier/test',
         db: auth.authDb,
         options: adminOptions(auth),
       });
@@ -598,7 +621,7 @@ describe('typecho-plugin-mailer', () => {
       const handler = routeHandler();
       const result = await handler({ handled: false }, {
         request: await postTestRequest(auth, { to: 't@example.com' }),
-        path: '/api/admin/plugin-mail/test',
+        path: '/api/admin/plugin-notifier/test',
         db: auth.authDb,
         options: adminOptions(auth),
       });
@@ -609,15 +632,15 @@ describe('typecho-plugin-mailer', () => {
   });
 
   describe('admin:page test page', () => {
-    it('renders the test page for the mail-test slug', () => {
+    it('renders the test page for the notifier-test slug', () => {
       const hooks = collectHooks();
       const handler = hooks.get('admin:page')!;
-      const html = handler('', { slug: 'mail-test', csrfToken: 'csrf-token', options: options({}) });
+      const html = handler('', { slug: 'notifier-test', csrfToken: 'csrf-token', options: options({}) });
       expect(html).toContain('btn-mail-test-send');
       expect(html).toContain('csrf-token');
       expect(html).toContain('blog@example.com');
       expect(html).not.toContain('·');
-      expect(html).toContain('/admin/plugin-config?id=typecho-plugin-mailer');
+      expect(html).toContain('/admin/plugin-config?id=typecho-plugin-notifier');
       expect(html).toContain('设置');
     });
 
@@ -633,8 +656,8 @@ describe('typecho-plugin-mailer', () => {
       const hooks = collectHooks();
       const handler = hooks.get('admin:footer')!;
       const html = handler('', { user: { group: 'administrator' } });
-      expect(html).toContain('/admin/plugin/mail-test');
-      expect(html).toContain('邮件测试');
+      expect(html).toContain('/admin/plugin/notifier-test');
+      expect(html).toContain('通知测试');
     });
 
     it('does not inject for other roles', () => {

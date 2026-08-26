@@ -1,10 +1,10 @@
 /**
- * Typecho-Workers Mailer 插件
+ * Typecho-Workers Notifier 插件
  *
  * - `mail:send`                邮件传输适配器：为核心 sendMail()（密码重置等）提供 5 种 HTTP API 渠道
  * - `feedback:finishComment`   新评论通知管理员 + 回复通知评论者
- * - `route:request`            插件自带的「发送测试邮件」API（/api/admin/plugin-mail/test）
- * - `admin:page`               插件专属测试页面（/admin/plugin/mail-test）
+ * - `route:request`            插件自带的「发送测试通知」API（/api/admin/plugin-notifier/test）
+ * - `admin:page`               插件专属测试页面（/admin/plugin/notifier-test）
  * - `admin:footer`             后台导航菜单注入入口
  * - `plugin:config:beforeSave` 配置校验与规范化
  */
@@ -21,8 +21,8 @@ import { sendViaProvider } from './providers';
 import type { SendPayload } from './providers';
 import { renderTemplate, escapeVars, htmlToText, type TemplateVars } from './templates';
 
-const TEST_API_ROUTE = '/api/admin/plugin-mail/test';
-const ADMIN_PAGE_SLUG = 'mail-test';
+const TEST_API_ROUTE = '/api/admin/plugin-notifier/test';
+const ADMIN_PAGE_SLUG = 'notifier-test';
 
 interface HookExtra {
   request?: Request;
@@ -193,7 +193,7 @@ btn.addEventListener("click",async function(){
   if(!to){notice("请先填写测试收件邮箱","error");return}
   btn.disabled=true;btn.textContent="发送中…";
   try{
-    var r=await fetch("/api/admin/plugin-mail/test",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},body:JSON.stringify({to:to})});
+    var r=await fetch("${TEST_API_ROUTE}",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},body:JSON.stringify({to:to})});
     var j;
     try{j=await r.json()}catch(e){throw new Error("Server error ("+r.status+")")}
     if(!r.ok||!j.success){throw new Error(j.message||"发送失败（"+r.status+"）")}
@@ -405,7 +405,7 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
   if (sub) {
     var li = document.createElement('li');
     li.className = '${isActive ? 'focus' : ''}';
-    li.innerHTML = '<a href="/admin/plugin/${ADMIN_PAGE_SLUG}">邮件测试</a>';
+    li.innerHTML = '<a href="/admin/plugin/${ADMIN_PAGE_SLUG}">通知测试</a>';
     sub.appendChild(li);
   }
 })();

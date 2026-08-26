@@ -60,7 +60,7 @@ describe('Typecho 1.3 settings option layout', () => {
     expect(source).toContain('<span class="multiline">将');
     expect(source).toContain('commentsPost-commentsRequireUrl" name="commentsRequireUrl"');
     expect(source).toContain('commentsPost-commentsPostTimeout" name="commentsPostTimeout" class="text num text-s"');
-    // Mail settings moved to the typecho-plugin-mailer plugin — the discussion
+    // Mail settings moved to the typecho-plugin-notifier plugin — the discussion
     // page no longer carries mail toggles or sender fields.
     expect(source).not.toContain('name="mailEnabled"');
     expect(source).not.toContain('name="mailFrom"');

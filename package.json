@@ -39,7 +39,7 @@
     "sanitize-html": "^2.17.6",
     "typecho-plugin-antispam": "workspace:*",
     "typecho-plugin-cache": "workspace:*",
-    "typecho-plugin-mailer": "workspace:*",
+    "typecho-plugin-notifier": "workspace:*",
     "typecho-plugin-notes": "workspace:*",
     "typecho-plugin-scribe": "workspace:*",
     "typecho-plugin-turnstile": "workspace:*",

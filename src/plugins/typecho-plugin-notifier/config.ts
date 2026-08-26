@@ -1,8 +1,11 @@
 /**
- * Mail plugin configuration: loading, normalization and validation.
+ * Notifier plugin configuration: loading, normalization and validation.
  */
 
-export const PLUGIN_ID = 'typecho-plugin-mailer';
+export const PLUGIN_ID = 'typecho-plugin-notifier';
+
+/** Legacy Mailer plugin id — config stored under this key is read as a fallback. */
+export const LEGACY_PLUGIN_ID = 'typecho-plugin-mailer';
 
 export const SECRET_PLACEHOLDER = '__PLUGIN_CONFIG_SECRET__';
 
@@ -64,13 +67,22 @@ export function normalizeConfig(raw: Record<string, unknown> | null | undefined)
 
 /** Read the plugin config from the request options map (merge defaults). */
 export function loadConfig(options?: Record<string, unknown>): MailPluginConfig {
-  let raw: Record<string, unknown> = {};
+  let raw: Record<string, unknown> = readPluginOption(options, PLUGIN_ID);
+  if (Object.keys(raw).length === 0) {
+    // Legacy fallback: pre-2.0 Mailer config uses the same flat field names.
+    raw = readPluginOption(options, LEGACY_PLUGIN_ID);
+  }
+  return normalizeConfig(raw);
+}
+
+function readPluginOption(options?: Record<string, unknown>, pluginId?: string): Record<string, unknown> {
+  if (!pluginId) return {};
   try {
-    raw = JSON.parse(String(options?.[`plugin:${PLUGIN_ID}`] || '{}')) as Record<string, unknown>;
+    return JSON.parse(String(options?.[`plugin:${pluginId}`] || '{}')) as Record<string, unknown>;
   } catch {
     // Invalid JSON — fall through to defaults
   }
-  return normalizeConfig(raw);
+  return {};
 }
 
 /** True when the transport adapter can actually deliver mail. */

@@ -12,8 +12,8 @@
         "sanitize-html": "^2.17.6",
         "typecho-plugin-antispam": "workspace:*",
         "typecho-plugin-cache": "workspace:*",
-        "typecho-plugin-mailer": "workspace:*",
         "typecho-plugin-notes": "workspace:*",
+        "typecho-plugin-notifier": "workspace:*",
         "typecho-plugin-scribe": "workspace:*",
         "typecho-plugin-turnstile": "workspace:*",
         "typecho-theme-warm": "workspace:*",
@@ -38,13 +38,13 @@
       "name": "typecho-plugin-cache",
       "version": "1.0.0",
     },
-    "src/plugins/typecho-plugin-mailer": {
-      "name": "typecho-plugin-mailer",
-      "version": "1.0.0",
-    },
     "src/plugins/typecho-plugin-notes": {
       "name": "typecho-plugin-notes",
       "version": "1.0.0",
+    },
+    "src/plugins/typecho-plugin-notifier": {
+      "name": "typecho-plugin-notifier",
+      "version": "2.0.0",
     },
     "src/plugins/typecho-plugin-scribe": {
       "name": "typecho-plugin-scribe",
@@ -824,9 +824,9 @@
 
     "typecho-plugin-cache": ["typecho-plugin-cache@workspace:src/plugins/typecho-plugin-cache"],
 
-    "typecho-plugin-mailer": ["typecho-plugin-mailer@workspace:src/plugins/typecho-plugin-mailer"],
-
     "typecho-plugin-notes": ["typecho-plugin-notes@workspace:src/plugins/typecho-plugin-notes"],
+
+    "typecho-plugin-notifier": ["typecho-plugin-notifier@workspace:src/plugins/typecho-plugin-notifier"],
 
     "typecho-plugin-scribe": ["typecho-plugin-scribe@workspace:src/plugins/typecho-plugin-scribe"],
 

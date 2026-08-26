@@ -57,7 +57,7 @@ export default defineConfig({
       exclude: [
         'typecho-plugin-antispam',
         'typecho-plugin-cache',
-        'typecho-plugin-mailer',
+        'typecho-plugin-notifier',
         'typecho-plugin-notes',
         'typecho-plugin-scribe',
         'typecho-plugin-turnstile',
