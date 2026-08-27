@@ -3,15 +3,19 @@ import { addCspSource } from '@/lib/security-headers';
 import { loadPluginConfig, parsePluginOption } from '@/lib/plugin';
 import { notifyEarlyRequestInvalidation } from '@/lib/early-request';
 import type { PluginInitContext } from 'typecho/plugin-sdk';
-import type { PublicCacheDomain, PublicCacheInvalidation } from '@/lib/cache';
+import type { PublicCacheDomain, PublicCacheInvalidation, SharedCacheDomain } from '@/lib/cache';
 import { cacheAdminPageHtml } from './admin';
 import {
+  ADMIN_DATA_CACHE_DOMAINS,
   CACHE_CONTROL_KEY,
   CACHE_PLUGIN_ID,
   buildControlDocument,
+  compactD1Cache,
   earlyRequestProvider,
+  FRONTEND_DATA_CACHE_DOMAINS,
   getCacheRuntimeConfig,
   invalidateDomains,
+  LAST_REFRESH_KEY,
   normalizeCacheConfig,
   rewriteResourceUrl,
   setCacheRuntimeConfig,
@@ -24,6 +28,13 @@ function kvBinding(): KVNamespace | null {
   const candidate = env.TYPECHO_CACHE as KVNamespace | undefined;
   return candidate && typeof candidate.get === 'function' && typeof candidate.put === 'function' ? candidate : null;
 }
+
+const HTML_DOMAIN_ALLOWED = new Set<string>(['home', 'post', 'page', 'note', 'archive', 'other', 'all']);
+const DATA_GROUP_ALLOWED = new Set<string>(['frontend', 'admin', 'all']);
+const DATA_GROUP_DOMAINS: Record<'frontend' | 'admin', SharedCacheDomain[]> = {
+  frontend: [...FRONTEND_DATA_CACHE_DOMAINS],
+  admin: [...ADMIN_DATA_CACHE_DOMAINS],
+};
 
 async function syncControl(options: Record<string, unknown>): Promise<void> {
   const settings = parsePluginOption(options[`plugin:${CACHE_PLUGIN_ID}`]);
@@ -129,34 +140,78 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
 
   addHook(`plugin:${pluginId}:action:auth`, pluginId, () => 'administrator');
   addHook(`plugin:${pluginId}:action`, pluginId, async (result: any, extra?: { action?: string; payload?: any }) => {
+    if (extra?.action === 'compact') {
+      const d1 = env.DB as D1Database | undefined;
+      if (!d1 || typeof d1.prepare !== 'function') {
+        return { handled: true, success: false, error: 'DB 不可用' };
+      }
+      try {
+        const deleted = await compactD1Cache(d1);
+        return {
+          handled: true,
+          success: true,
+          message: deleted > 0 ? `已清理 ${deleted} 行过期缓存` : '没有过期缓存行',
+          compacted: deleted,
+        };
+      } catch (error) {
+        return { handled: true, success: false, error: error instanceof Error ? error.message : '清理失败' };
+      }
+    }
     if (extra?.action !== 'invalidate') return result;
-    const allowed = new Set<PublicCacheDomain | 'all'>(['home', 'post', 'page', 'note', 'archive', 'other', 'all']);
+
+    const payload = extra.payload || {};
     // payload.domains 支持批量刷新（新前端）；兼容旧的单 domain 字段。
-    let rawDomains = Array.isArray(extra.payload?.domains)
-      ? extra.payload.domains
-      : [String(extra.payload?.domain ?? 'all')];
-    if (rawDomains.length === 0) rawDomains = ['all'];
+    let rawDomains: string[];
+    if (Array.isArray(payload.domains)) {
+      rawDomains = payload.domains.map(String);
+    } else if (payload.domain !== undefined && payload.domain !== null) {
+      rawDomains = [String(payload.domain)];
+    } else if (Array.isArray(payload.data) && payload.data.length > 0) {
+      rawDomains = [];
+    } else {
+      rawDomains = ['all'];
+    }
+    // Legacy clients without the data field keep their historical semantics:
+    // an absent domain list used to mean a full refresh.
+    const dataSpecified = Array.isArray(payload.data) ? payload.data.map(String) : undefined;
+    if (!dataSpecified && rawDomains.length === 0) rawDomains = ['all'];
+    const requestedDataGroups: string[] = dataSpecified ?? (rawDomains.includes('all') ? ['all'] : []);
+
     if (rawDomains.includes('all')) {
       rawDomains = ['all'];
     } else {
-      rawDomains = [...new Set(rawDomains.map(String))];
-      if (rawDomains.some((d: string) => !allowed.has(d as PublicCacheDomain | 'all'))) {
+      rawDomains = [...new Set(rawDomains)];
+      if (rawDomains.some(domain => !HTML_DOMAIN_ALLOWED.has(domain))) {
         return { handled: true, success: false, error: '缓存域无效' };
       }
     }
-    const requested = rawDomains as PublicCacheDomain[] | ['all'];
+    const dataGroups: string[] = requestedDataGroups.includes('all')
+      ? ['all']
+      : [...new Set(requestedDataGroups)];
+    if (dataGroups.some(group => !DATA_GROUP_ALLOWED.has(group))) {
+      return { handled: true, success: false, error: '数据缓存组无效' };
+    }
+
+    const sharedDomains: SharedCacheDomain[] | ['all'] = dataGroups[0] === 'all'
+      ? ['all']
+      : dataGroups.flatMap(group => DATA_GROUP_DOMAINS[group as 'frontend' | 'admin'] ?? []);
     const event: PublicCacheInvalidation = {
       reason: 'manual',
-      domains: requested,
-      sharedDomains: requested[0] === 'all' ? ['all'] : [],
+      domains: rawDomains as PublicCacheDomain[] | ['all'],
+      ...(sharedDomains.length ? { sharedDomains } : {}),
     };
-    // Production reaches the registered early provider, which also clears L0.
-    // The direct fallback keeps plugin actions usable in an already initialized
-    // isolate before the generated loader registry has been imported.
+    // Production reaches the registered early provider, which also clears local
+    // in-flight shared loads. The direct fallback keeps plugin actions usable
+    // in an already initialized isolate before the generated loader registry
+    // has been imported.
     const handled = await notifyEarlyRequestInvalidation(event)
       || await earlyRequestProvider.invalidate!(event);
-    if (!handled) return { handled: true, success: false, error: '缓存后端不可用或插件未启用' };
-    return { handled: true, success: true, message: '缓存代际已更新' };
+    if (!handled) {
+      return { handled: true, success: false, error: '缓存后端不可用或所选缓存组未启用' };
+    }
+    const kv = kvBinding();
+    if (kv) await kv.put(LAST_REFRESH_KEY, new Date().toISOString()).catch(() => {});
+    return { handled: true, success: true, message: '刷新完成', groups: { html: rawDomains, data: dataGroups } };
   });
 }
 

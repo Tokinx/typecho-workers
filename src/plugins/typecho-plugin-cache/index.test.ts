@@ -18,6 +18,7 @@ import {
   buildControlDocument,
   classifyCacheDomain,
   earlyRequestProvider,
+  LAST_REFRESH_KEY,
   normalizeCacheConfig,
   PUBLIC_HTML_HEADER,
   resetCacheProviderForTests,
@@ -71,7 +72,20 @@ class MemoryD1 implements D1Database {
         return row && row.expiresAt > now ? { ...row } as T : null;
       }),
       all: vi.fn(async <T>() => ({ results: [] as T[] })),
-      run: vi.fn(async () => ({ success: true })),
+      run: vi.fn(async () => {
+        if (sql.startsWith('DELETE FROM typecho_db_cache')) {
+          const now = Number(statement.values[0]);
+          let changes = 0;
+          for (const [key, row] of this.rows) {
+            if (row.expiresAt <= now) {
+              this.rows.delete(key);
+              changes += 1;
+            }
+          }
+          return { success: true, meta: { changes } };
+        }
+        return { success: true };
+      }),
     };
     return statement;
   }) as unknown as D1Database['prepare'];
@@ -1485,6 +1499,133 @@ describe('plugin registration and controls', () => {
       'typecho:edge-cache:v1:sg:metas',
     ]));
     expect(purgeSpy).toHaveBeenCalledWith({ tags: ['tc:all'] });
+  });
+
+  it('invalidates only the frontend data group, leaving HTML generations untouched', async () => {
+    const kv = new MemoryKv();
+    env.TYPECHO_CACHE = kv as any;
+    const hooks = collectHooks();
+    const purgeSpy = vi.spyOn(platformCache, 'purge');
+    const result = await hooks.get('plugin:typecho-plugin-cache:action')!({ handled: false }, {
+      action: 'invalidate',
+      payload: { domains: [], data: ['frontend'] },
+    });
+    expect(result).toMatchObject({
+      handled: true,
+      success: true,
+      groups: { html: [], data: ['frontend'] },
+    });
+    const keys = [...kv.store.keys()];
+    for (const domain of ['options', 'navigation', 'sidebar', 'metas', 'comments', 'notes', 'archive', 'content']) {
+      expect(keys).toContain(`typecho:edge-cache:v1:sg:${domain}`);
+    }
+    expect(keys.some(key => key.startsWith('typecho:edge-cache:v1:sg:admin-'))).toBe(false);
+    expect(keys.some(key => key.startsWith('typecho:edge-cache:v1:g:'))).toBe(false);
+    expect(purgeSpy).not.toHaveBeenCalled();
+    // 手动刷新会记录时间戳，供管理页状态条展示
+    const stamp = kv.store.get(LAST_REFRESH_KEY);
+    expect(stamp).toBeTruthy();
+    expect(Number.isNaN(Date.parse(stamp!))).toBe(false);
+  });
+
+  it('invalidates only the admin data group', async () => {
+    const kv = new MemoryKv();
+    env.TYPECHO_CACHE = kv as any;
+    const hooks = collectHooks();
+    const result = await hooks.get('plugin:typecho-plugin-cache:action')!({ handled: false }, {
+      action: 'invalidate',
+      payload: { data: ['admin'] },
+    });
+    expect(result).toMatchObject({ handled: true, success: true, groups: { html: [], data: ['admin'] } });
+    const keys = [...kv.store.keys()];
+    for (const domain of ['admin-dashboard', 'admin-content', 'admin-comments', 'admin-metas', 'admin-media', 'admin-users', 'admin-options']) {
+      expect(keys).toContain(`typecho:edge-cache:v1:sg:${domain}`);
+    }
+    expect(keys.some(key => key.startsWith('typecho:edge-cache:v1:sg:options'))).toBe(false);
+    expect(keys.some(key => key.startsWith('typecho:edge-cache:v1:g:'))).toBe(false);
+  });
+
+  it('combines HTML domains with data groups in one refresh', async () => {
+    const kv = new MemoryKv();
+    env.TYPECHO_CACHE = kv as any;
+    const hooks = collectHooks();
+    const purgeSpy = vi.spyOn(platformCache, 'purge');
+    const result = await hooks.get('plugin:typecho-plugin-cache:action')!({ handled: false }, {
+      action: 'invalidate',
+      payload: { domains: ['home', 'post'], data: ['frontend', 'admin'] },
+    });
+    expect(result).toMatchObject({
+      handled: true,
+      success: true,
+      groups: { html: ['home', 'post'], data: ['frontend', 'admin'] },
+    });
+    const keys = [...kv.store.keys()];
+    expect(keys).toEqual(expect.arrayContaining([
+      'typecho:edge-cache:v1:g:home',
+      'typecho:edge-cache:v1:g:post',
+      'typecho:edge-cache:v1:sg:options',
+      'typecho:edge-cache:v1:sg:admin-content',
+    ]));
+    expect(keys).not.toContain('typecho:edge-cache:v1:g:all');
+    expect(purgeSpy).toHaveBeenCalledWith({ tags: ['tc:home', 'tc:post'] });
+  });
+
+  it('expands the data group "all" to every shared domain', async () => {
+    const kv = new MemoryKv();
+    env.TYPECHO_CACHE = kv as any;
+    const hooks = collectHooks();
+    const result = await hooks.get('plugin:typecho-plugin-cache:action')!({ handled: false }, {
+      action: 'invalidate',
+      payload: { domains: [], data: ['all'] },
+    });
+    expect(result).toMatchObject({ handled: true, success: true, groups: { html: [], data: ['all'] } });
+    const sharedKeys = [...kv.store.keys()].filter(key => key.startsWith('typecho:edge-cache:v1:sg:'));
+    expect(sharedKeys).toHaveLength(15);
+  });
+
+  it('rejects unknown data groups without side effects', async () => {
+    const kv = new MemoryKv();
+    env.TYPECHO_CACHE = kv as any;
+    const hooks = collectHooks();
+    const purgeSpy = vi.spyOn(platformCache, 'purge');
+    const result = await hooks.get('plugin:typecho-plugin-cache:action')!({ handled: false }, {
+      action: 'invalidate',
+      payload: { domains: ['home'], data: ['bogus'] },
+    });
+    expect(result).toMatchObject({ handled: true, success: false, error: '数据缓存组无效' });
+    expect([...kv.store.keys()]).toEqual([]);
+    expect(purgeSpy).not.toHaveBeenCalled();
+  });
+
+  it('reports a clear error when targeted data caches are disabled', async () => {
+    const kv = new MemoryKv();
+    await activate(kv, { ...defaultSettings, frontendDataCacheBackend: 'none', adminDataCacheBackend: 'none' });
+    const hooks = collectHooks();
+    const result = await hooks.get('plugin:typecho-plugin-cache:action')!({ handled: false }, {
+      action: 'invalidate',
+      payload: { data: ['frontend'] },
+    });
+    expect(result).toMatchObject({ handled: true, success: false, error: '缓存后端不可用或所选缓存组未启用' });
+  });
+
+  it('compacts expired D1 cache rows and reports the deleted count', async () => {
+    const kv = new MemoryKv();
+    env.TYPECHO_CACHE = kv as any;
+    const d1 = new MemoryD1();
+    env.DB = d1 as any;
+    const now = Math.floor(Date.now() / 1000);
+    d1.rows.set('typecho:edge-cache:v1:p:expired', { value: '"old"', expiresAt: now - 100 });
+    d1.rows.set('typecho:edge-cache:v1:p:fresh', { value: '"new"', expiresAt: now + 3_600 });
+    const hooks = collectHooks();
+    const result = await hooks.get('plugin:typecho-plugin-cache:action')!({ handled: false }, { action: 'compact' });
+    expect(result).toMatchObject({ handled: true, success: true, compacted: 1 });
+    expect(d1.rows.has('typecho:edge-cache:v1:p:expired')).toBe(false);
+    expect(d1.rows.has('typecho:edge-cache:v1:p:fresh')).toBe(true);
+
+    // DB 不可用时优雅报错
+    env.DB = null as any;
+    const noDb = await hooks.get('plugin:typecho-plugin-cache:action')!({ handled: false }, { action: 'compact' });
+    expect(noDb).toMatchObject({ handled: true, success: false, error: 'DB 不可用' });
   });
 
   it('injects configured CDN origins into CSP without a KV binding', async () => {

@@ -16,6 +16,8 @@ export { PUBLIC_HTML_HEADER } from '@/lib/cache';
 
 export const CACHE_PLUGIN_ID = 'typecho-plugin-cache';
 export const CACHE_CONTROL_KEY = 'typecho:edge-cache:v1:control';
+/** KV key recording the last manual refresh performed from the cache admin page. */
+export const LAST_REFRESH_KEY = 'typecho:edge-cache:v1:meta:last-refresh';
 const GENERATION_PREFIX = 'typecho:edge-cache:v1:g:';
 const PAGE_PREFIX = 'typecho:edge-cache:v1:p:';
 const SHARED_GENERATION_PREFIX = 'typecho:edge-cache:v1:sg:';
@@ -54,10 +56,10 @@ export const DATA_CACHE_DOMAINS: SharedCacheDomain[] = [
   'admin-dashboard', 'admin-content', 'admin-comments', 'admin-metas', 'admin-media',
   'admin-users', 'admin-options',
 ];
-const FRONTEND_DATA_CACHE_DOMAINS = new Set<SharedCacheDomain>([
+export const FRONTEND_DATA_CACHE_DOMAINS = new Set<SharedCacheDomain>([
   'options', 'navigation', 'sidebar', 'metas', 'comments', 'notes', 'archive', 'content',
 ]);
-const ADMIN_DATA_CACHE_DOMAINS = new Set<SharedCacheDomain>([
+export const ADMIN_DATA_CACHE_DOMAINS = new Set<SharedCacheDomain>([
   'admin-dashboard', 'admin-content', 'admin-comments', 'admin-metas', 'admin-media',
   'admin-users', 'admin-options',
 ]);
@@ -732,6 +734,16 @@ async function writeL3(
   ttlSeconds: number,
 ): Promise<void> {
   await writeD1Value(d1, cacheKey, JSON.stringify(stored), ttlSeconds);
+}
+
+/**
+ * Physically delete expired rows from the D1 cache table. Normal writes only
+ * sweep opportunistically (D1_CLEANUP_INTERVAL_MS), so this gives admins an
+ * on-demand maintenance action. Returns the number of deleted rows.
+ */
+export async function compactD1Cache(d1: D1Database, now = Math.floor(Date.now() / 1000)): Promise<number> {
+  const result = await d1.prepare('DELETE FROM typecho_db_cache WHERE expiresAt <= ?').bind(now).run();
+  return (result as { meta?: { changes?: number } } | null)?.meta?.changes ?? 0;
 }
 
 function joinCdnPath(base: URL, source: URL): string {
