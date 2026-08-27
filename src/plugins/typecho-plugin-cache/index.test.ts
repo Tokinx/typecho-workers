@@ -1419,17 +1419,37 @@ describe('plugin registration and controls', () => {
     const kv = new MemoryKv();
     env.TYPECHO_CACHE = kv as any;
     const hooks = collectHooks();
-    const page = hooks.get('admin:page')!('', { slug: 'cache', csrfToken: 'csrf' });
+    const page = await hooks.get('admin:page')!('', { slug: 'cache', csrfToken: 'csrf' });
     expect(page).toContain('TYPECHO_CACHE 已连接');
-    // checkbox 勾选 + 单个刷新按钮
+    // 三模块平铺：快捷刷新 / 按需刷新 / 维护；状态徽章并入状态条
+    expect(page).toContain('ec-status-line');
+    expect(page).toContain('快捷刷新');
+    expect(page).toContain('按需刷新');
+    expect(page).toContain('>维护<');
+    // 容器铺满内容区：不再使用栅格类与限宽居中
+    expect(page).toContain('<section id="edge-cache-app">');
+    expect(page).not.toContain('col-mb-12');
+    expect(page).not.toContain('max-width:760px');
+    expect(page).toContain('ec-scene-grid');
+    expect(page).toContain('class="ec-action"');
+    // 按需刷新：HTML 域 checkbox + 数据缓存组 checkbox
     expect(page).toContain('type="checkbox" value="home"');
     expect(page).toContain('data-cache-domain="home"');
+    expect(page).toContain('data-cache-data="frontend"');
+    expect(page).toContain('data-cache-data="admin"');
     expect(page).toContain('id="cache-refresh-btn"');
-    expect(page).toContain('id="cache-refresh-all"');
-    expect(page).toContain('>刷新</button>');
+    // 快捷刷新场景按钮
+    expect(page).toContain('id="ec-quick-frontend"');
+    expect(page).toContain('id="ec-quick-admin"');
+    expect(page).toContain('id="ec-quick-all"');
+    expect(page).toContain('>前台立即更新</button>');
+    // 维护区清理按钮
+    expect(page).toContain('id="ec-compact-btn"');
     // disabled 状态下按钮文字保持白色可读
     expect(page).toContain('#cache-refresh-btn{color:#fff !important}');
-    expect(page).toContain('<section id="edge-cache-app" class="col-mb-12">');
+    expect(page).toContain('<section id="edge-cache-app">');
+    // 未记录过手动刷新时状态条显示暂无记录
+    expect(page).toContain('暂无记录');
     // 标题旁注入「设置」链接，指向插件配置页
     expect(page).toContain('typecho-page-title');
     expect(page).toContain('/admin/plugin-config?id=typecho-plugin-cache');
@@ -1626,6 +1646,46 @@ describe('plugin registration and controls', () => {
     env.DB = null as any;
     const noDb = await hooks.get('plugin:typecho-plugin-cache:action')!({ handled: false }, { action: 'compact' });
     expect(noDb).toMatchObject({ handled: true, success: false, error: 'DB 不可用' });
+  });
+
+  it('renders cache tier summary from the plugin config in the status bar', async () => {
+    const kv = new MemoryKv();
+    env.TYPECHO_CACHE = kv as any;
+    const hooks = collectHooks();
+    const page = await hooks.get('admin:page')!('', {
+      slug: 'cache',
+      csrfToken: 'csrf',
+      options: {
+        siteUrl: 'https://example.com',
+        'plugin:typecho-plugin-cache': JSON.stringify({
+          ...defaultSettings,
+          l1Ttl: '86400',
+          l3Ttl: '300',
+          frontendDataCacheBackend: 'd1',
+          adminDataCacheBackend: 'none',
+        }),
+      },
+    });
+    expect(page).toContain('页面缓存 L1 1 天 / L2 3 天 / L3 5 分钟');
+    expect(page).toContain('前台数据 D1');
+    expect(page).toContain('后台数据 不缓存');
+  });
+
+  it('renders the last manual refresh timestamp after an invalidation', async () => {
+    const kv = new MemoryKv();
+    env.TYPECHO_CACHE = kv as any;
+    const hooks = collectHooks();
+    const before = await hooks.get('admin:page')!('', { slug: 'cache', csrfToken: 'csrf' });
+    expect(before).toContain('暂无记录');
+    await hooks.get('plugin:typecho-plugin-cache:action')!({ handled: false }, {
+      action: 'invalidate',
+      payload: { domain: 'all' },
+    });
+    const stamp = kv.store.get(LAST_REFRESH_KEY);
+    expect(stamp).toBeTruthy();
+    const after = await hooks.get('admin:page')!('', { slug: 'cache', csrfToken: 'csrf' });
+    expect(after).not.toContain('暂无记录');
+    expect(after).toContain(`data-ec-last-refresh="${stamp}"`);
   });
 
   it('injects configured CDN origins into CSP without a KV binding', async () => {

@@ -126,9 +126,30 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
     ]));
   });
 
-  addHook('admin:page', pluginId, (html: string, extra?: { slug?: string; csrfToken?: string }) => {
+  addHook('admin:page', pluginId, async (html: string, extra?: {
+    slug?: string;
+    csrfToken?: string;
+    options?: Record<string, unknown>;
+  }) => {
     if (extra?.slug !== 'cache') return html;
-    return cacheAdminPageHtml(extra.csrfToken || '', !!kvBinding())
+    const config = extra?.options
+      ? normalizeCacheConfig(loadPluginConfig(extra.options, pluginId))
+      : getCacheRuntimeConfig();
+    const kv = kvBinding();
+    let lastRefresh: string | null = null;
+    if (kv) {
+      try {
+        lastRefresh = (await kv.get(LAST_REFRESH_KEY, { type: 'text' })) as string | null;
+      } catch {
+        lastRefresh = null;
+      }
+    }
+    return cacheAdminPageHtml({
+        csrfToken: extra.csrfToken || '',
+        bindingAvailable: !!kv,
+        config,
+        lastRefresh,
+      })
       + `<script>(function(){var title=document.querySelector('.typecho-page-title');if(!title||title.querySelector('a[href="/admin/plugin-config?id=${CACHE_PLUGIN_ID}"]'))return;var link=document.createElement('a');link.href='/admin/plugin-config?id=${CACHE_PLUGIN_ID}';link.textContent='设置';title.appendChild(link)})();</script>`;
   });
 
