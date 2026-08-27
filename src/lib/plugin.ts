@@ -67,14 +67,30 @@ export interface PluginManifest {
   requires?: string;
   /**
    * Optional slug handled by the generic /admin/plugin/[slug] container.
-   * The container resolves its document title from this plugin's name.
+   * The container resolves its document title from this plugin's name
+   * (or `adminPageTitle` when set).
    */
   adminPage?: string;
+  /**
+   * Optional document title for `/admin/plugin/<adminPage>`.
+   * When omitted, falls back to the plugin name (or `${name} 设置` if
+   * `adminPageIsSettings` is true).
+   */
+  adminPageTitle?: string;
+  /**
+   * When true (and `adminPage` is set), the plugins list 「设置」link
+   * points at `/admin/plugin/<adminPage>` instead of (or in preference to)
+   * the declarative `/admin/plugin-config` form. Use for custom settings UIs
+   * that omit `config` (e.g. Notifier). Ops-only admin pages (Notes, Cache)
+   * leave this unset so 「设置」is not shown.
+   */
+  adminPageIsSettings?: boolean;
   /** Load a named earlyRequestProvider before the normal D1 bootstrap. */
   earlyRequest?: boolean;
   /**
    * Plugin configuration fields.
-   * If present, the admin panel shows a "设置" link for this plugin.
+   * If present, the admin panel shows a "设置" link for this plugin
+   * (unless `adminPageIsSettings` redirects that link to `adminPage`).
    * Keys are field names, values are field definitions.
    * Stored as JSON in options table under key "plugin:<id>".
    */
@@ -663,6 +679,32 @@ export function pluginHasConfig(pluginId: string): boolean {
   const info = pluginRegistry.get(pluginId);
   if (!info) return false;
   return !!info.manifest.config && Object.keys(info.manifest.config).length > 0;
+}
+
+/**
+ * Resolve the plugins-list 「设置」href for a plugin, or null when none.
+ * Prefer a custom admin settings page (`adminPageIsSettings`) over the
+ * declarative plugin-config form.
+ */
+export function getPluginSettingsHref(pluginId: string): string | null {
+  const info = pluginRegistry.get(pluginId);
+  if (!info) return null;
+  const { adminPage, adminPageIsSettings } = info.manifest;
+  if (adminPageIsSettings && adminPage) {
+    return `/admin/plugin/${encodeURIComponent(adminPage)}`;
+  }
+  if (pluginHasConfig(pluginId)) {
+    return `/admin/plugin-config?id=${encodeURIComponent(pluginId)}`;
+  }
+  return null;
+}
+
+/** Document title for `/admin/plugin/[slug]` when a owning plugin is found. */
+export function getPluginAdminPageTitle(plugin: PluginInfo): string {
+  const { name, adminPageTitle, adminPageIsSettings } = plugin.manifest;
+  if (adminPageTitle) return adminPageTitle;
+  if (adminPageIsSettings && name) return `${name} 设置`;
+  return name || plugin.id;
 }
 
 /**

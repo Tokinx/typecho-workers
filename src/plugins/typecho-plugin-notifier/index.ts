@@ -1,28 +1,37 @@
 /**
  * Typecho-Workers Notifier 插件
  *
- * - `mail:send`                邮件传输适配器：为核心 sendMail()（密码重置等）提供 5 种 HTTP API 渠道
- * - `feedback:finishComment`   新评论通知管理员 + 回复通知评论者
- * - `route:request`            插件自带的「发送测试通知」API（/api/admin/plugin-notifier/test）
- * - `admin:page`               插件专属测试页面（/admin/plugin/notifier-test）
+ * - `mail:send`                系统通知适配器：核心邮件事件（密码重置等）按「系统通知」开关分发到邮件/WebHook
+ * - `feedback:finishComment`   新评论通知管理员（approved + waiting，含回复）+ 回复通知被回复者（仅 approved，仅邮件）
+ * - `route:request`            设置保存 API + 测试发送 API
+ * - `admin:page`               统一设置页（/admin/plugin/notifier-settings）
  * - `admin:footer`             后台导航菜单注入入口
- * - `plugin:config:beforeSave` 配置校验与规范化
  */
-import { buildPermalink, escapeHtml, hasPermission, registerPluginAdminPath } from 'typecho/plugin-sdk';
+import { buildPermalink, hasPermission, registerPluginAdminPath, setOption } from 'typecho/plugin-sdk';
 import type { PluginInitContext, PluginRouteResult } from 'typecho/plugin-sdk';
 import { schema } from 'typecho/db';
 import { eq } from 'drizzle-orm';
 import { getAuthCookies, validateAuthToken, requireAdminCSRF } from '@/lib/auth';
+import { isSameOriginRequest } from '@/lib/admin-auth';
 import { buildGravatarUrl } from '@/lib/gravatar';
 
-import { PLUGIN_ID, SECRET_PLACEHOLDER, loadConfig, normalizeConfig, isValidEmail, isReady, toFormValues } from './config';
-import type { MailPluginConfig } from './config';
-import { sendViaProvider } from './providers';
-import type { SendPayload } from './providers';
-import { renderTemplate, escapeVars, htmlToText, type TemplateVars } from './templates';
-
-const TEST_API_ROUTE = '/api/admin/plugin-notifier/test';
-const ADMIN_PAGE_SLUG = 'notifier-test';
+import {
+  PLUGIN_ID, loadConfig, isValidEmail,
+  isEmailReady, isWebhookReady, emailInvalidReason,
+  restoreSecretFormValues, maskSecretFormValues, toFormValues,
+} from './config';
+import type { NotifierConfig } from './config';
+import { sendEmail, sendWebhook } from './channels';
+import type { EmailPayload } from './channels';
+import { renderTemplate, escapeVars, jsonEscapeVars, htmlToText, type TemplateVars } from './templates';
+import { validateAndNormalizeSettings } from './validate';
+import {
+  ADMIN_PAGE_SLUG,
+  TEST_API_ROUTE,
+  CONFIG_API_ROUTE,
+  adminPageHtml,
+  isNotifierAdminSlug,
+} from './admin-page';
 
 interface HookExtra {
   request?: Request;
@@ -47,7 +56,7 @@ interface CommentLike {
 
 function logSendFailure(result: { sent: boolean; error?: string }): void {
   if (!result.sent) {
-    console.error(`[${PLUGIN_ID}] 邮件发送失败: ${result.error || '未知错误'}`);
+    console.error(`[${PLUGIN_ID}] 通知发送失败: ${result.error || '未知错误'}`);
   }
 }
 
@@ -67,6 +76,19 @@ function baseVars(options: Record<string, unknown>): TemplateVars {
     'comment.content': '',
     'comment.mail': '',
     'comment.avatarUrl': '',
+  };
+}
+
+/** Build template variables for a system notification (a core mail:send event). */
+function systemVars(options: Record<string, unknown>, payload: EmailPayload, reason: string): TemplateVars {
+  const text = payload.text ?? htmlToText(payload.html ?? '');
+  return {
+    ...baseVars(options),
+    subject: payload.subject ?? '',
+    body: payload.html ?? '',
+    text,
+    reason,
+    to: payload.to ?? '',
   };
 }
 
@@ -90,158 +112,108 @@ async function adminRecipients(db: any, excludeUid?: number | null): Promise<{ t
   return out;
 }
 
-/** Render subject + html/text body from the config template. */
-function renderEmail(config: MailPluginConfig, vars: TemplateVars): { subject: string; html: string; text: string } {
-  const subject = renderTemplate(config.subject, escapeVars(vars));
-  const html = renderTemplate(config.body, escapeVars(vars));
-  const text = htmlToText(renderTemplate(config.body, vars));
+/** Render subject + html/text body from a template pair. */
+function renderEmail(subjectTemplate: string, bodyTemplate: string, vars: TemplateVars): { subject: string; html: string; text: string } {
+  const subject = renderTemplate(subjectTemplate, escapeVars(vars));
+  const html = renderTemplate(bodyTemplate, escapeVars(vars));
+  const text = htmlToText(renderTemplate(bodyTemplate, vars));
   return { subject, html, text };
 }
 
-async function sendToAll(config: MailPluginConfig, recipients: { to: string }[], mail: { subject: string; html: string; text: string }): Promise<void> {
-  for (const recipient of recipients) {
-    const result = await sendViaProvider(config.provider, config.apiKey, config.from, {
-      to: recipient.to,
-      fromName: config.fromName,
-      subject: mail.subject,
-      html: mail.html,
-      text: mail.text,
-    });
-    logSendFailure(result);
-  }
-}
-
-/** Send one test mail using the currently saved config. */
-async function sendTestMail(config: MailPluginConfig, to: string, options: Record<string, unknown>): Promise<{ sent: boolean; error?: string }> {
-  const siteName = String(options.title || '');
+/** Example variables used by the test page (covers every comment placeholder). */
+function testVars(options: Record<string, unknown>): TemplateVars {
   const siteUrl = String(options.siteUrl || '');
-  const vars: TemplateVars = {
+  return {
     ...baseVars(options),
-    'site.name': siteName,
-    'site.url': siteUrl,
-    'post.title': '测试邮件',
+    'post.title': '测试文章',
     'post.url': siteUrl || 'https://example.com',
-    'reply.author': '测试',
-    'reply.content': '这是一封来自「' + siteName + '」的测试邮件，如果你收到了它，说明邮件配置一切正常。',
-    'reply.mail': 'test@example.com',
-    'reply.avatarUrl': 'https://www.gravatar.com/avatar/test',
-    'comment.author': '评论者',
+    'reply.author': '测试访客',
+    'reply.content': '这是一条来自「' + String(options.title || '站点') + '」的测试通知，收到即说明配置正常。',
+    'reply.mail': 'guest@example.com',
+    'reply.avatarUrl': 'https://www.gravatar.com/avatar/guest',
+    'comment.author': '父评论者',
     'comment.content': '这是被回复的评论内容。',
     'comment.mail': 'parent@example.com',
     'comment.avatarUrl': 'https://www.gravatar.com/avatar/parent',
   };
-  const mail = renderEmail(config, vars);
-  return sendViaProvider(config.provider, config.apiKey, config.from, {
+}
+
+function sendTestEmail(config: NotifierConfig, to: string, options: Record<string, unknown>): ReturnType<typeof sendEmail> {
+  const mail = renderEmail(config.mailSubject, config.mailBody, testVars(options));
+  return sendEmail(config.emailProvider, config.emailApiKey, config.emailFrom, {
     to,
-    fromName: config.fromName,
+    fromName: config.emailFromName,
     subject: mail.subject,
     html: mail.html,
     text: mail.text,
   });
 }
 
-function maskKey(apiKey: string): string {
-  if (apiKey.length <= 8) return apiKey ? '****' : '';
-  return `${apiKey.slice(0, 4)}…${apiKey.slice(-4)}`;
-}
-
-// ── Plugin admin page (send test) ──
-
-function adminPageHtml(csrf: string, config: MailPluginConfig, siteTitle: string): string {
-  const status = isReady(config)
-    ? '<span style="color:#5A9E5F">已启用</span>'
-    : '<span style="color:#C0392B">未启用或配置不完整</span>';
-  return `<div class="col-mb-12" id="mail-test-app">
-  <div id="mail-test-notice" style="display:none"></div>
-  <ul class="typecho-option" id="typecho-option-item-status">
-    <li>
-      <label class="typecho-label">当前状态</label>
-      <p>${status}<span>渠道：${escapeHtml(config.provider)}</span><span>发件邮箱：${escapeHtml(config.from) || '<span style="color:#999">未设置</span>'}</span><span>API Key：${maskKey(config.apiKey) || '<span style="color:#999">未设置</span>'}</span></p>
-    </li>
-  </ul>
-  <ul class="typecho-option" id="typecho-option-item-to">
-    <li>
-      <label class="typecho-label" for="mail-test-to">测试收件邮箱</label>
-      <input type="email" id="mail-test-to" class="text" placeholder="you@example.com" value="">
-      <p class="description">测试邮件将发送到该邮箱，发送内容使用「插件设置」中已保存的渠道、API Key 与模板。若未生效请先保存设置。</p>
-    </li>
-  </ul>
-  <ul class="typecho-option typecho-option-submit">
-    <li>
-      <button type="button" class="btn primary" id="btn-mail-test-send">发送测试邮件</button>
-    </li>
-  </ul>
-</div>
-<script>
-(function(){
-var csrf=${JSON.stringify(csrf)},btn=document.getElementById("btn-mail-test-send"),input=document.getElementById("mail-test-to"),noticeEl=document.getElementById("mail-test-notice");
-var timer=null;
-function notice(msg,type){clearTimeout(timer);noticeEl.style.display="block";noticeEl.className="message "+(type==="success"?"success":"error");noticeEl.innerHTML="<p>"+E(msg)+"</p>";timer=setTimeout(function(){noticeEl.style.display="none"},6000)}
-function E(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
-(function(){
-var titleBar=document.querySelector(".typecho-page-title");
-if(titleBar&&!document.getElementById("mail-test-settings-link")){
-  var link=document.createElement("a");
-  link.id="mail-test-settings-link";
-  link.href="/admin/plugin-config?id=${PLUGIN_ID}";
-  link.textContent="设置";
-  titleBar.appendChild(link);
-}
-})();
-btn.addEventListener("click",async function(){
-  var to=input.value.trim();
-  if(!to){notice("请先填写测试收件邮箱","error");return}
-  btn.disabled=true;btn.textContent="发送中…";
-  try{
-    var r=await fetch("${TEST_API_ROUTE}",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},body:JSON.stringify({to:to})});
-    var j;
-    try{j=await r.json()}catch(e){throw new Error("Server error ("+r.status+")")}
-    if(!r.ok||!j.success){throw new Error(j.message||"发送失败（"+r.status+"）")}
-    notice(j.message||"测试邮件已发送，请检查收件箱","success");
-  }catch(e){
-    notice("发送失败："+e.message,"error");
-  }finally{
-    btn.disabled=false;btn.textContent="发送测试邮件";
-  }
-});
-})();
-</script>`;
+function sendTestWebhook(config: NotifierConfig, options: Record<string, unknown>): ReturnType<typeof sendWebhook> {
+  return sendWebhook(
+    config.webhookUrl,
+    config.webhookToken,
+    renderTemplate(config.commentWebhookPayload, jsonEscapeVars(testVars(options))),
+  );
 }
 
 export default function init({ addHook, pluginId }: PluginInitContext): void {
   registerPluginAdminPath(TEST_API_ROUTE);
+  registerPluginAdminPath(CONFIG_API_ROUTE);
 
-  // ── Transport adapter for core sendMail() (password reset etc.) ──
+  // ── System notifications: transport adapter + fan-out for core sendMail() ──
   addHook(
     'mail:send',
     pluginId,
-    async (result: unknown, extra?: { payload?: SendPayload; ctx?: { options?: Record<string, unknown> } }) => {
+    async (result: unknown, extra?: { payload?: EmailPayload; ctx?: { options?: Record<string, unknown>; reason?: string } }) => {
       const payload = extra?.payload;
       const ctxOptions = extra?.ctx?.options;
       if (!payload || !ctxOptions) return result ?? null;
       const config = loadConfig(ctxOptions);
-      if (!isReady(config)) return null;
-      return await sendViaProvider(config.provider, config.apiKey, config.from, {
-        ...payload,
-        fromName: config.fromName,
-      });
+
+      const reason = String(extra.ctx?.reason || 'system');
+      const vars = systemVars(ctxOptions, payload, reason);
+
+      // Fan-out to the WebHook channel without blocking the request.
+      if (config.systemWebhook && isWebhookReady(config)) {
+        void sendWebhook(
+          config.webhookUrl,
+          config.webhookToken,
+          renderTemplate(config.systemWebhookPayload, jsonEscapeVars(vars)),
+        ).then(logSendFailure);
+      }
+
+      // Email relay carries the core payload unchanged (fromName only).
+      if (config.systemEmail && isEmailReady(config)) {
+        return await sendEmail(config.emailProvider, config.emailApiKey, config.emailFrom, {
+          ...payload,
+          fromName: config.emailFromName,
+        });
+      }
+      return null;
     },
   );
 
-  // ── New comment notifications (admin + reply to parent author) ──
+  // ── Comment notifications (admin + reply to parent author) ──
   addHook(
     'feedback:finishComment',
     pluginId,
     async (comment: CommentLike, extra?: HookExtra) => {
       if (!extra?.db || !extra.options) return;
       const config = loadConfig(extra.options);
-      if (!isReady(config)) return;
-
-      const wantAdmin = config.commentNotifyEnabled;
-      const wantReply = config.replyNotifyEnabled && Boolean(comment?.parent);
-      if (!wantAdmin && !wantReply) return;
-      if (String(comment?.status || '') !== 'approved') return;
       if (!comment?.cid || !comment.coid) return;
+
+      const status = String(comment?.status || '');
+      const isReply = Boolean(comment?.parent);
+
+      // Admin: approved AND waiting (pending moderation) comments, replies included; spam is skipped.
+      const wantAdmin = (status === 'approved' || status === 'waiting')
+        && (config.commentEmail || config.commentWebhook);
+      // Reply notification to the parent commenter: only when the reply is approved.
+      const wantReply = isReply && status === 'approved' && config.replyEmail;
+
+      if (!wantAdmin && !wantReply) return;
+      if (!isEmailReady(config) && !isWebhookReady(config)) return;
 
       const content = await extra.db.query.contents.findFirst({
         where: eq(schema.contents.cid, comment.cid),
@@ -260,7 +232,7 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
       const replyContent = comment.text || '';
       const replyMail = comment.mail || '';
 
-      // The parent comment being replied to (empty when this is a top-level comment).
+      // The parent comment being replied to (null when this is a top-level comment).
       let parentComment: { author?: string | null; mail?: string | null; text?: string | null } | null = null;
       if (comment.parent) {
         parentComment = await extra.db.query.comments.findFirst({
@@ -283,39 +255,74 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
         'comment.avatarUrl': await commentAvatarUrl(parentComment?.mail),
       };
 
-      const seen = new Set<string>();
-      const recipients: { to: string }[] = [];
+      // Admin authored the comment → skip the WebHook push (the admin already knows).
+      let authorIsAdmin = false;
+      if (comment.authorId != null) {
+        const author = await extra.db.query.users.findFirst({
+          where: eq(schema.users.uid, comment.authorId),
+          columns: { group: true },
+        });
+        authorIsAdmin = Boolean(author && author.group === 'administrator');
+      }
 
       if (wantAdmin) {
-        for (const r of await adminRecipients(extra.db, comment.authorId)) {
-          if (seen.has(r.to)) continue;
-          seen.add(r.to);
-          recipients.push(r);
+        if (config.commentEmail && isEmailReady(config)) {
+          const mail = renderEmail(config.mailSubject, config.mailBody, vars);
+          for (const recipient of await adminRecipients(extra.db, comment.authorId)) {
+            const result = await sendEmail(config.emailProvider, config.emailApiKey, config.emailFrom, {
+              to: recipient.to,
+              fromName: config.emailFromName,
+              subject: mail.subject,
+              html: mail.html,
+              text: mail.text,
+            });
+            logSendFailure(result);
+          }
+        }
+        if (!authorIsAdmin) {
+          if (config.commentWebhook && isWebhookReady(config)) {
+            const result = await sendWebhook(
+              config.webhookUrl,
+              config.webhookToken,
+              renderTemplate(config.commentWebhookPayload, jsonEscapeVars(vars)),
+            );
+            logSendFailure(result);
+          }
         }
       }
 
-      if (wantReply && comment.parent) {
+      if (wantReply) {
         if (
           parentComment?.mail && isValidEmail(parentComment.mail)
           && parentComment.mail !== comment.mail
-          && !seen.has(parentComment.mail)
         ) {
-          seen.add(parentComment.mail);
-          recipients.push({ to: parentComment.mail });
+          // The reply mail reuses the same 「新消息」 template as admin notifications.
+          const mail = renderEmail(config.mailSubject, config.mailBody, vars);
+          const result = await sendEmail(config.emailProvider, config.emailApiKey, config.emailFrom, {
+            to: parentComment.mail,
+            fromName: config.emailFromName,
+            subject: mail.subject,
+            html: mail.html,
+            text: mail.text,
+          });
+          logSendFailure(result);
         }
       }
-
-      if (!recipients.length) return;
-      await sendToAll(config, recipients, renderEmail(config, vars));
     },
   );
 
-  // ── Test-send API (own admin route, no core changes needed) ──
+  // ── Test-send + config-save APIs ──
   addHook(
     'route:request',
     pluginId,
     async (result: PluginRouteResult, extra?: HookExtra) => {
-      if (result?.handled || !extra?.request || extra.path !== TEST_API_ROUTE) return result;
+      if (result?.handled || !extra?.request) return result;
+
+      if (extra.path === CONFIG_API_ROUTE) {
+        return handleConfigSave(extra);
+      }
+
+      if (extra.path !== TEST_API_ROUTE) return result;
 
       const db = extra.db;
       const options = extra.options || {};
@@ -343,42 +350,55 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
       }
 
       try {
-        const body = await extra.request.json() as { to?: unknown };
-        const to = String(body.to || '').trim();
-        if (!to) {
-          return { handled: true, response: jsonOk('请填写测试收件邮箱', false) };
-        }
-        if (!isValidEmail(to)) {
-          return { handled: true, response: jsonOk('测试收件邮箱格式不正确', false) };
-        }
-
+        const body = await extra.request.json() as { channel?: unknown; to?: unknown };
+        const channel = String(body.channel || 'email');
         const config = loadConfig(options);
-        if (!config.apiKey) {
-          return { handled: true, response: jsonOk('请先在「插件设置」中填写 API Key', false) };
-        }
-        if (!isValidEmail(config.from)) {
-          return { handled: true, response: jsonOk('发件邮箱格式不正确，请先在「插件设置」中修正', false) };
+
+        if (channel === 'email') {
+          const to = String(body.to || '').trim();
+          if (!to) {
+            return { handled: true, response: jsonOk('请填写测试收件邮箱', false) };
+          }
+          if (!isValidEmail(to)) {
+            return { handled: true, response: jsonOk('测试收件邮箱格式不正确', false) };
+          }
+          const invalid = emailInvalidReason(config);
+          if (invalid) {
+            return { handled: true, response: jsonOk(`邮件渠道不可用：${invalid}`, false) };
+          }
+          const resultSend = await sendTestEmail(config, to, options);
+          if (resultSend.sent) {
+            return { handled: true, response: jsonOk('测试邮件已发送，请检查收件箱', true) };
+          }
+          return { handled: true, response: jsonOk(`发送失败：${resultSend.error || '未知错误'}`, false) };
         }
 
-        const resultSend = await sendTestMail(config, to, options);
-        if (resultSend.sent) {
-          return { handled: true, response: jsonOk('测试邮件已发送，请检查收件箱', true) };
+        if (channel === 'webhook') {
+          if (!isWebhookReady(config)) {
+            return { handled: true, response: jsonOk('WebHook 渠道不可用：请先填写地址并保存设置', false) };
+          }
+          const resultSend = await sendTestWebhook(config, options);
+          if (resultSend.sent) {
+            return { handled: true, response: jsonOk('测试请求已发送', true) };
+          }
+          return { handled: true, response: jsonOk(`发送失败：${resultSend.error || '未知错误'}`, false) };
         }
-        return { handled: true, response: jsonOk(`发送失败：${resultSend.error || '未知错误'}`, false) };
+
+        return { handled: true, response: jsonOk('未知的通知渠道', false) };
       } catch (error) {
-        console.error(`[${PLUGIN_ID}] 测试邮件失败:`, error);
+        console.error(`[${PLUGIN_ID}] 测试通知失败:`, error);
         return { handled: true, response: jsonOk('请求解析失败', false) };
       }
     },
     20,
   );
 
-  // ── Plugin admin page (send test) ──
+  // ── Plugin admin page (settings + channel test) ──
   addHook(
     'admin:page',
     pluginId,
     (html: string, extra?: { slug?: string; csrfToken?: string; options?: Record<string, unknown> }) => {
-      if (extra?.slug !== ADMIN_PAGE_SLUG) return html;
+      if (!isNotifierAdminSlug(extra?.slug)) return html;
       const config = loadConfig(extra?.options);
       return adminPageHtml(extra?.csrfToken || '', config, String(extra?.options?.title || ''));
     },
@@ -392,7 +412,7 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
       const isAdmin = extra?.user?.group && hasPermission(extra.user.group, 'administrator');
       if (!isAdmin) return html;
 
-      const isActive = extra?.activeMenu === ADMIN_PAGE_SLUG;
+      const isActive = isNotifierAdminSlug(extra?.activeMenu);
       const extraHtml = `<script>
 (function(){
   var navs = document.querySelectorAll('.typecho-head-nav nav > menu > li');
@@ -405,7 +425,7 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
   if (sub) {
     var li = document.createElement('li');
     li.className = '${isActive ? 'focus' : ''}';
-    li.innerHTML = '<a href="/admin/plugin/${ADMIN_PAGE_SLUG}">通知测试</a>';
+    li.innerHTML = '<a href="/admin/plugin/${ADMIN_PAGE_SLUG}">通知设置</a>';
     sub.appendChild(li);
   }
 })();
@@ -414,31 +434,86 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
     },
   );
 
-  // ── Config validation ──
-  addHook(
-    'plugin:config:beforeSave',
-    pluginId,
-    (result: { success: boolean; settings?: Record<string, unknown>; error?: string }, extra?: { pluginId?: string; settings?: Record<string, unknown>; options?: Record<string, unknown> }) => {
-      if (extra?.pluginId !== pluginId) return result;
+}
 
-      const settings = extra.settings || {};
-      const config = normalizeConfig(settings);
-      if (config.apiKey === SECRET_PLACEHOLDER) {
-        config.apiKey = loadConfig(extra.options).apiKey;
-      }
+async function handleConfigSave(extra: HookExtra): Promise<PluginRouteResult> {
+  const request = extra.request!;
+  const db = extra.db;
+  const options = extra.options || {};
+  if (!db) {
+    return {
+      handled: true,
+      response: new Response(JSON.stringify({ success: false, message: '数据库不可用' }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    };
+  }
 
-      if (config.enabled) {
-        if (!config.apiKey) {
-          return { success: false, error: '启用邮件通知时必须填写 API Key' };
-        }
-        if (!isValidEmail(config.from)) {
-          return { success: false, error: '发件邮箱格式不正确' };
-        }
-      }
+  const auth = await authenticateAdmin(request, db, options);
+  if (auth instanceof Response) {
+    return { handled: true, response: jsonErrorResponse(auth.status) };
+  }
 
-      return { success: true, settings: toFormValues(config) };
-    },
+  if (request.method !== 'POST') {
+    return {
+      handled: true,
+      response: new Response(JSON.stringify({ success: false, message: 'Method Not Allowed' }), {
+        status: 405,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    };
+  }
+
+  const csrfError = await requireAdminCSRF(
+    request,
+    String(options.secret || ''),
+    String(auth.authCode || ''),
+    auth.uid,
   );
+  if (csrfError) {
+    return { handled: true, response: jsonErrorResponse(403) };
+  }
+
+  if (!isSameOriginRequest(request, String(options.siteUrl || ''))) {
+    return { handled: true, response: jsonErrorResponse(403) };
+  }
+
+  try {
+    const body = await request.json() as { settings?: Record<string, unknown> };
+    if (!body.settings || typeof body.settings !== 'object') {
+      return { handled: true, response: jsonOk('请提供配置数据', false) };
+    }
+
+    const previous = toFormValues(loadConfig(options));
+    const restored = restoreSecretFormValues(body.settings, previous);
+    const validation = validateAndNormalizeSettings(restored);
+    if (!validation.success) {
+      return {
+        handled: true,
+        response: new Response(JSON.stringify({ success: false, message: validation.error }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        }),
+      };
+    }
+
+    await setOption(db, `plugin:${PLUGIN_ID}`, JSON.stringify(validation.settings));
+    return {
+      handled: true,
+      response: new Response(JSON.stringify({
+        success: true,
+        message: '设置已保存',
+        settings: maskSecretFormValues(validation.settings),
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      }),
+    };
+  } catch (error) {
+    console.error(`[${PLUGIN_ID}] 保存设置失败:`, error);
+    return { handled: true, response: jsonOk('请求解析失败', false) };
+  }
 }
 
 // ── Admin auth helpers for custom plugin routes ──

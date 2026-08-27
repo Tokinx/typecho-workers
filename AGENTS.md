@@ -460,9 +460,9 @@ vi.mock('cloudflare:workers', () => ({ env: { DB: null, BUCKET: { delete: mockFn
 | 示例 | 路径 | 说明 |
 |------|------|------|
 | 参考插件（基础） | `src/plugins/typecho-plugin-antispam/` | 含完整 package.json、index.ts、index.test.ts，基础 filter hook 示例 |
-| 参考插件（高级） | `src/plugins/typecho-plugin-mailer/` | 含 `plugin:config:beforeSave` 校验、`route:request` 自定义路由、`admin:page` 管理页面、`admin:footer` 菜单注入、`mail:send` 适配器与模板占位符渲染 |
+| 参考插件（高级） | `src/plugins/typecho-plugin-notifier/` | 含 `route:request` 自定义路由（设置保存 + 测试发送）、`admin:page` 统一设置页、`admin:footer` 菜单注入、`mail:send` 适配器与模板占位符渲染 |
 | 参考插件（CSP 注入） | `src/plugins/typecho-plugin-turnstile/` | 含 `csp:directives` filter hook 动态追加 CSP 来源、`admin:loginHead`/`admin:loginForm` 注入 Turnstile Widget |
-| 参考插件（邮件） | `src/plugins/typecho-plugin-mailer/` | 含 `mail:send` 适配器（多渠道 HTTP API）、自带测试发送页面（`admin:page` + `route:request` 完整认证）、模板占位符渲染 |
+| 参考插件（多渠道通知） | `src/plugins/typecho-plugin-notifier/` | 含 `mail:send` 适配器（邮件/WebHook）、分类 × 渠道开关矩阵、渠道 Tabs 设置页（`admin:page` + `route:request`）、旧版 Mailer 配置自动迁移 |
 | 参考主题 | `src/themes/typecho-theme-warm/` | 含完整 theme.json、5 个模板组件 |
 
 ---
@@ -512,7 +512,7 @@ src/
 │   ├── README.md                    # 插件开发完整规范
 │   ├── typecho-plugin-antispam/     # 反垃圾评论（参考基础插件）
 │   ├── typecho-plugin-cache/        # Edge Cache：L1/L2/L3 + 数据缓存 + CDN 改写
-│   ├── typecho-plugin-mailer/       # 邮件通知（多渠道 HTTP API + 测试发送）
+│   ├── typecho-plugin-notifier/     # 多渠道通知（邮件/WebHook + 统一设置页）
 │   ├── typecho-plugin-notes/        # 笔记内容类型与时间线
 │   ├── typecho-plugin-turnstile/    # Cloudflare Turnstile 人机验证
 │   └── typecho-plugin-scribe/       # AI 写作辅助

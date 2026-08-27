@@ -56,7 +56,10 @@ typecho-plugin-example/
 ```
 
 `adminPage` 是可选字段。声明后，通用路由 `/admin/plugin/<adminPage>` 会自动读取
-该插件的 `name` 作为后台页面标题；插件仍需通过 `admin:page` filter 渲染对应页面内容。
+该插件的 `name`（或 `adminPageTitle`）作为后台页面标题；插件仍需通过 `admin:page` filter 渲染对应页面内容。
+
+若自定义页面即插件设置 UI（且不使用声明式 `config`），可设 `adminPageIsSettings: true`：
+插件列表的「设置」会指向 `/admin/plugin/<adminPage>`（Notes / Cache 等运维页不要设此标志）。
 
 **关键约束**：
 - `keywords` 必须同时包含 `"typecho"` 和 `"plugin"`，否则构建时不会被发现

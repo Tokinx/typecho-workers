@@ -1,12 +1,14 @@
 /**
- * Email channel adapters — HTTP API based, no SMTP required.
+ * Notification channel adapters — every channel is a plain HTTP POST:
+ * Email (5 providers) and WebHook share one postJson engine; they differ
+ * only in URL construction, required fields and response checks.
  * Works on Cloudflare Workers out of the box.
  */
 
 import { fetchWithTimeout } from 'typecho/plugin-sdk';
 import type { MailProvider } from './config';
 
-export interface SendPayload {
+export interface EmailPayload {
   to: string;
   toName?: string;
   fromName?: string;
@@ -17,9 +19,9 @@ export interface SendPayload {
   headers?: Record<string, string>;
 }
 
-export interface ProviderResult {
+export interface ChannelResult {
   sent: boolean;
-  provider: string;
+  channel: string;
   error?: string;
 }
 
@@ -39,7 +41,7 @@ interface SendPlan {
   body: unknown;
 }
 
-function buildPlan(provider: MailProvider, apiKey: string, from: string, payload: SendPayload): SendPlan {
+function buildPlan(provider: MailProvider, apiKey: string, from: string, payload: EmailPayload): SendPlan {
   const to: { email: string; name?: string } = { email: payload.to, ...(payload.toName ? { name: payload.toName } : {}) };
   const sender: { email: string; name?: string } = { email: from, ...(payload.fromName ? { name: payload.fromName } : {}) };
 
@@ -116,7 +118,7 @@ async function extractErrorMessage(response: Response): Promise<string> {
     const data = (await response.json()) as Record<string, unknown> | null;
     if (!data) return `HTTP ${response.status}`;
     const msg =
-      data.message ?? data.error ?? data.errors ?? data.reason ?? data.detail
+      data.message ?? data.description ?? data.error ?? data.errors ?? data.reason ?? data.detail
       ?? (data.data && typeof data.data === 'object' && 'message' in data.data ? String((data.data as any).message) : undefined);
     if (msg) {
       const text = typeof msg === 'string' ? msg : JSON.stringify(msg);
@@ -128,33 +130,53 @@ async function extractErrorMessage(response: Response): Promise<string> {
   return `HTTP ${response.status}`;
 }
 
-/**
- * Send an email through the configured provider.
- * Never throws — always resolves to a ProviderResult.
- */
-export async function sendViaProvider(
-  provider: MailProvider,
-  apiKey: string,
-  from: string,
-  payload: SendPayload,
-): Promise<ProviderResult> {
-  const plan = buildPlan(provider, apiKey, from, payload);
+/** POST a JSON body to url. Never throws — always resolves to a ChannelResult. */
+async function postJson(url: string, headers: Record<string, string>, body: unknown, channel: string): Promise<ChannelResult> {
   try {
-    const response = await fetchWithTimeout(plan.url, {
+    const response = await fetchWithTimeout(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...plan.headers },
-      body: JSON.stringify(plan.body),
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body: typeof body === 'string' ? body : JSON.stringify(body),
     }, SEND_TIMEOUT_MS, '请求渠道 API 超时');
     if (response.ok) {
-      return { sent: true, provider: PROVIDER_LABELS[provider] };
+      return { sent: true, channel };
     }
     const error = await extractErrorMessage(response);
-    return { sent: false, provider: PROVIDER_LABELS[provider], error };
+    return { sent: false, channel, error };
   } catch (err) {
     return {
       sent: false,
-      provider: PROVIDER_LABELS[provider],
+      channel,
       error: err instanceof Error ? err.message : '网络请求失败',
     };
   }
+}
+
+/** Send an email through the configured provider. */
+export async function sendEmail(
+  provider: MailProvider,
+  apiKey: string,
+  from: string,
+  payload: EmailPayload,
+): Promise<ChannelResult> {
+  const plan = buildPlan(provider, apiKey, from, payload);
+  return postJson(plan.url, plan.headers, plan.body, PROVIDER_LABELS[provider]);
+}
+
+/** POST a rendered JSON payload to a user-configured webhook. */
+export async function sendWebhook(
+  url: string,
+  token: string,
+  payloadJson: string,
+): Promise<ChannelResult> {
+  let payload: string;
+  try {
+    // Guard against placeholders rendered outside JSON quotes.
+    payload = JSON.stringify(JSON.parse(payloadJson));
+  } catch {
+    return { sent: false, channel: 'WebHook', error: '渲染后的 payload 不是合法 JSON（占位符需放在双引号内）' };
+  }
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return postJson(url, headers, payload, 'WebHook');
 }

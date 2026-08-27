@@ -30,7 +30,7 @@ describe('Typecho 1.3 plugin management layout', () => {
     expect(source).toContain('name="action" value="activate"');
     expect(source).toContain('name="action" value="deactivate"');
     expect(source).toContain('class="plugin-action-link"');
-    expect(source).toContain('encodeURIComponent(plugin.id)');
+    expect(source).toContain('getPluginSettingsHref');
     expect(css).toContain('.plugin-action-form { display: inline; margin: 0; }');
     expect(css).toContain('.plugin-action-link { appearance: none;');
   });

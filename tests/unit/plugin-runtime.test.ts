@@ -8,6 +8,8 @@ import {
   applyFilter,
   hasHook,
   getPluginForAdminPage,
+  getPluginAdminPageTitle,
+  getPluginSettingsHref,
   registerPlugin,
   setActivatedPlugins,
   registerPluginInit,
@@ -126,5 +128,36 @@ describe('plugin admin pages', () => {
 
     expect(getPluginForAdminPage('admin-page-test')?.manifest.name).toBe('Plugin Admin Page Test');
     expect(getPluginForAdminPage('missing-page')).toBeUndefined();
+  });
+
+  it('builds settings href and admin page title for custom settings UIs', () => {
+    registerPlugin('typecho-plugin-settings-page', {
+      id: 'typecho-plugin-settings-page',
+      name: 'Notifier',
+      adminPage: 'notifier-settings',
+      adminPageTitle: 'Notifier 设置页面',
+      adminPageIsSettings: true,
+    });
+    registerPlugin('typecho-plugin-ops-page', {
+      id: 'typecho-plugin-ops-page',
+      name: 'Notes',
+      adminPage: 'notes',
+    });
+    registerPlugin('typecho-plugin-form-config', {
+      id: 'typecho-plugin-form-config',
+      name: 'Form Config',
+      config: { enabled: { type: 'checkbox', label: 'On' } },
+    });
+
+    expect(getPluginSettingsHref('typecho-plugin-settings-page')).toBe('/admin/plugin/notifier-settings');
+    expect(getPluginSettingsHref('typecho-plugin-ops-page')).toBeNull();
+    expect(getPluginSettingsHref('typecho-plugin-form-config')).toBe(
+      '/admin/plugin-config?id=typecho-plugin-form-config',
+    );
+
+    const settingsPlugin = getPluginForAdminPage('notifier-settings')!;
+    expect(getPluginAdminPageTitle(settingsPlugin)).toBe('Notifier 设置页面');
+    const opsPlugin = getPluginForAdminPage('notes')!;
+    expect(getPluginAdminPageTitle(opsPlugin)).toBe('Notes');
   });
 });

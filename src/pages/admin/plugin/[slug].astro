@@ -2,7 +2,7 @@
 import Admin from '@/layouts/Admin.astro';
 import { createContext, requireAuth } from '@/lib/context';
 import { hasPermission } from '@/lib/auth';
-import { applyFilterSafely, getPluginForAdminPage } from '@/lib/plugin';
+import { applyFilterSafely, getPluginAdminPageTitle, getPluginForAdminPage } from '@/lib/plugin';
 
 const ctx = await createContext(Astro.locals, Astro.request);
 const authCheck = requireAuth(ctx);
@@ -15,7 +15,9 @@ if (!hasPermission(ctx.user!.group || 'visitor', 'administrator')) {
 const { options, urls, user, csrfToken } = ctx!;
 const { slug } = Astro.params;
 const plugin = slug ? getPluginForAdminPage(slug) : undefined;
-const title = plugin?.manifest.name || (slug ? `${slug} 插件页面` : '插件页面');
+const title = plugin
+  ? getPluginAdminPageTitle(plugin)
+  : (slug ? `${slug} 插件页面` : '插件页面');
 
 const pageContent = await applyFilterSafely(ctx, 'admin:page', '', {
   slug,

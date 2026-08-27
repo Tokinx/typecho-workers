@@ -2,7 +2,7 @@
 import Admin from '@/layouts/Admin.astro';
 import { createContext, requireAuth } from '@/lib/context';
 import { hasPermission, requireAdminCSRF } from '@/lib/auth';
-import { getAvailablePlugins, pluginHasConfig, parseActivatedPlugins } from '@/lib/plugin';
+import { getAvailablePlugins, pluginHasConfig, getPluginSettingsHref, parseActivatedPlugins } from '@/lib/plugin';
 
 const ctx = await createContext(Astro.locals, Astro.request);
 const authCheck = requireAuth(ctx);
@@ -139,7 +139,9 @@ const missingActivePlugins = parseActivatedPlugins(options.activatedPlugins as s
             </tr>
           </thead>
           <tbody>
-            {activePlugins.map((plugin) => (
+            {activePlugins.map((plugin) => {
+              const settingsHref = getPluginSettingsHref(plugin.id);
+              return (
               <tr id={`plugin-${plugin.id}`}>
                 <td>{plugin.manifest.name || plugin.id}</td>
                 <td>{plugin.manifest.description || '暂无描述'}</td>
@@ -154,9 +156,9 @@ const missingActivePlugins = parseActivatedPlugins(options.activatedPlugins as s
                   ) : '-'}
                 </td>
                 <td>
-                  {pluginHasConfig(plugin.id) && (
+                  {settingsHref && (
                     <>
-                      <a href={`/admin/plugin-config?id=${encodeURIComponent(plugin.id)}`}>设置</a>
+                      <a href={settingsHref}>设置</a>
                       {' · '}
                     </>
                   )}
@@ -169,7 +171,8 @@ const missingActivePlugins = parseActivatedPlugins(options.activatedPlugins as s
                   </form>
                 </td>
               </tr>
-            ))}
+              );
+            })}
             {missingActivePlugins.map((pluginId) => (
               <tr id={`plugin-${pluginId}`}>
                 <td>{pluginId}</td>

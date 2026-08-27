@@ -1,6 +1,6 @@
 {
   "name": "typecho-plugin-notifier",
-  "version": "2.0.0",
+  "version": "2.2.0",
   "description": "多渠道通知插件：邮件（Resend、MailerSend、Brevo、Plunk、Maileroo）、Bark、Telegram、WebHook",
   "keywords": ["typecho", "plugin", "notification", "mail", "email", "bark", "telegram", "webhook", "resend", "mailersend", "brevo", "plunk", "maileroo"],
   "author": "Tokinx",
@@ -11,77 +11,16 @@
     "plugin": {
       "id": "typecho-plugin-notifier",
       "name": "Notifier",
-      "description": "多渠道通知插件：邮件（Resend、MailerSend、Brevo、Plunk、Maileroo）、Bark、Telegram、WebHook",
+      "description": "多渠道通知插件：邮件（Resend、MailerSend、Brevo、Plunk、Maileroo）、Bark、Telegram、WebHook。设置入口：后台「通知设置」。",
       "author": "Tokinx",
       "authorUrl": "https://biji.io",
-      "version": "2.0.0",
+      "version": "2.2.0",
       "homepage": "https://github.com/Tokinx/typecho-workers/tree/master/src/plugins/typecho-plugin-notifier",
       "license": "MIT",
       "tags": ["notification", "mail", "email", "bark", "telegram", "webhook", "comment"],
-      "adminPage": "notifier-test",
-      "config": {
-        "enabled": {
-          "type": "checkbox",
-          "label": "启用邮件通知",
-          "default": "0",
-          "description": "启用后系统才会实际发送邮件（包括密码重置邮件）。"
-        },
-        "commentNotifyEnabled": {
-          "type": "checkbox",
-          "label": "有新评论时通知管理员",
-          "default": "0",
-          "description": "收到新评论时向管理员邮箱发送通知。"
-        },
-        "replyNotifyEnabled": {
-          "type": "checkbox",
-          "label": "包含评论回复通知",
-          "default": "1",
-          "description": "当有人回复评论时，通知被回复者。"
-        },
-        "provider": {
-          "type": "select",
-          "label": "邮件通知渠道",
-          "default": "resend",
-          "options": {
-            "resend": "Resend",
-            "mailersend": "MailerSend",
-            "brevo": "Brevo",
-            "plunk": "Plunk",
-            "maileroo": "Maileroo"
-          },
-          "description": "选择邮件发送渠道。均通过 HTTP API 接入，无需 SMTP 服务器。"
-        },
-        "apiKey": {
-          "type": "password",
-          "label": "API Key",
-          "default": "",
-          "description": "对应渠道的 API Key。"
-        },
-        "from": {
-          "type": "text",
-          "label": "发件邮箱",
-          "default": "",
-          "description": "发件邮箱，必须是已在对应渠道验证过的域名邮箱。"
-        },
-        "fromName": {
-          "type": "text",
-          "label": "发件名称",
-          "default": "",
-          "description": "收件人看到的发件人显示名称，如「我的博客」。留空则只显示发件邮箱。"
-        },
-        "subject": {
-          "type": "text",
-          "label": "邮件标题",
-          "default": "[{site.name}] 新的通知",
-          "description": "支持占位符：{site.name} {site.url} {site.description} {post.title} {post.url} {reply.author} {reply.content} {reply.mail} {reply.avatarUrl} {comment.author} {comment.content} {comment.mail} {comment.avatarUrl}，未命中的占位符会被替换为空。"
-        },
-        "body": {
-          "type": "textarea",
-          "label": "邮件正文",
-          "default": "<p>{site.name} 有新动态：</p><p>文章《{post.title}》{reply.author} 留下了新内容：</p><blockquote>{reply.content}</blockquote><p><a href=\"{post.url}\">查看详情</a></p>",
-          "description": "HTML 格式邮件正文，支持与标题相同的占位符。{reply.*} 为新回复评论，{comment.*} 为被回复的评论（无被回复评论时为空）。评论等内容会自动转义，纯文本版本会自动生成。"
-        }
-      }
+      "adminPage": "notifier-settings",
+      "adminPageTitle": "Notifier 设置页面",
+      "adminPageIsSettings": true
     }
   }
 }
