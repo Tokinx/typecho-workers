@@ -19,7 +19,7 @@ Typecho-CF AI 写作助手插件，接入 OpenAI 兼容 LLM，在编辑器中生
 | `apiKey` | password | — | LLM 服务商 API Key |
 | `model` | text | `glm-4.7-flash` | 模型名称 |
 | `temperature` | text | `0.7` | 生成创造性控制 |
-| `maxTokens` | text | `32000` | 单次最大输出 Token 数（上限 512K / 512000） |
+| `maxTokens` | text | `128000` | 单次最大输出 Token 数（上限 512K / 512000） |
 
 ## 编辑器写作设置
 

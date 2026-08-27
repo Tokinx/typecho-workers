@@ -348,7 +348,7 @@ const DEFAULTS: PostPilotConfig = {
   apiKey: '',
   model: 'glm-4.7-flash',
   temperature: '0.7',
-  maxTokens: '32000',
+  maxTokens: '128000',
   stylePostCount: '5',
   outputLanguage: 'auto',
   targetAudience: '',
