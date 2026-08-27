@@ -11,10 +11,11 @@
     "plugin": {
       "id": "typecho-plugin-cache",
       "name": "Edge Cache",
-      "description": "Cache API L1、KV L2 与 D1 L3 三级页面缓存，并提供静态资源 CDN 改写",
+      "description": "三级页面缓存（Cache API + KV + D1），支持静态资源 CDN 改写",
       "adminPage": "cache",
       "earlyRequest": true,
       "author": "Tokinx",
+      "authorUrl": "https://biji.io",
       "version": "1.0.0",
       "homepage": "https://github.com/Tokinx/typecho-workers/tree/master/src/plugins/typecho-plugin-cache",
       "license": "MIT",

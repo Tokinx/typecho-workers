@@ -1,7 +1,7 @@
 {
   "name": "typecho-plugin-notifier",
   "version": "2.2.0",
-  "description": "多渠道通知插件：邮件（Resend、MailerSend、Brevo、Plunk、Maileroo）、Bark、Telegram、WebHook",
+  "description": "多渠道通知插件：邮件（Resend、MailerSend、Brevo、Plunk、Maileroo）、WebHook（Bark、Telegram）",
   "keywords": ["typecho", "plugin", "notification", "mail", "email", "bark", "telegram", "webhook", "resend", "mailersend", "brevo", "plunk", "maileroo"],
   "author": "Tokinx",
   "license": "MIT",
@@ -11,7 +11,7 @@
     "plugin": {
       "id": "typecho-plugin-notifier",
       "name": "Notifier",
-      "description": "多渠道通知插件：邮件（Resend、MailerSend、Brevo、Plunk、Maileroo）、Bark、Telegram、WebHook。设置入口：后台「通知设置」。",
+      "description": "多渠道通知插件：邮件（Resend、MailerSend、Brevo、Plunk、Maileroo）、WebHook（Bark、Telegram）。",
       "author": "Tokinx",
       "authorUrl": "https://biji.io",
       "version": "2.2.0",

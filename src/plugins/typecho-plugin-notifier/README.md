@@ -1,6 +1,6 @@
 # typecho-plugin-notifier (Notifier)
 
-多渠道通知插件：**邮件（Resend / MailerSend / Brevo / Plunk / Maileroo）+ WebHook**。Cloudflare Workers 环境无需 SMTP 服务器，邮件与 WebHook 均通过 HTTP API 发送。
+多渠道通知插件：**邮件（Resend / MailerSend / Brevo / Plunk / Maileroo）+ WebHook（Bark / Telegram）**。Cloudflare Workers 环境无需 SMTP 服务器，邮件与 WebHook 均通过 HTTP API 发送。
 
 > 2.0 起由 `typecho-plugin-mailer` 升级而来。旧版 Mailer 配置会自动读取迁移（见下文「升级迁移」）。
 >
