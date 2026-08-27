@@ -59,7 +59,7 @@ export default defineConfig({
         'typecho-plugin-cache',
         'typecho-plugin-notifier',
         'typecho-plugin-notes',
-        'typecho-plugin-scribe',
+        'typecho-plugin-postpilot',
         'typecho-plugin-turnstile',
         'typecho-theme-warm',
       ],

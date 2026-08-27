@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { transformSync } from 'esbuild';
-import init, { scribeDiffAlgo, SCRIBE_DIFF_ALGO_JS } from './index';
+import init, { postPilotDiffAlgo, POSTPILOT_DIFF_ALGO_JS } from './index';
 
 // Config-shape fixtures share one non-credential-like placeholder value; the
 // validation logic under test does not inspect the key itself.
@@ -10,7 +10,7 @@ const TEST_API_KEY = 'x';
 function collectHooks() {
   const hooks = new Map<string, Function[]>();
   init({
-    pluginId: 'typecho-plugin-scribe',
+    pluginId: 'typecho-plugin-postpilot',
     HookPoints: {} as any,
     addHook: (point: string, _pluginId: string, handler: Function) => {
       const list = hooks.get(point) || [];
@@ -21,7 +21,7 @@ function collectHooks() {
   return hooks;
 }
 
-describe('typecho-plugin-scribe', () => {
+describe('typecho-plugin-postpilot', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
@@ -34,8 +34,8 @@ describe('typecho-plugin-scribe', () => {
       'admin:writePage:bottom',
       'admin:writePost:bottom',
       'plugin:config:beforeSave',
-      'plugin:typecho-plugin-scribe:action',
-      'plugin:typecho-plugin-scribe:action:auth',
+      'plugin:typecho-plugin-postpilot:action',
+      'plugin:typecho-plugin-postpilot:action:auth',
     ]);
   });
 
@@ -44,25 +44,25 @@ describe('typecho-plugin-scribe', () => {
     const postHtml = hooks.get('admin:writePost:bottom')![0]('');
     const pageHtml = hooks.get('admin:writePage:bottom')![0]('');
 
-    expect(postHtml).toContain('typecho-scribe');
+    expect(postHtml).toContain('typecho-postpilot');
     expect(postHtml).toContain('data-content-type="post"');
     expect(postHtml).toContain("MODE_LABELS = { generate: '生成', polish: '润色', correct: '纠错' }");
     expect(postHtml).toContain("button.innerHTML = (MODE_ICONS[mode] || '') + '<span>' + title + '</span>'");
-    expect(postHtml).toContain('typecho-scribe-menu-actions');
-    expect(postHtml).toContain('data-scribe-setting="userPrompt"');
-    expect(postHtml).toContain('data-scribe-setting="outputLanguage"');
-    expect(postHtml).toContain('data-scribe-setting="stylePostCount"');
-    expect(postHtml).toContain('data-scribe-setting="targetAudience"');
-    expect(postHtml).toContain('data-scribe-setting="lengthPreset"');
-    expect(postHtml).toContain('data-scribe-setting="factPolicy"');
-    expect(postHtml).toContain('data-scribe-setting="includeBodyAssets"');
+    expect(postHtml).toContain('typecho-postpilot-menu-actions');
+    expect(postHtml).toContain('data-postpilot-setting="userPrompt"');
+    expect(postHtml).toContain('data-postpilot-setting="outputLanguage"');
+    expect(postHtml).toContain('data-postpilot-setting="stylePostCount"');
+    expect(postHtml).toContain('data-postpilot-setting="targetAudience"');
+    expect(postHtml).toContain('data-postpilot-setting="lengthPreset"');
+    expect(postHtml).toContain('data-postpilot-setting="factPolicy"');
+    expect(postHtml).toContain('data-postpilot-setting="includeBodyAssets"');
     // 高级设置两列 grid 布局，checkbox 项跨两列
     expect(postHtml).toContain('grid-template-columns: 1fr 1fr');
-    expect(postHtml).toContain('.typecho-scribe-advanced-fields .typecho-scribe-setting-wide');
-    expect(postHtml).toContain('typecho-scribe-setting typecho-scribe-setting-wide');
+    expect(postHtml).toContain('.typecho-postpilot-advanced-fields .typecho-postpilot-setting-wide');
+    expect(postHtml).toContain('typecho-postpilot-setting typecho-postpilot-setting-wide');
     expect(postHtml).toContain("menu.addEventListener('click', function(event) {");
     expect(postHtml).toContain(
-      "      if (event.target && event.target.closest && event.target.closest('.typecho-scribe-menu')) return;",
+      "      if (event.target && event.target.closest && event.target.closest('.typecho-postpilot-menu')) return;",
     );
     expect(postHtml).toContain('参考历史文章');
     expect(postHtml).toContain('<option value="0">不参考</option>');
@@ -76,15 +76,15 @@ describe('typecho-plugin-scribe', () => {
     const hooks = collectHooks();
     const postHtml = hooks.get('admin:writePost:bottom')![0]('');
 
-    expect(postHtml).toContain('typecho-scribe-modal');
-    expect(postHtml).toContain('typecho-scribe-modal-preview');
-    expect(postHtml).toContain('typecho-scribe-modal-followup-input');
+    expect(postHtml).toContain('typecho-postpilot-modal');
+    expect(postHtml).toContain('typecho-postpilot-modal-preview');
+    expect(postHtml).toContain('typecho-postpilot-modal-followup-input');
     expect(postHtml).toContain('输入调整要求，发送后 AI 将结合原文与当前结果继续调整');
     expect(postHtml).toContain('Enter 发送 · Shift+Enter 换行');
     expect(postHtml).toContain("event.key === 'Enter' && !event.shiftKey");
     expect(postHtml).toContain('>取消</button>');
     expect(postHtml).toContain('>确定</button>');
-    expect(postHtml).toContain('typecho-scribe-modal-status');
+    expect(postHtml).toContain('typecho-postpilot-modal-status');
     expect(postHtml).toContain('closePreviewModal(true)');
     expect(postHtml).toContain('action: previewState.followUpPrompt ? \'continue\' : previewState.mode');
     expect(postHtml).toContain('payload.originalBody = previewState.oldText;');
@@ -95,18 +95,18 @@ describe('typecho-plugin-scribe', () => {
     const hooks = collectHooks();
     const postHtml = hooks.get('admin:writePost:bottom')![0]('');
 
-    expect(postHtml).toContain('data-scribe-tab="write"');
-    expect(postHtml).toContain('data-scribe-tab="preview"');
-    expect(postHtml).toContain('data-scribe-tab="compare"');
-    expect(postHtml).toContain('typecho-scribe-modal-write');
-    expect(postHtml).toContain('typecho-scribe-modal-compare-original');
-    expect(postHtml).toContain('typecho-scribe-modal-compare-generated');
-    expect(postHtml).toContain('typecho-scribe-modal-compare-label');
+    expect(postHtml).toContain('data-postpilot-tab="write"');
+    expect(postHtml).toContain('data-postpilot-tab="preview"');
+    expect(postHtml).toContain('data-postpilot-tab="compare"');
+    expect(postHtml).toContain('typecho-postpilot-modal-write');
+    expect(postHtml).toContain('typecho-postpilot-modal-compare-original');
+    expect(postHtml).toContain('typecho-postpilot-modal-compare-generated');
+    expect(postHtml).toContain('typecho-postpilot-modal-compare-label');
     // 预览容器复用 #wmd-preview 排版（wmd-preview class）；比对容器为纯 markdown 源码视图
-    expect(postHtml).toContain('typecho-scribe-modal-preview wmd-preview');
-    expect(postHtml).toContain('typecho-scribe-modal-compare-content typecho-scribe-modal-compare-original');
-    expect(postHtml).toContain('typecho-scribe-modal-compare-content typecho-scribe-modal-compare-generated');
-    expect(postHtml).toContain('setModalTab(button.getAttribute(\'data-scribe-tab\') || \'write\')');
+    expect(postHtml).toContain('typecho-postpilot-modal-preview wmd-preview');
+    expect(postHtml).toContain('typecho-postpilot-modal-compare-content typecho-postpilot-modal-compare-original');
+    expect(postHtml).toContain('typecho-postpilot-modal-compare-content typecho-postpilot-modal-compare-generated');
+    expect(postHtml).toContain('setModalTab(button.getAttribute(\'data-postpilot-tab\') || \'write\')');
     expect(postHtml).toContain('previewState.userEdited = true;');
     expect(postHtml).toContain('renderModalViews();');
     expect(postHtml).toContain('window.HyperDown && window.DOMPurify');
@@ -140,7 +140,7 @@ describe('typecho-plugin-scribe', () => {
       'model',
       'temperature',
     ]);
-    expect(postHtml).toContain("writingOptions: collectWritingSettings(previewState.box.querySelector('.typecho-scribe-menu') || previewState.box)");
+    expect(postHtml).toContain("writingOptions: collectWritingSettings(previewState.box.querySelector('.typecho-postpilot-menu') || previewState.box)");
     expect(postHtml).toContain('saveWritingSettings(collectWritingSettings(settings))');
   });
 
@@ -160,7 +160,7 @@ describe('typecho-plugin-scribe', () => {
     const validate = hooks.get('plugin:config:beforeSave')![0];
 
     const result = await validate({ success: true, settings: {} }, {
-      pluginId: 'typecho-plugin-scribe',
+      pluginId: 'typecho-plugin-postpilot',
       settings: {
         endpoint: '',
         apiKey: '',
@@ -179,7 +179,7 @@ describe('typecho-plugin-scribe', () => {
     const validate = hooks.get('plugin:config:beforeSave')![0];
 
     const result = await validate({ success: true, settings: {} }, {
-      pluginId: 'typecho-plugin-scribe',
+      pluginId: 'typecho-plugin-postpilot',
       settings: {
         endpoint: 'https://llm.example/v1',
         apiKey: TEST_API_KEY,
@@ -199,7 +199,7 @@ describe('typecho-plugin-scribe', () => {
     const validate = hooks.get('plugin:config:beforeSave')![0];
 
     const ok = await validate({ success: true, settings: {} }, {
-      pluginId: 'typecho-plugin-scribe',
+      pluginId: 'typecho-plugin-postpilot',
       settings: {
         endpoint: 'https://llm.example/v1',
         apiKey: TEST_API_KEY,
@@ -210,7 +210,7 @@ describe('typecho-plugin-scribe', () => {
     expect(ok).toMatchObject({ success: true, settings: { maxTokens: '512000' } });
 
     const rejected = await validate({ success: true, settings: {} }, {
-      pluginId: 'typecho-plugin-scribe',
+      pluginId: 'typecho-plugin-postpilot',
       settings: {
         endpoint: 'https://llm.example/v1',
         apiKey: TEST_API_KEY,
@@ -231,7 +231,7 @@ describe('typecho-plugin-scribe', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const result = await validate({ success: true, settings: {} }, {
-      pluginId: 'typecho-plugin-scribe',
+      pluginId: 'typecho-plugin-postpilot',
       settings: {
         endpoint: 'https://llm.example/v1',
         apiKey: TEST_API_KEY,
@@ -252,7 +252,7 @@ describe('typecho-plugin-scribe', () => {
 
   it('returns not handled for unsupported plugin actions', async () => {
     const hooks = collectHooks();
-    const action = hooks.get('plugin:typecho-plugin-scribe:action')![0];
+    const action = hooks.get('plugin:typecho-plugin-postpilot:action')![0];
     const original = { handled: false };
 
     await expect(action(original, { action: 'unknown', payload: {} })).resolves.toBe(original);
@@ -260,7 +260,7 @@ describe('typecho-plugin-scribe', () => {
 
   it('grants contributor access to generate, polish, correct, and continue actions', () => {
     const hooks = collectHooks();
-    const auth = hooks.get('plugin:typecho-plugin-scribe:action:auth')![0];
+    const auth = hooks.get('plugin:typecho-plugin-postpilot:action:auth')![0];
 
     expect(auth('administrator', { action: 'generate' })).toBe('contributor');
     expect(auth('administrator', { action: 'polish' })).toBe('contributor');
@@ -271,7 +271,7 @@ describe('typecho-plugin-scribe', () => {
 
   it('rejects continue actions without a follow-up prompt', async () => {
     const hooks = collectHooks();
-    const action = hooks.get('plugin:typecho-plugin-scribe:action')![0];
+    const action = hooks.get('plugin:typecho-plugin-postpilot:action')![0];
 
     const result = await action({ handled: false }, {
       action: 'continue',
@@ -282,7 +282,7 @@ describe('typecho-plugin-scribe', () => {
         originalBody: '原文',
       },
       options: {
-        'plugin:typecho-plugin-scribe': JSON.stringify({
+        'plugin:typecho-plugin-postpilot': JSON.stringify({
           endpoint: 'https://llm.example/v1',
           apiKey: TEST_API_KEY,
           model: 'demo-model',
@@ -299,7 +299,7 @@ describe('typecho-plugin-scribe', () => {
 
   it('submits the original text, current result, and follow-up prompt together for continue actions', async () => {
     const hooks = collectHooks();
-    const action = hooks.get('plugin:typecho-plugin-scribe:action')![0];
+    const action = hooks.get('plugin:typecho-plugin-postpilot:action')![0];
     const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(
       'data: {"choices":[{"delta":{"content":"调整后正文"}}]}\n\ndata: [DONE]\n\n',
       {
@@ -320,7 +320,7 @@ describe('typecho-plugin-scribe', () => {
       },
       options: {
         siteUrl: 'https://blog.example',
-        'plugin:typecho-plugin-scribe': JSON.stringify({
+        'plugin:typecho-plugin-postpilot': JSON.stringify({
           endpoint: 'https://llm.example/v1',
           apiKey: TEST_API_KEY,
           model: 'demo-model',
@@ -348,13 +348,13 @@ describe('typecho-plugin-scribe', () => {
 
   it('handles generation action with a clear configuration error', async () => {
     const hooks = collectHooks();
-    const action = hooks.get('plugin:typecho-plugin-scribe:action')![0];
+    const action = hooks.get('plugin:typecho-plugin-postpilot:action')![0];
 
     const result = await action({ handled: false }, {
       action: 'generate',
       payload: { contentType: 'post', title: 'Test' },
       options: {
-        'plugin:typecho-plugin-scribe': JSON.stringify({
+        'plugin:typecho-plugin-postpilot': JSON.stringify({
           endpoint: 'https://llm.example/v1',
           apiKey: '',
           model: 'demo-model',
@@ -372,7 +372,7 @@ describe('typecho-plugin-scribe', () => {
   it('reports the LLM timeout before the generic plugin action timeout', async () => {
     vi.useFakeTimers();
     const hooks = collectHooks();
-    const action = hooks.get('plugin:typecho-plugin-scribe:action')![0];
+    const action = hooks.get('plugin:typecho-plugin-postpilot:action')![0];
     const fetchMock = vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
       init?.signal?.addEventListener('abort', () => {
         reject(new DOMException('Aborted', 'AbortError'));
@@ -384,7 +384,7 @@ describe('typecho-plugin-scribe', () => {
       action: 'generate',
       payload: { contentType: 'post', title: 'Test' },
       options: {
-        'plugin:typecho-plugin-scribe': JSON.stringify({
+        'plugin:typecho-plugin-postpilot': JSON.stringify({
           endpoint: 'https://llm.example/v1',
           apiKey: TEST_API_KEY,
           model: 'demo-model',
@@ -404,7 +404,7 @@ describe('typecho-plugin-scribe', () => {
 
   it('sends structured writing context and output contract to the LLM', async () => {
     const hooks = collectHooks();
-    const action = hooks.get('plugin:typecho-plugin-scribe:action')![0];
+    const action = hooks.get('plugin:typecho-plugin-postpilot:action')![0];
     const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(
       'data: {"choices":[{"delta":{"content":"正文"}}]}\n\ndata: [DONE]\n\n',
       {
@@ -422,7 +422,7 @@ describe('typecho-plugin-scribe', () => {
       },
       options: {
         siteUrl: 'https://blog.example',
-        'plugin:typecho-plugin-scribe': JSON.stringify({
+        'plugin:typecho-plugin-postpilot': JSON.stringify({
           endpoint: 'https://llm.example/v1',
           apiKey: TEST_API_KEY,
           model: 'demo-model',
@@ -455,7 +455,7 @@ describe('typecho-plugin-scribe', () => {
 
   it('applies editor writing options from the action payload', async () => {
     const hooks = collectHooks();
-    const action = hooks.get('plugin:typecho-plugin-scribe:action')![0];
+    const action = hooks.get('plugin:typecho-plugin-postpilot:action')![0];
     const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(
       'data: {"choices":[{"delta":{"content":"正文"}}]}\n\ndata: [DONE]\n\n',
       {
@@ -482,7 +482,7 @@ describe('typecho-plugin-scribe', () => {
       },
       options: {
         siteUrl: 'https://blog.example',
-        'plugin:typecho-plugin-scribe': JSON.stringify({
+        'plugin:typecho-plugin-postpilot': JSON.stringify({
           endpoint: 'https://llm.example/v1',
           apiKey: TEST_API_KEY,
           model: 'demo-model',
@@ -512,24 +512,24 @@ describe('typecho-plugin-scribe', () => {
     expect(postHtml).toContain('width: min(1280px, 100%)');
     expect(pageHtml).toContain('width: min(1280px, 100%)');
     // 高亮样式与无差异提示
-    expect(postHtml).toContain('typecho-scribe-diff-del');
-    expect(postHtml).toContain('typecho-scribe-diff-ins');
-    expect(postHtml).toContain('typecho-scribe-diff-note');
+    expect(postHtml).toContain('typecho-postpilot-diff-del');
+    expect(postHtml).toContain('typecho-postpilot-diff-ins');
+    expect(postHtml).toContain('typecho-postpilot-diff-note');
     // 比对视图走 diff 渲染管线，仅在比对页签激活时计算；纯 markdown 源码对比（pre + 转义 + span）
     expect(postHtml).toContain("if (previewState.tab === 'compare') {");
     expect(postHtml).toContain('renderComparePanes(originalEl, generatedEl, previewState.oldText, text)');
-    expect(postHtml).toContain("var diff = scribeDiffMarkup(oldText || '', newText || '')");
-    expect(postHtml).toContain('scribeRestoreMarks(escapeHtmlText(block.old))');
-    expect(postHtml).toContain('typecho-scribe-modal-compare-md');
+    expect(postHtml).toContain("var diff = postPilotDiffMarkup(oldText || '', newText || '')");
+    expect(postHtml).toContain('postPilotRestoreMarks(escapeHtmlText(block.old))');
+    expect(postHtml).toContain('typecho-postpilot-modal-compare-md');
     // 比对视图不再依赖 HyperDown/DOMPurify 渲染与 wmd-preview 排版
-    expect(postHtml).toContain('<pre class="typecho-scribe-modal-compare-md">' + "' + oldHtml + '</pre>'");
-    expect(postHtml).not.toContain('wmd-preview typecho-scribe-modal-compare');
+    expect(postHtml).toContain('<pre class="typecho-postpilot-modal-compare-md">' + "' + oldHtml + '</pre>'");
+    expect(postHtml).not.toContain('wmd-preview typecho-postpilot-modal-compare');
     // 算法源码经 toString() 序列化注入内联脚本（可执行，语法检查由上方用例覆盖）；
     // 还原 span 的 class 与 CSS 定义一致（转译器会重写字符串引号风格，故按值断言）
-    expect(postHtml).toContain('function scribeDiffMarkup(');
-    expect(SCRIBE_DIFF_ALGO_JS).toContain('typecho-scribe-diff-del');
-    expect(SCRIBE_DIFF_ALGO_JS).toContain('typecho-scribe-diff-ins');
-    expect(SCRIBE_DIFF_ALGO_JS).toContain('scribeRestoreMarks');
+    expect(postHtml).toContain('function postPilotDiffMarkup(');
+    expect(POSTPILOT_DIFF_ALGO_JS).toContain('typecho-postpilot-diff-del');
+    expect(POSTPILOT_DIFF_ALGO_JS).toContain('typecho-postpilot-diff-ins');
+    expect(POSTPILOT_DIFF_ALGO_JS).toContain('postPilotRestoreMarks');
   });
 
   it('binds dual-pane scroll sync for the compare view', () => {
@@ -555,10 +555,10 @@ describe('typecho-plugin-scribe', () => {
   });
 
   describe('diff highlight algorithm', () => {
-    const { scribeDiffMarkup, scribeRestoreMarks, scribeTokenize } = scribeDiffAlgo;
+    const { postPilotDiffMarkup, postPilotRestoreMarks, postPilotTokenize } = postPilotDiffAlgo;
 
     it('reports no difference for identical texts', () => {
-      const result = scribeDiffMarkup('同一段文字\n第二行', '同一段文字\n第二行');
+      const result = postPilotDiffMarkup('同一段文字\n第二行', '同一段文字\n第二行');
       expect(result.hasDiff).toBe(false);
       expect(result.blocks).toHaveLength(1);
       expect(result.blocks[0].words).toBeNull();
@@ -566,7 +566,7 @@ describe('typecho-plugin-scribe', () => {
     });
 
     it('marks word-level deletion and insertion around a local replacement', () => {
-      const result = scribeDiffMarkup('a b c', 'a X c');
+      const result = postPilotDiffMarkup('a b c', 'a X c');
       expect(result.hasDiff).toBe(true);
       const diffBlock = result.blocks.find((b) => b.words !== null)!;
       expect(diffBlock.old).toBe('a \u0001b\u0002 c');
@@ -576,7 +576,7 @@ describe('typecho-plugin-scribe', () => {
     });
 
     it('keeps unchanged markdown syntax markers unmarked', () => {
-      const result = scribeDiffMarkup('**bold** text', '**bold** changed');
+      const result = postPilotDiffMarkup('**bold** text', '**bold** changed');
       const diffBlock = result.blocks.find((b) => b.words !== null)!;
       expect(diffBlock.old).toBe('**bold** \u0001text\u0002');
       expect(diffBlock.old).not.toContain('\u0001bold\u0002');
@@ -584,19 +584,19 @@ describe('typecho-plugin-scribe', () => {
     });
 
     it('handles whole-block insertion and deletion', () => {
-      const inserted = scribeDiffMarkup('', '新段落');
+      const inserted = postPilotDiffMarkup('', '新段落');
       expect(inserted.hasDiff).toBe(true);
       expect(inserted.blocks[0].old).toBe('');
       expect(inserted.blocks[0].new).toBe('\u0003新段落\u0004');
 
-      const deleted = scribeDiffMarkup('旧段落', '');
+      const deleted = postPilotDiffMarkup('旧段落', '');
       expect(deleted.hasDiff).toBe(true);
       expect(deleted.blocks[0].old).toBe('\u0001旧段落\u0002');
       expect(deleted.blocks[0].new).toBe('');
     });
 
     it('keeps line-level equal runs in separate blocks', () => {
-      const result = scribeDiffMarkup('a\nb', 'a\nb\nc');
+      const result = postPilotDiffMarkup('a\nb', 'a\nb\nc');
       expect(result.blocks).toHaveLength(2);
       expect(result.blocks[0].words).toBeNull();
       expect(result.blocks[0].old).toBe('a\nb');
@@ -605,7 +605,7 @@ describe('typecho-plugin-scribe', () => {
     });
 
     it('merges nearby diff blocks with short equal context into one block', () => {
-      const result = scribeDiffMarkup('p1\nctx\np2', 'p1x\nctx\np2y');
+      const result = postPilotDiffMarkup('p1\nctx\np2', 'p1x\nctx\np2y');
       const diffBlocks = result.blocks.filter((b) => b.words !== null);
       expect(diffBlocks).toHaveLength(1);
       expect(diffBlocks[0].old).toBe('\u0001p1\u0002\nctx\n\u0001p2\u0002');
@@ -614,7 +614,7 @@ describe('typecho-plugin-scribe', () => {
     });
 
     it('does not wrap newline tokens inside word-level diffs', () => {
-      const result = scribeDiffMarkup('x\ny', 'x y');
+      const result = postPilotDiffMarkup('x\ny', 'x y');
       const diffBlock = result.blocks.find((b) => b.words !== null)!;
       expect(diffBlock.old).toBe('x\ny');
       expect(diffBlock.new).toBe('x\u0003 \u0004y');
@@ -622,7 +622,7 @@ describe('typecho-plugin-scribe', () => {
 
     it('degrades to whole-block marking for very large difference regions', () => {
       const big = 'x'.repeat(20000);
-      const result = scribeDiffMarkup(big, 'y'.repeat(20000));
+      const result = postPilotDiffMarkup(big, 'y'.repeat(20000));
       expect(result.hasDiff).toBe(true);
       const diffBlock = result.blocks.find((b) => b.words !== null)!;
       expect(diffBlock.words).toBe('whole');
@@ -631,43 +631,43 @@ describe('typecho-plugin-scribe', () => {
     });
 
     it('tokenizes CJK words, latin words, and punctuation separately', () => {
-      expect(scribeTokenize('你好世界 abc_123.')).toEqual(['你好世界', ' ', 'abc_123', '.']);
-      expect(scribeTokenize('a\nb')).toEqual(['a', '\n', 'b']);
+      expect(postPilotTokenize('你好世界 abc_123.')).toEqual(['你好世界', ' ', 'abc_123', '.']);
+      expect(postPilotTokenize('a\nb')).toEqual(['a', '\n', 'b']);
     });
 
     it('restores del/ins placeholders to highlight spans', () => {
-      expect(scribeRestoreMarks('x\u0001y\u0002z')).toBe('x<span class="typecho-scribe-diff-del">y</span>z');
-      expect(scribeRestoreMarks('x\u0003y\u0004z')).toBe('x<span class="typecho-scribe-diff-ins">y</span>z');
-      expect(scribeRestoreMarks('plain')).toBe('plain');
+      expect(postPilotRestoreMarks('x\u0001y\u0002z')).toBe('x<span class="typecho-postpilot-diff-del">y</span>z');
+      expect(postPilotRestoreMarks('x\u0003y\u0004z')).toBe('x<span class="typecho-postpilot-diff-ins">y</span>z');
+      expect(postPilotRestoreMarks('plain')).toBe('plain');
     });
 
     it('keeps unchanged images renderable (identical markdown stays in equal blocks)', () => {
-      const result = scribeDiffMarkup('![图](https://x/y.png)', '![图](https://x/y.png)');
+      const result = postPilotDiffMarkup('![图](https://x/y.png)', '![图](https://x/y.png)');
       expect(result.hasDiff).toBe(false);
       expect(result.blocks[0].words).toBeNull();
       expect(result.blocks[0].old).toBe('![图](https://x/y.png)');
     });
 
     it('marks a removed image as one del-highlighted markdown run', () => {
-      const result = scribeDiffMarkup('![图](https://x/y.png)\n正文', '正文');
+      const result = postPilotDiffMarkup('![图](https://x/y.png)\n正文', '正文');
       const diffBlock = result.blocks.find((b) => b.words !== null)!;
       expect(diffBlock.old).toBe('\u0001![图](https://x/y.png)\u0002');
-      expect(scribeRestoreMarks(diffBlock.old)).toBe(
-        '<span class="typecho-scribe-diff-del">![图](https://x/y.png)</span>',
+      expect(postPilotRestoreMarks(diffBlock.old)).toBe(
+        '<span class="typecho-postpilot-diff-del">![图](https://x/y.png)</span>',
       );
     });
 
     it('marks an added image as one ins-highlighted markdown run', () => {
-      const result = scribeDiffMarkup('正文', '正文\n\n![新图](https://x/z.png)');
+      const result = postPilotDiffMarkup('正文', '正文\n\n![新图](https://x/z.png)');
       const diffBlock = result.blocks.find((b) => b.words !== null)!;
       expect(diffBlock.new).toBe('\n\u0003![新图](https://x/z.png)\u0004');
-      expect(scribeRestoreMarks(diffBlock.new)).toBe(
-        '\n<span class="typecho-scribe-diff-ins">![新图](https://x/z.png)</span>',
+      expect(postPilotRestoreMarks(diffBlock.new)).toBe(
+        '\n<span class="typecho-postpilot-diff-ins">![新图](https://x/z.png)</span>',
       );
     });
 
     it('keeps identical markdown syntax tokens unmarked (image stays untouched)', () => {
-      const result = scribeDiffMarkup('![图](https://x/y.png) 说明', '![图](https://x/y.png) 新说明');
+      const result = postPilotDiffMarkup('![图](https://x/y.png) 说明', '![图](https://x/y.png) 新说明');
       const diffBlock = result.blocks.find((b) => b.words !== null)!;
       // 语法 token（! [ ] ( ) https://…）相等 → 不高亮；CJK 词级分词把「新说明」视为一个词
       expect(diffBlock.old).toBe('![图](https://x/y.png) \u0001说明\u0002');
@@ -675,21 +675,21 @@ describe('typecho-plugin-scribe', () => {
     });
 
     it('highlights changed link URLs at word level without breaking the syntax', () => {
-      const result = scribeDiffMarkup('[链接](https://x/a)', '[链接](https://x/b)');
+      const result = postPilotDiffMarkup('[链接](https://x/a)', '[链接](https://x/b)');
       const diffBlock = result.blocks.find((b) => b.words !== null)!;
       expect(diffBlock.old).toBe('[链接](https://x/\u0001a\u0002)');
       expect(diffBlock.new).toBe('[链接](https://x/\u0003b\u0004)');
     });
 
     it('highlights changed link labels while keeping the url tokens equal', () => {
-      const result = scribeDiffMarkup('[旧名](https://x/u)', '[新名](https://x/u)');
+      const result = postPilotDiffMarkup('[旧名](https://x/u)', '[新名](https://x/u)');
       const diffBlock = result.blocks.find((b) => b.words !== null)!;
       expect(diffBlock.old).toBe('[\u0001旧名\u0002](https://x/u)');
       expect(diffBlock.new).toBe('[\u0003新名\u0004](https://x/u)');
     });
 
     it('highlights the changed definition URL of a reference-style image', () => {
-      const result = scribeDiffMarkup('![图][1]\n\n[1]: https://x/y.png', '![图][1]\n\n[1]: https://x/z.png');
+      const result = postPilotDiffMarkup('![图][1]\n\n[1]: https://x/y.png', '![图][1]\n\n[1]: https://x/z.png');
       // 引用行与定义语法 token 相等 → 原样；仅定义 URL 中变化的词级 token 高亮（y → z，扩展名不变）
       const diffBlock = result.blocks.find((b) => b.words !== null)!;
       expect(diffBlock.old).toBe('[1]: https://x/\u0001y\u0002.png');
@@ -697,14 +697,14 @@ describe('typecho-plugin-scribe', () => {
     });
 
     it('marks a replaced horizontal rule as a single highlighted run', () => {
-      const result = scribeDiffMarkup('标题\n---\n正文', '标题\n***\n正文');
+      const result = postPilotDiffMarkup('标题\n---\n正文', '标题\n***\n正文');
       const diffBlock = result.blocks.find((b) => b.words !== null)!;
       expect(diffBlock.old).toBe('\u0001---\u0002');
       expect(diffBlock.new).toBe('\u0003***\u0004');
     });
 
     it('keeps table pipe tokens unmarked when only cell content changes', () => {
-      const result = scribeDiffMarkup('| a | b |', '| a | c |');
+      const result = postPilotDiffMarkup('| a | b |', '| a | c |');
       const diffBlock = result.blocks.find((b) => b.words !== null)!;
       expect(diffBlock.old).toBe('| a | \u0001b\u0002 |');
       expect(diffBlock.new).toBe('| a | \u0003c\u0004 |');

@@ -10,28 +10,28 @@ import { and, desc, eq, inArray, or } from 'drizzle-orm';
 // 约定：函数体不使用模板字面量、不引用模块级常量（阈值等魔法数字直接内联），
 // 保证序列化后自包含可执行；转译器可能重写字符串引号风格，测试断言按值而非精确源码文本。
 // 比对视图为纯 markdown 源码对比（无 HTML 渲染层）：占位符删除词 \u0001…\u0002、新增词 \u0003…\u0004，
-// 标记文本经 HTML 转义后由 scribeRestoreMarks 还原为 span——只产生文本节点内的高亮，任何语法都不会被破坏；
+// 标记文本经 HTML 转义后由 postPilotRestoreMarks 还原为 span——只产生文本节点内的高亮，任何语法都不会被破坏；
 // 渲染效果由独立的「预览」页签负责。
-export const scribeDiffAlgo = {
-  scribeTokenize,
-  scribeAppendLcs,
-  scribeLcsOps,
-  scribeWrapTokens,
-  scribeRestoreMarks,
-  scribeFinalizeDiff,
-  scribeDiffMarkup,
+export const postPilotDiffAlgo = {
+  postPilotTokenize,
+  postPilotAppendLcs,
+  postPilotLcsOps,
+  postPilotWrapTokens,
+  postPilotRestoreMarks,
+  postPilotFinalizeDiff,
+  postPilotDiffMarkup,
 };
 
-export const SCRIBE_DIFF_ALGO_JS = Object.values(scribeDiffAlgo)
+export const POSTPILOT_DIFF_ALGO_JS = Object.values(postPilotDiffAlgo)
   .map((fn) => fn.toString())
   .join('\n');
 
-function scribeTokenize(text: string): string[] {
+function postPilotTokenize(text: string): string[] {
   const re = /[\u4e00-\u9fffA-Za-z0-9_]+|\n|[^\u4e00-\u9fffA-Za-z0-9_\n]/g;
   return text.match(re) || [];
 }
 
-function scribeAppendLcs(a: string[], b: string[], ops: DiffOp[]): void {
+function postPilotAppendLcs(a: string[], b: string[], ops: DiffOp[]): void {
   const n = a.length;
   const m = b.length;
   if (n === 0 && m === 0) return;
@@ -88,7 +88,7 @@ function scribeAppendLcs(a: string[], b: string[], ops: DiffOp[]): void {
 }
 
 // 通用 LCS diff：先裁剪相同前后缀缩小 DP 规模
-function scribeLcsOps(a: string[], b: string[]): DiffOp[] {
+function postPilotLcsOps(a: string[], b: string[]): DiffOp[] {
   let start = 0;
   while (start < a.length && start < b.length && a[start] === b[start]) start++;
   let endA = a.length;
@@ -99,7 +99,7 @@ function scribeLcsOps(a: string[], b: string[]): DiffOp[] {
   }
   const ops: DiffOp[] = [];
   for (let i = 0; i < start; i++) ops.push({ t: 'e', s: a[i] });
-  scribeAppendLcs(a.slice(start, endA), b.slice(start, endB), ops);
+  postPilotAppendLcs(a.slice(start, endA), b.slice(start, endB), ops);
   for (let i = endA; i < a.length; i++) ops.push({ t: 'e', s: a[i] });
   return ops;
 }
@@ -107,7 +107,7 @@ function scribeLcsOps(a: string[], b: string[]): DiffOp[] {
 // 按 ops 重建单侧文本：del 侧取 e/d token、ins 侧取 e/i token，另一侧 token 跳过；
 // 指定类型 token 用控制字符占位符包裹；连续同型 token 合并成一次包裹（\n 断开合并且不包裹），
 // 避免 markdown 语法/URL 的符号 token 被逐字符高亮成碎片
-function scribeWrapTokens(ops: DiffOp[], kind: 'del' | 'ins'): string {
+function postPilotWrapTokens(ops: DiffOp[], kind: 'del' | 'ins'): string {
   let out = '';
   let i = 0;
   while (i < ops.length) {
@@ -150,28 +150,28 @@ function scribeWrapTokens(ops: DiffOp[], kind: 'del' | 'ins'): string {
 }
 
 // 把占位符还原为高亮 span（纯文本对比视图：标记文本经 HTML 转义后还原，只产生文本节点内的 span，安全）
-function scribeRestoreMarks(html: string): string {
+function postPilotRestoreMarks(html: string): string {
   return html
     .replace(/\u0001([\s\S]*?)\u0002/g, (_match, text: string) => {
-      return '<span class="typecho-scribe-diff-del">' + text + '</span>';
+      return '<span class="typecho-postpilot-diff-del">' + text + '</span>';
     })
     .replace(/\u0003([\s\S]*?)\u0004/g, (_match, text: string) => {
-      return '<span class="typecho-scribe-diff-ins">' + text + '</span>';
+      return '<span class="typecho-postpilot-diff-ins">' + text + '</span>';
     });
 }
 
-function scribeFinalizeDiff(pending: { oldLines: string[]; newLines: string[] }): ScribeDiffBlock {
+function postPilotFinalizeDiff(pending: { oldLines: string[]; newLines: string[] }): PostPilotDiffBlock {
   let oldText = pending.oldLines.join('\n');
   let newText = pending.newLines.join('\n');
   // words === null 表示两侧相同块；'whole' 表示超限降级、整块标记（不进入词级对齐）
   let words: DiffOp[] | 'whole' | null = null;
   if (oldText.length + newText.length <= 20000) {
-    const oldTokens = scribeTokenize(oldText);
-    const newTokens = scribeTokenize(newText);
+    const oldTokens = postPilotTokenize(oldText);
+    const newTokens = postPilotTokenize(newText);
     if (oldTokens.length * newTokens.length <= 400000) {
-      words = scribeLcsOps(oldTokens, newTokens);
-      oldText = scribeWrapTokens(words, 'del');
-      newText = scribeWrapTokens(words, 'ins');
+      words = postPilotLcsOps(oldTokens, newTokens);
+      oldText = postPilotWrapTokens(words, 'del');
+      newText = postPilotWrapTokens(words, 'ins');
       return { old: oldText, new: newText, words };
     }
   }
@@ -183,14 +183,14 @@ function scribeFinalizeDiff(pending: { oldLines: string[]; newLines: string[] })
 
 // 行级 diff + 相邻差异块合并（间隔 ≤ 2 行相同行并入作上下文，避免段落被割裂渲染）
 // 返回 { hasDiff, blocks }；blocks 元素 { old, new, words }，words === null 表示两侧相同块
-function scribeDiffMarkup(
+function postPilotDiffMarkup(
   oldText: string,
   newText: string,
-): { hasDiff: boolean; blocks: ScribeDiffBlock[] } {
+): { hasDiff: boolean; blocks: PostPilotDiffBlock[] } {
   const oldLines = oldText.split('\n');
   const newLines = newText.split('\n');
-  const ops = scribeLcsOps(oldLines, newLines);
-  const blocks: ScribeDiffBlock[] = [];
+  const ops = postPilotLcsOps(oldLines, newLines);
+  const blocks: PostPilotDiffBlock[] = [];
   let pending: { oldLines: string[]; newLines: string[] } | null = null;
   let i = 0;
   while (i < ops.length) {
@@ -208,7 +208,7 @@ function scribeDiffMarkup(
         }
       } else {
         if (pending) {
-          blocks.push(scribeFinalizeDiff(pending));
+          blocks.push(postPilotFinalizeDiff(pending));
           pending = null;
         }
         blocks.push({ old: eLines.join('\n'), new: eLines.join('\n'), words: null });
@@ -220,7 +220,7 @@ function scribeDiffMarkup(
       i++;
     }
   }
-  if (pending) blocks.push(scribeFinalizeDiff(pending));
+  if (pending) blocks.push(postPilotFinalizeDiff(pending));
   let hasDiff = false;
   for (let b = 0; b < blocks.length; b++) {
     if (blocks[b].words !== null) {
@@ -235,7 +235,7 @@ function scribeDiffMarkup(
 type DiffOp = { t: 'e' | 'd' | 'i'; s: string };
 // 渲染块：words === null 表示两侧相同块（直接渲染）；
 // words === 'whole' 表示超限降级块（old/new 已整块带占位符标记）；否则为词级差异块
-type ScribeDiffBlock = { old: string; new: string; words: DiffOp[] | 'whole' | null };
+type PostPilotDiffBlock = { old: string; new: string; words: DiffOp[] | 'whole' | null };
 
 type WriterMode = 'generate' | 'polish' | 'correct' | 'continue';
 type ContentType = 'post' | 'page';
@@ -252,7 +252,7 @@ const LENGTH_LABELS: Record<LengthPreset, string> = {
   detailed: '深入：展开背景、细节、例证和必要的小结。',
 };
 
-interface ScribeConfig {
+interface PostPilotConfig {
   endpoint: string;
   apiKey: string;
   model: string;
@@ -299,7 +299,7 @@ interface PluginActionResult {
 
 interface ConfigValidationResult {
   success: boolean;
-  settings?: ScribeConfig;
+  settings?: PostPilotConfig;
   error?: string;
 }
 
@@ -341,9 +341,9 @@ type UserContentPart =
   | { type: 'text'; text: string }
   | { type: 'image_url'; image_url: { url: string } };
 
-const PLUGIN_ID = 'typecho-plugin-scribe';
+const PLUGIN_ID = 'typecho-plugin-postpilot';
 
-const DEFAULTS: ScribeConfig = {
+const DEFAULTS: PostPilotConfig = {
   endpoint: 'https://open.bigmodel.cn/api/paas/v4/',
   apiKey: '',
   model: 'glm-4.7-flash',
@@ -359,7 +359,7 @@ const DEFAULTS: ScribeConfig = {
 };
 
 // Keep the LLM request timeout below the generic plugin-action timeout so a
-// slow provider surfaces Scribe's specific error instead of a generic 500.
+// slow provider surfaces PostPilot's specific error instead of a generic 500.
 const LLM_REQUEST_TIMEOUT_MS = 55_000;
 // 单次最大输出 Token 上限（512K = 512000）
 const MAX_OUTPUT_TOKENS = 512_000;
@@ -373,7 +373,7 @@ const SYSTEM_PROMPT = [
   '润色和纠错任务必须返回完整正文，不能只返回修改或新增片段。',
 ].join('\n');
 
-function normalizeConfig(settings?: Record<string, unknown>): ScribeConfig {
+function normalizeConfig(settings?: Record<string, unknown>): PostPilotConfig {
   return {
     endpoint: String(settings?.endpoint || '').trim(),
     apiKey: String(settings?.apiKey || '').trim(),
@@ -416,7 +416,7 @@ function normalizeIncludeBodyAssets(value: unknown): string {
   return String(value || DEFAULTS.includeBodyAssets).trim();
 }
 
-function applyWritingOptions(config: ScribeConfig, options?: WriterWritingOptions): ScribeConfig {
+function applyWritingOptions(config: PostPilotConfig, options?: WriterWritingOptions): PostPilotConfig {
   if (!options) return config;
 
   return {
@@ -431,7 +431,7 @@ function applyWritingOptions(config: ScribeConfig, options?: WriterWritingOption
   };
 }
 
-function getConfig(options?: Record<string, unknown>): ScribeConfig {
+function getConfig(options?: Record<string, unknown>): PostPilotConfig {
   return normalizeConfig({
     ...DEFAULTS,
     ...parsePluginOption(options?.[`plugin:${PLUGIN_ID}`]),
@@ -465,7 +465,7 @@ function buildStyleContext(samples: StyleSample[]): string {
   ].join('\n')).join('\n\n');
 }
 
-function buildConfiguredUserPrompt(config: ScribeConfig): string {
+function buildConfiguredUserPrompt(config: PostPilotConfig): string {
   if (!config.userPrompt) {
     return '未配置额外写作要求。';
   }
@@ -476,7 +476,7 @@ function buildConfiguredUserPrompt(config: ScribeConfig): string {
   ].join('\n');
 }
 
-function buildWritingProfile(config: ScribeConfig): string {
+function buildWritingProfile(config: PostPilotConfig): string {
   const language = config.outputLanguage === 'auto'
     ? '自动判断：优先沿用标题、正文和样本的主要语言。'
     : `固定使用：${config.outputLanguage}`;
@@ -527,7 +527,7 @@ function buildOutputContract(mode: WriterMode): string {
   return lines.map((line, index) => `${index + 1}. ${line}`).join('\n');
 }
 
-function shouldIncludeBodyAssets(config: ScribeConfig): boolean {
+function shouldIncludeBodyAssets(config: PostPilotConfig): boolean {
   return config.includeBodyAssets === '1';
 }
 
@@ -565,7 +565,7 @@ function buildPrompt(
   mode: WriterMode,
   payload: WriterPayload,
   styleSamples: StyleSample[],
-  config: ScribeConfig,
+  config: PostPilotConfig,
   assets: ContentAsset[],
 ): string {
   const typeLabel = payload.contentType === 'page' ? '页面' : '文章';
@@ -631,13 +631,13 @@ function extractErrorMessage(data: unknown): string {
   return '';
 }
 
-function validationHeaders(config: ScribeConfig): HeadersInit {
+function validationHeaders(config: PostPilotConfig): HeadersInit {
   return {
     Authorization: `Bearer ${config.apiKey}`,
   };
 }
 
-async function validateConfig(settings?: Record<string, unknown>): Promise<ScribeConfig> {
+async function validateConfig(settings?: Record<string, unknown>): Promise<PostPilotConfig> {
   const config = normalizeConfig(settings);
   if (!config.endpoint || !config.apiKey || !config.model) {
     throw new Error('请填写接口地址、API Key 和模型名称');
@@ -815,7 +815,7 @@ async function loadAttachmentAssets(
 
 async function loadContentAssets(
   db: Database | undefined,
-  config: ScribeConfig,
+  config: PostPilotConfig,
   payload: WriterPayload,
 ): Promise<ContentAsset[]> {
   if (!shouldIncludeBodyAssets(config)) return [];
@@ -854,7 +854,7 @@ function buildUserContent(prompt: string, assets: ContentAsset[], siteUrl?: stri
 }
 
 function buildChatCompletionPayload(
-  config: ScribeConfig,
+  config: PostPilotConfig,
   mode: WriterMode,
   payload: WriterPayload,
   styleSamples: StyleSample[],
@@ -875,7 +875,7 @@ function buildChatCompletionPayload(
 }
 
 async function callLLM(
-  config: ScribeConfig,
+  config: PostPilotConfig,
   mode: WriterMode,
   payload: WriterPayload,
   styleSamples: StyleSample[],
@@ -978,7 +978,7 @@ function createTextStreamFromLLM(response: Response): ReadableStream<Uint8Array>
 }
 
 async function callLLMStream(
-  config: ScribeConfig,
+  config: PostPilotConfig,
   mode: WriterMode,
   payload: WriterPayload,
   styleSamples: StyleSample[],
@@ -1024,8 +1024,8 @@ const PAGE_EDITOR_HTML = editorHtml('page');
 function editorHtml(contentType: ContentType): string {
   return `
 <style>
-#wmd-scribe-button .typecho-scribe-toolbar-icon,
-.typecho-scribe-fallback-btn .typecho-scribe-toolbar-icon {
+#wmd-postpilot-button .typecho-postpilot-toolbar-icon,
+.typecho-postpilot-fallback-btn .typecho-postpilot-toolbar-icon {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1035,20 +1035,20 @@ function editorHtml(contentType: ContentType): string {
   font-weight: 700;
   color: #666;
 }
-#wmd-scribe-button {
+#wmd-postpilot-button {
   position: relative;
 }
-#wmd-scribe-button[aria-disabled="true"] {
+#wmd-postpilot-button[aria-disabled="true"] {
   opacity: .5;
   cursor: default;
 }
-#wmd-scribe-button .typecho-scribe-menu span {
+#wmd-postpilot-button .typecho-postpilot-menu span {
   display: unset;
   width: unset;
   height: unset;
 }
 
-.typecho-scribe-menu {
+.typecho-postpilot-menu {
   display: none;
   position: absolute;
   top: 28px;
@@ -1066,53 +1066,53 @@ function editorHtml(contentType: ContentType): string {
   box-shadow: 0 2px 8px rgba(0, 0, 0, .12);
   z-index: 30;
 }
-.typecho-scribe-menu[aria-hidden="false"] {
+.typecho-postpilot-menu[aria-hidden="false"] {
   display: flex;
 }
-.typecho-scribe-menu-button {
+.typecho-postpilot-menu-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 4px;
 }
-.typecho-scribe-menu-button svg {
+.typecho-postpilot-menu-button svg {
   flex-shrink: 0;
 }
-.typecho-scribe-menu-button:hover,
-.typecho-scribe-menu-button:focus {
+.typecho-postpilot-menu-button:hover,
+.typecho-postpilot-menu-button:focus {
   background: #f0f0f0;
   color: #222;
   outline: none;
 }
-.typecho-scribe-menu-actions {
+.typecho-postpilot-menu-actions {
   display: flex;
   justify-content: flex-end;
   gap: 6px;
   border-top: 1px dashed #d9d9d9;
   padding-top: 8px;
 }
-.typecho-scribe-menu-button[aria-disabled="true"] {
+.typecho-postpilot-menu-button[aria-disabled="true"] {
   opacity: .5;
   cursor: default;
 }
 
-.typecho-scribe-writing-settings {
+.typecho-postpilot-writing-settings {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
-.typecho-scribe-setting {
+.typecho-postpilot-setting {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
-.typecho-scribe-setting > label {
+.typecho-postpilot-setting > label {
   font-size: 12px;
   color: #555;
 }
-.typecho-scribe-setting textarea,
-.typecho-scribe-setting input[type="text"],
-.typecho-scribe-setting select {
+.typecho-postpilot-setting textarea,
+.typecho-postpilot-setting input[type="text"],
+.typecho-postpilot-setting select {
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
@@ -1122,26 +1122,26 @@ function editorHtml(contentType: ContentType): string {
   color: #333;
   font: 13px/1.5 inherit;
 }
-.typecho-scribe-setting textarea {
+.typecho-postpilot-setting textarea {
   min-height: 64px;
   padding: 5px 7px;
   resize: vertical;
 }
-.typecho-scribe-setting input[type="text"] {
+.typecho-postpilot-setting input[type="text"] {
   height: 28px;
   padding: 4px 7px;
 }
-.typecho-scribe-setting select {
+.typecho-postpilot-setting select {
   height: 28px;
   padding: 2px 6px;
 }
-.typecho-scribe-setting textarea:focus,
-.typecho-scribe-setting input[type="text"]:focus,
-.typecho-scribe-setting select:focus {
+.typecho-postpilot-setting textarea:focus,
+.typecho-postpilot-setting input[type="text"]:focus,
+.typecho-postpilot-setting select:focus {
   border-color: #467b96;
   outline: none;
 }
-.typecho-scribe-checkbox {
+.typecho-postpilot-checkbox {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1149,30 +1149,30 @@ function editorHtml(contentType: ContentType): string {
   color: #333;
   cursor: pointer;
 }
-.typecho-scribe-advanced {
+.typecho-postpilot-advanced {
   border-top: 1px dashed #d9d9d9;
   padding-top: 8px;
 }
-.typecho-scribe-advanced summary {
+.typecho-postpilot-advanced summary {
   cursor: pointer;
   font-size: 12px;
   color: #666;
   user-select: none;
 }
-.typecho-scribe-advanced[open] summary {
+.typecho-postpilot-advanced[open] summary {
   color: #222;
 }
-.typecho-scribe-advanced-fields {
+.typecho-postpilot-advanced-fields {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
   padding-top: 8px;
 }
-.typecho-scribe-advanced-fields .typecho-scribe-setting-wide {
+.typecho-postpilot-advanced-fields .typecho-postpilot-setting-wide {
   grid-column: 1 / -1;
 }
 
-.typecho-scribe-modal {
+.typecho-postpilot-modal {
   display: none;
   position: fixed;
   inset: 0;
@@ -1182,10 +1182,10 @@ function editorHtml(contentType: ContentType): string {
   padding: 20px;
   background: rgba(0, 0, 0, .45);
 }
-.typecho-scribe-modal[aria-hidden="false"] {
+.typecho-postpilot-modal[aria-hidden="false"] {
   display: flex;
 }
-.typecho-scribe-modal-dialog {
+.typecho-postpilot-modal-dialog {
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
@@ -1195,7 +1195,7 @@ function editorHtml(contentType: ContentType): string {
   border-radius: 4px;
   box-shadow: 0 6px 24px rgba(0, 0, 0, .25);
 }
-.typecho-scribe-modal-header {
+.typecho-postpilot-modal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1203,17 +1203,17 @@ function editorHtml(contentType: ContentType): string {
   padding: 12px 16px;
   border-bottom: 1px solid #e5e5e5;
 }
-.typecho-scribe-modal-title {
+.typecho-postpilot-modal-title {
   font-size: 15px;
   font-weight: 600;
   color: #222;
 }
-.typecho-scribe-modal-tabs {
+.typecho-postpilot-modal-tabs {
   display: flex;
   gap: 2px;
   margin-left: auto;
 }
-.typecho-scribe-modal-tab {
+.typecho-postpilot-modal-tab {
   border: 0;
   background: none;
   padding: 4px 10px;
@@ -1223,17 +1223,17 @@ function editorHtml(contentType: ContentType): string {
   cursor: pointer;
   border-radius: 2px;
 }
-.typecho-scribe-modal-tab:hover,
-.typecho-scribe-modal-tab:focus {
+.typecho-postpilot-modal-tab:hover,
+.typecho-postpilot-modal-tab:focus {
   background: #f0f0f0;
   color: #222;
   outline: none;
 }
-.typecho-scribe-modal-tab.active {
+.typecho-postpilot-modal-tab.active {
   background: #467b96;
   color: #fff;
 }
-.typecho-scribe-modal-close {
+.typecho-postpilot-modal-close {
   border: 0;
   background: none;
   padding: 2px 8px;
@@ -1242,17 +1242,17 @@ function editorHtml(contentType: ContentType): string {
   color: #888;
   cursor: pointer;
 }
-.typecho-scribe-modal-close:hover {
+.typecho-postpilot-modal-close:hover {
   color: #333;
 }
-.typecho-scribe-modal-body {
+.typecho-postpilot-modal-body {
   position: relative;
   flex: 0 0 auto;
   height: 42vh;
   min-height: 200px;
   margin: 12px 16px 0;
 }
-.typecho-scribe-modal-write {
+.typecho-postpilot-modal-write {
   box-sizing: border-box;
   width: 100%;
   height: 100%;
@@ -1266,11 +1266,11 @@ function editorHtml(contentType: ContentType): string {
   white-space: pre-wrap;
   word-break: break-word;
 }
-.typecho-scribe-modal-write:focus {
+.typecho-postpilot-modal-write:focus {
   border-color: #467b96;
   outline: none;
 }
-.typecho-scribe-modal-preview {
+.typecho-postpilot-modal-preview {
   box-sizing: border-box;
   width: 100%;
   height: 100%;
@@ -1285,13 +1285,13 @@ function editorHtml(contentType: ContentType): string {
   line-height: 1.7;
   color: #333;
 }
-.typecho-scribe-modal-compare {
+.typecho-postpilot-modal-compare {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
   height: 100%;
 }
-.typecho-scribe-modal-compare-pane {
+.typecho-postpilot-modal-compare-pane {
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -1300,7 +1300,7 @@ function editorHtml(contentType: ContentType): string {
   background: #fff;
   overflow: hidden;
 }
-.typecho-scribe-modal-compare-label {
+.typecho-postpilot-modal-compare-label {
   padding: 6px 10px;
   font-size: 12px;
   color: #666;
@@ -1308,7 +1308,7 @@ function editorHtml(contentType: ContentType): string {
   background: #fafafa;
   user-select: none;
 }
-.typecho-scribe-modal-compare-content {
+.typecho-postpilot-modal-compare-content {
   flex: 1;
   overflow-y: auto;
   padding: 10px 12px;
@@ -1318,23 +1318,23 @@ function editorHtml(contentType: ContentType): string {
   line-height: 1.7;
   color: #333;
 }
-.typecho-scribe-modal-compare-content.typecho-scribe-modal-compare-empty {
+.typecho-postpilot-modal-compare-content.typecho-postpilot-modal-compare-empty {
   color: #999;
 }
-.typecho-scribe-diff-del {
+.typecho-postpilot-diff-del {
   padding: 0 1px;
   border-radius: 2px;
   background: #ffe3e3;
   color: #b3382c;
   text-decoration: line-through;
 }
-.typecho-scribe-diff-ins {
+.typecho-postpilot-diff-ins {
   padding: 0 1px;
   border-radius: 2px;
   background: #ddf3dd;
   color: #257a25;
 }
-.typecho-scribe-modal-compare-md {
+.typecho-postpilot-modal-compare-md {
   width: 100%;
   height: 100%;
   margin: 0;
@@ -1344,7 +1344,7 @@ function editorHtml(contentType: ContentType): string {
   font: 13px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
   color: #333;
 }
-.typecho-scribe-diff-note {
+.typecho-postpilot-diff-note {
   padding: 4px 8px;
   margin-bottom: 8px;
   font-size: 12px;
@@ -1353,16 +1353,16 @@ function editorHtml(contentType: ContentType): string {
   border: 1px dashed #ddd;
   border-radius: 2px;
 }
-.typecho-scribe-tab-hidden {
+.typecho-postpilot-tab-hidden {
   display: none !important;
 }
-.typecho-scribe-modal-followup {
+.typecho-postpilot-modal-followup {
   display: flex;
   flex-direction: column;
   gap: 4px;
   padding: 8px 16px;
 }
-.typecho-scribe-modal-followup-input {
+.typecho-postpilot-modal-followup-input {
   box-sizing: border-box;
   width: 100%;
   min-height: 56px;
@@ -1375,27 +1375,27 @@ function editorHtml(contentType: ContentType): string {
   color: #333;
   font: 13px/1.5 inherit;
 }
-.typecho-scribe-modal-followup-input:focus {
+.typecho-postpilot-modal-followup-input:focus {
   border-color: #467b96;
   outline: none;
 }
-.typecho-scribe-modal-followup-input::placeholder {
+.typecho-postpilot-modal-followup-input::placeholder {
   color: #999;
 }
-.typecho-scribe-modal-followup-hint {
+.typecho-postpilot-modal-followup-hint {
   font-size: 12px;
   color: #999;
   user-select: none;
 }
-.typecho-scribe-modal-status {
+.typecho-postpilot-modal-status {
   flex: 1;
   font-size: 12px;
   color: #666;
 }
-.typecho-scribe-modal-status-error {
+.typecho-postpilot-modal-status-error {
   color: #c33;
 }
-.typecho-scribe-modal-footer {
+.typecho-postpilot-modal-footer {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -1403,63 +1403,63 @@ function editorHtml(contentType: ContentType): string {
   padding: 12px 16px;
   border-top: 1px solid #e5e5e5;
 }
-.typecho-scribe-modal-confirm[disabled] {
+.typecho-postpilot-modal-confirm[disabled] {
   opacity: .5;
   cursor: default;
 }
 
-.typecho-scribe-fallback-btn svg {
+.typecho-postpilot-fallback-btn svg {
   display: block;
   width: 16px;
   height: 16px;
 }
 </style>
-<div class="typecho-scribe" data-content-type="${contentType}" hidden>
-  <span class="typecho-scribe-fallback-actions"></span>
+<div class="typecho-postpilot" data-content-type="${contentType}" hidden>
+  <span class="typecho-postpilot-fallback-actions"></span>
 </div>
-<div class="typecho-scribe-modal" aria-hidden="true">
-  <div class="typecho-scribe-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="typecho-scribe-modal-title">
-    <div class="typecho-scribe-modal-header">
-      <span class="typecho-scribe-modal-title" id="typecho-scribe-modal-title">AI 预览</span>
-      <div class="typecho-scribe-modal-tabs" role="tablist" aria-label="预览模式">
-        <button type="button" class="typecho-scribe-modal-tab active" data-scribe-tab="write" role="tab" aria-selected="true">撰写</button>
-        <button type="button" class="typecho-scribe-modal-tab" data-scribe-tab="preview" role="tab" aria-selected="false">预览</button>
-        <button type="button" class="typecho-scribe-modal-tab" data-scribe-tab="compare" role="tab" aria-selected="false">比对</button>
+<div class="typecho-postpilot-modal" aria-hidden="true">
+  <div class="typecho-postpilot-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="typecho-postpilot-modal-title">
+    <div class="typecho-postpilot-modal-header">
+      <span class="typecho-postpilot-modal-title" id="typecho-postpilot-modal-title">AI 预览</span>
+      <div class="typecho-postpilot-modal-tabs" role="tablist" aria-label="预览模式">
+        <button type="button" class="typecho-postpilot-modal-tab active" data-postpilot-tab="write" role="tab" aria-selected="true">撰写</button>
+        <button type="button" class="typecho-postpilot-modal-tab" data-postpilot-tab="preview" role="tab" aria-selected="false">预览</button>
+        <button type="button" class="typecho-postpilot-modal-tab" data-postpilot-tab="compare" role="tab" aria-selected="false">比对</button>
       </div>
-      <button type="button" class="typecho-scribe-modal-close" aria-label="关闭预览">&times;</button>
+      <button type="button" class="typecho-postpilot-modal-close" aria-label="关闭预览">&times;</button>
     </div>
-    <div class="typecho-scribe-modal-body">
-      <textarea class="typecho-scribe-modal-write mono" spellcheck="false" aria-label="AI 生成内容"></textarea>
-      <div class="typecho-scribe-modal-preview wmd-preview typecho-scribe-tab-hidden" role="status" aria-live="polite"></div>
-      <div class="typecho-scribe-modal-compare typecho-scribe-tab-hidden">
-        <div class="typecho-scribe-modal-compare-pane">
-          <div class="typecho-scribe-modal-compare-label">原文</div>
-          <div class="typecho-scribe-modal-compare-content typecho-scribe-modal-compare-original"></div>
+    <div class="typecho-postpilot-modal-body">
+      <textarea class="typecho-postpilot-modal-write mono" spellcheck="false" aria-label="AI 生成内容"></textarea>
+      <div class="typecho-postpilot-modal-preview wmd-preview typecho-postpilot-tab-hidden" role="status" aria-live="polite"></div>
+      <div class="typecho-postpilot-modal-compare typecho-postpilot-tab-hidden">
+        <div class="typecho-postpilot-modal-compare-pane">
+          <div class="typecho-postpilot-modal-compare-label">原文</div>
+          <div class="typecho-postpilot-modal-compare-content typecho-postpilot-modal-compare-original"></div>
         </div>
-        <div class="typecho-scribe-modal-compare-pane">
-          <div class="typecho-scribe-modal-compare-label">AI 生成</div>
-          <div class="typecho-scribe-modal-compare-content typecho-scribe-modal-compare-generated"></div>
+        <div class="typecho-postpilot-modal-compare-pane">
+          <div class="typecho-postpilot-modal-compare-label">AI 生成</div>
+          <div class="typecho-postpilot-modal-compare-content typecho-postpilot-modal-compare-generated"></div>
         </div>
       </div>
     </div>
-    <div class="typecho-scribe-modal-followup">
-      <textarea class="typecho-scribe-modal-followup-input" placeholder="输入调整要求，发送后 AI 将结合原文与当前结果继续调整，结果实时显示在上方"></textarea>
-      <span class="typecho-scribe-modal-followup-hint">Enter 发送 · Shift+Enter 换行</span>
+    <div class="typecho-postpilot-modal-followup">
+      <textarea class="typecho-postpilot-modal-followup-input" placeholder="输入调整要求，发送后 AI 将结合原文与当前结果继续调整，结果实时显示在上方"></textarea>
+      <span class="typecho-postpilot-modal-followup-hint">Enter 发送 · Shift+Enter 换行</span>
     </div>
-    <div class="typecho-scribe-modal-footer">
-      <div class="typecho-scribe-modal-status" role="status" aria-live="polite"></div>
-      <button type="button" class="btn typecho-scribe-modal-cancel">取消</button>
-      <button type="button" class="btn primary typecho-scribe-modal-confirm" disabled>确定</button>
+    <div class="typecho-postpilot-modal-footer">
+      <div class="typecho-postpilot-modal-status" role="status" aria-live="polite"></div>
+      <button type="button" class="btn typecho-postpilot-modal-cancel">取消</button>
+      <button type="button" class="btn primary typecho-postpilot-modal-confirm" disabled>确定</button>
     </div>
   </div>
 </div>
 <script is:inline>
 (function() {
-  if (window.__typechoScribeReady) return;
-  window.__typechoScribeReady = true;
+  if (window.__typechoPostPilotReady) return;
+  window.__typechoPostPilotReady = true;
 
   function clearAdminNotice() {
-    var notice = document.querySelector('.typecho-scribe-notice');
+    var notice = document.querySelector('.typecho-postpilot-notice');
     if (notice && notice.parentNode) {
       notice.parentNode.removeChild(notice);
     }
@@ -1470,7 +1470,7 @@ function editorHtml(contentType: ContentType): string {
 
     var notice = document.createElement('div');
     var isError = type === 'error';
-    notice.className = 'typecho-scribe-notice typecho-option-tabs notice typecho-dismissible ' + (isError ? 'notice-error' : 'notice-success');
+    notice.className = 'typecho-postpilot-notice typecho-option-tabs notice typecho-dismissible ' + (isError ? 'notice-error' : 'notice-success');
     notice.style.padding = '10px 15px';
     notice.style.marginBottom = '20px';
     notice.style.borderRadius = '3px';
@@ -1503,15 +1503,15 @@ function editorHtml(contentType: ContentType): string {
     notice.scrollIntoView({ block: 'start', behavior: 'smooth' });
   }
 
-  var SCRIBE_ICON = '<span class="typecho-scribe-toolbar-icon" aria-hidden="true">AI</span>';
+  var POSTPILOT_ICON = '<span class="typecho-postpilot-toolbar-icon" aria-hidden="true">AI</span>';
   var MODE_ICONS = {
     generate: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>',
     polish: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
     correct: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 10 2 2 4-4"/><rect width="20" height="20" x="2" y="2" rx="4" opacity=".25"/><path d="M20.5 2.5 15 20 9 17l-5.5 3L6 14Z"/></svg>'
   };
-  var scribeButtons = [];
+  var postPilotButtons = [];
   var MODE_LABELS = { generate: '生成', polish: '润色', correct: '纠错' };
-  var WRITING_STORAGE_KEY = 'typecho-scribe-writing-settings';
+  var WRITING_STORAGE_KEY = 'typecho-postpilot-writing-settings';
   var WRITING_DEFAULTS = {
     userPrompt: '',
     outputLanguage: 'auto',
@@ -1562,11 +1562,11 @@ function editorHtml(contentType: ContentType): string {
     if (!container) return settings;
 
     function fieldValue(name, fallback) {
-      var field = container.querySelector('[data-scribe-setting="' + name + '"]');
+      var field = container.querySelector('[data-postpilot-setting="' + name + '"]');
       return field ? field.value : fallback;
     }
 
-    var checkbox = container.querySelector('[data-scribe-setting="includeBodyAssets"]');
+    var checkbox = container.querySelector('[data-postpilot-setting="includeBodyAssets"]');
     return {
       userPrompt: fieldValue('userPrompt', settings.userPrompt),
       outputLanguage: validStoredValue(fieldValue('outputLanguage', settings.outputLanguage), OUTPUT_LANGUAGE_OPTIONS, settings.outputLanguage),
@@ -1580,8 +1580,8 @@ function editorHtml(contentType: ContentType): string {
 
   function applyWritingSettings(root, settings) {
     if (!root) return;
-    root.querySelectorAll('[data-scribe-setting]').forEach(function(field) {
-      var name = field.getAttribute('data-scribe-setting');
+    root.querySelectorAll('[data-postpilot-setting]').forEach(function(field) {
+      var name = field.getAttribute('data-postpilot-setting');
       if (name === 'includeBodyAssets') {
         field.checked = settings.includeBodyAssets === true;
         return;
@@ -1619,7 +1619,7 @@ function editorHtml(contentType: ContentType): string {
 
   function renderMarkdown(text) {
     var source = String(text == null ? '' : text);
-    if (!source) return '<p class="typecho-scribe-modal-compare-empty">（无内容）</p>';
+    if (!source) return '<p class="typecho-postpilot-modal-compare-empty">（无内容）</p>';
     if (window.HyperDown && window.DOMPurify) {
       try {
         var converter = new window.HyperDown();
@@ -1633,33 +1633,33 @@ function editorHtml(contentType: ContentType): string {
     return '<p>' + escapeHtmlText(source).replace(/\\n/g, '<br>') + '</p>';
   }
 
-${SCRIBE_DIFF_ALGO_JS}
+${POSTPILOT_DIFF_ALGO_JS}
 
   function setModalTab(tab) {
     previewState.tab = tab;
-    var modal = document.querySelector('.typecho-scribe-modal');
+    var modal = document.querySelector('.typecho-postpilot-modal');
     if (!modal) return;
-    modal.querySelectorAll('.typecho-scribe-modal-tab').forEach(function(button) {
-      var isActive = button.getAttribute('data-scribe-tab') === tab;
+    modal.querySelectorAll('.typecho-postpilot-modal-tab').forEach(function(button) {
+      var isActive = button.getAttribute('data-postpilot-tab') === tab;
       button.classList.toggle('active', isActive);
       button.setAttribute('aria-selected', isActive ? 'true' : 'false');
     });
-    var writeEl = modal.querySelector('.typecho-scribe-modal-write');
-    var previewEl = modal.querySelector('.typecho-scribe-modal-preview');
-    var compareEl = modal.querySelector('.typecho-scribe-modal-compare');
-    writeEl.classList.toggle('typecho-scribe-tab-hidden', tab !== 'write');
-    previewEl.classList.toggle('typecho-scribe-tab-hidden', tab !== 'preview');
-    compareEl.classList.toggle('typecho-scribe-tab-hidden', tab !== 'compare');
+    var writeEl = modal.querySelector('.typecho-postpilot-modal-write');
+    var previewEl = modal.querySelector('.typecho-postpilot-modal-preview');
+    var compareEl = modal.querySelector('.typecho-postpilot-modal-compare');
+    writeEl.classList.toggle('typecho-postpilot-tab-hidden', tab !== 'write');
+    previewEl.classList.toggle('typecho-postpilot-tab-hidden', tab !== 'preview');
+    compareEl.classList.toggle('typecho-postpilot-tab-hidden', tab !== 'compare');
     renderModalViews();
   }
 
   function renderModalViews() {
-    var modal = document.querySelector('.typecho-scribe-modal');
+    var modal = document.querySelector('.typecho-postpilot-modal');
     if (!modal || !previewState.open) return;
-    var writeEl = modal.querySelector('.typecho-scribe-modal-write');
-    var previewEl = modal.querySelector('.typecho-scribe-modal-preview');
-    var originalEl = modal.querySelector('.typecho-scribe-modal-compare-original');
-    var generatedEl = modal.querySelector('.typecho-scribe-modal-compare-generated');
+    var writeEl = modal.querySelector('.typecho-postpilot-modal-write');
+    var previewEl = modal.querySelector('.typecho-postpilot-modal-preview');
+    var originalEl = modal.querySelector('.typecho-postpilot-modal-compare-original');
+    var generatedEl = modal.querySelector('.typecho-postpilot-modal-compare-generated');
     // 用户已开始手动编辑时，以 textarea 内容为准，流式内容不再覆盖。
     var text = previewState.userEdited ? writeEl.value : previewState.currentText;
     if (!previewState.userEdited) {
@@ -1673,15 +1673,15 @@ ${SCRIBE_DIFF_ALGO_JS}
   }
 
   // 比对页签：纯 markdown 源码对比。行级/词级 diff 标记文本经 HTML 转义后
-  // 由 scribeRestoreMarks 还原为高亮 span——只产生文本节点内的 span，
+  // 由 postPilotRestoreMarks 还原为高亮 span——只产生文本节点内的 span，
   // 任何 markdown 语法（引用式图片/链接、分割线、表格、代码块）都不会被破坏；
   // 渲染效果由「预览」页签查看
   function renderComparePanes(originalEl, generatedEl, oldText, newText) {
-    var diff = scribeDiffMarkup(oldText || '', newText || '');
+    var diff = postPilotDiffMarkup(oldText || '', newText || '');
     if (!diff.hasDiff) {
-      var note = '<div class="typecho-scribe-diff-note">内容无差异</div>';
-      originalEl.innerHTML = note + '<pre class="typecho-scribe-modal-compare-md">' + escapeHtmlText(oldText) + '</pre>';
-      generatedEl.innerHTML = note + '<pre class="typecho-scribe-modal-compare-md">' + escapeHtmlText(newText) + '</pre>';
+      var note = '<div class="typecho-postpilot-diff-note">内容无差异</div>';
+      originalEl.innerHTML = note + '<pre class="typecho-postpilot-modal-compare-md">' + escapeHtmlText(oldText) + '</pre>';
+      generatedEl.innerHTML = note + '<pre class="typecho-postpilot-modal-compare-md">' + escapeHtmlText(newText) + '</pre>';
       return;
     }
     var oldHtml = '';
@@ -1692,12 +1692,12 @@ ${SCRIBE_DIFF_ALGO_JS}
         oldHtml += escapeHtmlText(block.old);
         newHtml += escapeHtmlText(block.new);
       } else {
-        oldHtml += scribeRestoreMarks(escapeHtmlText(block.old));
-        newHtml += scribeRestoreMarks(escapeHtmlText(block.new));
+        oldHtml += postPilotRestoreMarks(escapeHtmlText(block.old));
+        newHtml += postPilotRestoreMarks(escapeHtmlText(block.new));
       }
     }
-    originalEl.innerHTML = '<pre class="typecho-scribe-modal-compare-md">' + oldHtml + '</pre>';
-    generatedEl.innerHTML = '<pre class="typecho-scribe-modal-compare-md">' + newHtml + '</pre>';
+    originalEl.innerHTML = '<pre class="typecho-postpilot-modal-compare-md">' + oldHtml + '</pre>';
+    generatedEl.innerHTML = '<pre class="typecho-postpilot-modal-compare-md">' + newHtml + '</pre>';
     // 内容重渲染后（流式/编辑变化）按最近滚动源恢复同步，避免两侧比例漂移
     if (compareScrollSource === generatedEl) {
       syncCompareScroll(generatedEl, originalEl);
@@ -1732,11 +1732,11 @@ ${SCRIBE_DIFF_ALGO_JS}
   }
 
   function scrollActiveViewToBottom() {
-    var modal = document.querySelector('.typecho-scribe-modal');
+    var modal = document.querySelector('.typecho-postpilot-modal');
     if (!modal) return;
-    var el = modal.querySelector('.typecho-scribe-modal-write:not(.typecho-scribe-tab-hidden)')
-      || modal.querySelector('.typecho-scribe-modal-preview:not(.typecho-scribe-tab-hidden)')
-      || modal.querySelector('.typecho-scribe-modal-compare-generated');
+    var el = modal.querySelector('.typecho-postpilot-modal-write:not(.typecho-postpilot-tab-hidden)')
+      || modal.querySelector('.typecho-postpilot-modal-preview:not(.typecho-postpilot-tab-hidden)')
+      || modal.querySelector('.typecho-postpilot-modal-compare-generated');
     if (el) el.scrollTop = el.scrollHeight;
   }
 
@@ -1745,8 +1745,8 @@ ${SCRIBE_DIFF_ALGO_JS}
   }
 
   function updateModalControls() {
-    var confirmBtn = document.querySelector('.typecho-scribe-modal-confirm');
-    var writeEl = document.querySelector('.typecho-scribe-modal-write');
+    var confirmBtn = document.querySelector('.typecho-postpilot-modal-confirm');
+    var writeEl = document.querySelector('.typecho-postpilot-modal-write');
     var hasText = previewState.userEdited
       ? !!writeEl.value.trim()
       : !!previewState.currentText;
@@ -1755,10 +1755,10 @@ ${SCRIBE_DIFF_ALGO_JS}
   }
 
   function setModalStreaming(streaming, label) {
-    var statusEl = document.querySelector('.typecho-scribe-modal-status');
+    var statusEl = document.querySelector('.typecho-postpilot-modal-status');
     if (streaming) {
       statusEl.textContent = label || 'AI 正在生成...';
-      statusEl.classList.remove('typecho-scribe-modal-status-error');
+      statusEl.classList.remove('typecho-postpilot-modal-status-error');
       statusEl.classList.add('loading');
     } else {
       statusEl.classList.remove('loading');
@@ -1767,28 +1767,28 @@ ${SCRIBE_DIFF_ALGO_JS}
   }
 
   function showModalStatus(message) {
-    var statusEl = document.querySelector('.typecho-scribe-modal-status');
+    var statusEl = document.querySelector('.typecho-postpilot-modal-status');
     statusEl.textContent = message || '';
-    statusEl.classList.remove('typecho-scribe-modal-status-error');
+    statusEl.classList.remove('typecho-postpilot-modal-status-error');
     statusEl.classList.remove('loading');
     updateModalControls();
   }
 
   function showModalError(message) {
-    var statusEl = document.querySelector('.typecho-scribe-modal-status');
+    var statusEl = document.querySelector('.typecho-postpilot-modal-status');
     statusEl.textContent = message || 'AI 写作失败';
-    statusEl.classList.add('typecho-scribe-modal-status-error');
+    statusEl.classList.add('typecho-postpilot-modal-status-error');
     statusEl.classList.remove('loading');
     updateModalControls();
   }
 
   function openPreviewModal(mode) {
-    var modal = document.querySelector('.typecho-scribe-modal');
-    modal.querySelector('.typecho-scribe-modal-title').textContent = 'AI ' + modeLabel(mode) + '预览';
+    var modal = document.querySelector('.typecho-postpilot-modal');
+    modal.querySelector('.typecho-postpilot-modal-title').textContent = 'AI ' + modeLabel(mode) + '预览';
     modal.setAttribute('aria-hidden', 'false');
     previewState.open = true;
     previewState.userEdited = false;
-    closeScribeMenus();
+    closePostPilotMenus();
     setModalTab('write');
   }
 
@@ -1797,16 +1797,16 @@ ${SCRIBE_DIFF_ALGO_JS}
     if (abort && previewState.controller) {
       previewState.controller.abort();
     }
-    var modal = document.querySelector('.typecho-scribe-modal');
+    var modal = document.querySelector('.typecho-postpilot-modal');
     modal.setAttribute('aria-hidden', 'true');
-    modal.querySelector('.typecho-scribe-modal-write').value = '';
-    modal.querySelector('.typecho-scribe-modal-preview').innerHTML = '';
-    modal.querySelector('.typecho-scribe-modal-compare-original').innerHTML = '';
-    modal.querySelector('.typecho-scribe-modal-compare-generated').innerHTML = '';
-    modal.querySelector('.typecho-scribe-modal-followup-input').value = '';
-    modal.querySelector('.typecho-scribe-modal-status').textContent = '';
-    modal.querySelector('.typecho-scribe-modal-status').classList.remove('typecho-scribe-modal-status-error');
-    modal.querySelector('.typecho-scribe-modal-status').classList.remove('loading');
+    modal.querySelector('.typecho-postpilot-modal-write').value = '';
+    modal.querySelector('.typecho-postpilot-modal-preview').innerHTML = '';
+    modal.querySelector('.typecho-postpilot-modal-compare-original').innerHTML = '';
+    modal.querySelector('.typecho-postpilot-modal-compare-generated').innerHTML = '';
+    modal.querySelector('.typecho-postpilot-modal-followup-input').value = '';
+    modal.querySelector('.typecho-postpilot-modal-status').textContent = '';
+    modal.querySelector('.typecho-postpilot-modal-status').classList.remove('typecho-postpilot-modal-status-error');
+    modal.querySelector('.typecho-postpilot-modal-status').classList.remove('loading');
     previewState.open = false;
     previewState.controller = null;
     previewState.userEdited = false;
@@ -2023,7 +2023,7 @@ ${SCRIBE_DIFF_ALGO_JS}
   }
 
   function buildActionPayload(csrfToken) {
-    var writeEl = document.querySelector('.typecho-scribe-modal-write');
+    var writeEl = document.querySelector('.typecho-postpilot-modal-write');
     var body = writeEl && writeEl.value.trim()
       ? writeEl.value
       : (previewState.currentText || previewState.oldText);
@@ -2035,7 +2035,7 @@ ${SCRIBE_DIFF_ALGO_JS}
       attachmentIds: Array.prototype.slice.call(document.querySelectorAll('input[name="attachment[]"]')).map(function(input) {
         return input.value || '';
       }),
-      writingOptions: collectWritingSettings(previewState.box.querySelector('.typecho-scribe-menu') || previewState.box)
+      writingOptions: collectWritingSettings(previewState.box.querySelector('.typecho-postpilot-menu') || previewState.box)
     };
     if (previewState.followUpPrompt) {
       payload.originalBody = previewState.oldText;
@@ -2056,7 +2056,7 @@ ${SCRIBE_DIFF_ALGO_JS}
     // 先构建请求载荷：body 取当前 textarea 内容（上次 AI 结果或用户编辑后的内容），
     // 再清空展示区开始新一轮流式生成，避免 continue 模式把原文误当当前结果发送。
     var requestBody = JSON.stringify(buildActionPayload(csrf.value));
-    var writeEl = document.querySelector('.typecho-scribe-modal-write');
+    var writeEl = document.querySelector('.typecho-postpilot-modal-write');
     writeEl.value = '';
     previewState.currentText = '';
     previewState.userEdited = false;
@@ -2095,7 +2095,7 @@ ${SCRIBE_DIFF_ALGO_JS}
 
   function sendFollowUp() {
     if (!previewState.open || previewState.streaming || previewState.error) return;
-    var input = document.querySelector('.typecho-scribe-modal-followup-input');
+    var input = document.querySelector('.typecho-postpilot-modal-followup-input');
     var prompt = input.value.trim();
     if (!prompt) return;
     previewState.followUpPrompt = prompt;
@@ -2105,7 +2105,7 @@ ${SCRIBE_DIFF_ALGO_JS}
 
   function confirmInsert() {
     if (!previewState.open || previewState.streaming || previewState.error) return;
-    var writeEl = document.querySelector('.typecho-scribe-modal-write');
+    var writeEl = document.querySelector('.typecho-postpilot-modal-write');
     if (!writeEl.value.trim() && !previewState.currentText) return;
     var text = document.getElementById('text');
     // 用户手动编辑过，则直接采用 textarea 内容；否则走智能合并。
@@ -2120,7 +2120,7 @@ ${SCRIBE_DIFF_ALGO_JS}
     showAdminNotice('AI ' + modeLabel(mode) + '完成', 'success');
   }
 
-  async function runScribe(box, button, requestedMode) {
+  async function runPostPilot(box, button, requestedMode) {
     if (button && button.getAttribute('aria-disabled') === 'true') return;
 
     var title = document.getElementById('title');
@@ -2152,34 +2152,34 @@ ${SCRIBE_DIFF_ALGO_JS}
     await startStream();
   }
 
-  var scribeMenuOpen = false;
+  var postPilotMenuOpen = false;
 
-  function closeScribeMenus() {
-    if (!scribeMenuOpen) return;
-    scribeMenuOpen = false;
-    document.querySelectorAll('.typecho-scribe-menu').forEach(function(menu) {
+  function closePostPilotMenus() {
+    if (!postPilotMenuOpen) return;
+    postPilotMenuOpen = false;
+    document.querySelectorAll('.typecho-postpilot-menu').forEach(function(menu) {
       menu.setAttribute('aria-hidden', 'true');
     });
-    document.querySelectorAll('.typecho-scribe-menu-trigger').forEach(function(trigger) {
+    document.querySelectorAll('.typecho-postpilot-menu-trigger').forEach(function(trigger) {
       trigger.setAttribute('aria-expanded', 'false');
     });
   }
 
-  function toggleScribeMenu(trigger) {
+  function togglePostPilotMenu(trigger) {
     if (!trigger || trigger.getAttribute('aria-disabled') === 'true') return;
-    var menu = trigger.querySelector('.typecho-scribe-menu');
+    var menu = trigger.querySelector('.typecho-postpilot-menu');
     if (!menu) return;
     var willOpen = menu.getAttribute('aria-hidden') !== 'false';
-    closeScribeMenus();
+    closePostPilotMenus();
     menu.setAttribute('aria-hidden', willOpen ? 'false' : 'true');
     trigger.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
-    scribeMenuOpen = willOpen;
+    postPilotMenuOpen = willOpen;
   }
 
   function createMenuButton(box, mode, title) {
     var button = document.createElement('button');
     button.type = 'button';
-    button.className = 'btn typecho-scribe-menu-button';
+    button.className = 'btn typecho-postpilot-menu-button';
     button.innerHTML = (MODE_ICONS[mode] || '') + '<span>' + title + '</span>';
     button.title = title;
     button.setAttribute('aria-label', title);
@@ -2187,24 +2187,24 @@ ${SCRIBE_DIFF_ALGO_JS}
     button.addEventListener('click', function(event) {
       event.preventDefault();
       event.stopPropagation();
-      closeScribeMenus();
-      runScribe(box, button, mode);
+      closePostPilotMenus();
+      runPostPilot(box, button, mode);
     });
-    scribeButtons.push(button);
+    postPilotButtons.push(button);
     return button;
   }
 
   function createWritingSettings(box) {
     var settings = document.createElement('div');
-    settings.className = 'typecho-scribe-writing-settings';
+    settings.className = 'typecho-postpilot-writing-settings';
     settings.innerHTML = [
-      '<div class="typecho-scribe-setting">',
-      '<label for="typecho-scribe-user-prompt">User Prompt</label>',
-      '<textarea id="typecho-scribe-user-prompt" data-scribe-setting="userPrompt" rows="3"></textarea>',
+      '<div class="typecho-postpilot-setting">',
+      '<label for="typecho-postpilot-user-prompt">User Prompt</label>',
+      '<textarea id="typecho-postpilot-user-prompt" data-postpilot-setting="userPrompt" rows="3"></textarea>',
       '</div>',
-      '<div class="typecho-scribe-setting">',
-      '<label for="typecho-scribe-output-language">输出语言</label>',
-      '<select id="typecho-scribe-output-language" data-scribe-setting="outputLanguage">',
+      '<div class="typecho-postpilot-setting">',
+      '<label for="typecho-postpilot-output-language">输出语言</label>',
+      '<select id="typecho-postpilot-output-language" data-postpilot-setting="outputLanguage">',
       '<option value="auto">自动判断</option>',
       '<option value="zh-CN">简体中文</option>',
       '<option value="zh-TW">繁体中文</option>',
@@ -2213,39 +2213,39 @@ ${SCRIBE_DIFF_ALGO_JS}
       '<option value="ko">한국어</option>',
       '</select>',
       '</div>',
-      '<details class="typecho-scribe-advanced">',
+      '<details class="typecho-postpilot-advanced">',
       '<summary>高级设置</summary>',
-      '<div class="typecho-scribe-advanced-fields">',
-      '<div class="typecho-scribe-setting">',
-      '<label for="typecho-scribe-style-post-count">参考历史文章</label>',
-      '<select id="typecho-scribe-style-post-count" data-scribe-setting="stylePostCount">',
+      '<div class="typecho-postpilot-advanced-fields">',
+      '<div class="typecho-postpilot-setting">',
+      '<label for="typecho-postpilot-style-post-count">参考历史文章</label>',
+      '<select id="typecho-postpilot-style-post-count" data-postpilot-setting="stylePostCount">',
       '<option value="0">不参考</option>',
       '<option value="5">5</option>',
       '<option value="10">10</option>',
       '</select>',
       '</div>',
-      '<div class="typecho-scribe-setting">',
-      '<label for="typecho-scribe-target-audience">目标读者</label>',
-      '<input type="text" id="typecho-scribe-target-audience" data-scribe-setting="targetAudience">',
+      '<div class="typecho-postpilot-setting">',
+      '<label for="typecho-postpilot-target-audience">目标读者</label>',
+      '<input type="text" id="typecho-postpilot-target-audience" data-postpilot-setting="targetAudience">',
       '</div>',
-      '<div class="typecho-scribe-setting">',
-      '<label for="typecho-scribe-length-preset">篇幅策略</label>',
-      '<select id="typecho-scribe-length-preset" data-scribe-setting="lengthPreset">',
+      '<div class="typecho-postpilot-setting">',
+      '<label for="typecho-postpilot-length-preset">篇幅策略</label>',
+      '<select id="typecho-postpilot-length-preset" data-postpilot-setting="lengthPreset">',
       '<option value="concise">偏短</option>',
       '<option value="balanced">标准</option>',
       '<option value="detailed">深入</option>',
       '</select>',
       '</div>',
-      '<div class="typecho-scribe-setting">',
-      '<label for="typecho-scribe-fact-policy">事实策略</label>',
-      '<select id="typecho-scribe-fact-policy" data-scribe-setting="factPolicy">',
+      '<div class="typecho-postpilot-setting">',
+      '<label for="typecho-postpilot-fact-policy">事实策略</label>',
+      '<select id="typecho-postpilot-fact-policy" data-postpilot-setting="factPolicy">',
       '<option value="conservative">实事求是</option>',
       '<option value="assumptive">头脑风暴</option>',
       '</select>',
       '</div>',
-      '<div class="typecho-scribe-setting typecho-scribe-setting-wide">',
-      '<label class="typecho-scribe-checkbox">',
-      '<input type="checkbox" data-scribe-setting="includeBodyAssets">',
+      '<div class="typecho-postpilot-setting typecho-postpilot-setting-wide">',
+      '<label class="typecho-postpilot-checkbox">',
+      '<input type="checkbox" data-postpilot-setting="includeBodyAssets">',
       '<span>发送正文图片和附件</span>',
       '</label>',
       '</div>',
@@ -2254,7 +2254,7 @@ ${SCRIBE_DIFF_ALGO_JS}
     ].join('');
 
     function persist(event) {
-      if (event.target && event.target.hasAttribute('data-scribe-setting')) {
+      if (event.target && event.target.hasAttribute('data-postpilot-setting')) {
         saveWritingSettings(collectWritingSettings(settings));
       }
     }
@@ -2264,16 +2264,16 @@ ${SCRIBE_DIFF_ALGO_JS}
     return settings;
   }
 
-  function createScribeMenu(box) {
+  function createPostPilotMenu(box) {
     var menu = document.createElement('div');
-    menu.className = 'typecho-scribe-menu';
+    menu.className = 'typecho-postpilot-menu';
     menu.setAttribute('role', 'menu');
     menu.setAttribute('aria-hidden', 'true');
     menu.addEventListener('click', function(event) {
       event.stopPropagation();
     });
     var actions = document.createElement('div');
-    actions.className = 'typecho-scribe-menu-actions';
+    actions.className = 'typecho-postpilot-menu-actions';
     Object.keys(MODE_LABELS).forEach(function(mode) {
       actions.appendChild(createMenuButton(box, mode, MODE_LABELS[mode]));
     });
@@ -2284,79 +2284,79 @@ ${SCRIBE_DIFF_ALGO_JS}
 
   function createToolbarButton(box) {
     var item = document.createElement('li');
-    item.id = 'wmd-scribe-button';
-    item.className = 'wmd-button typecho-scribe-toolbar-button typecho-scribe-menu-trigger';
+    item.id = 'wmd-postpilot-button';
+    item.className = 'wmd-button typecho-postpilot-toolbar-button typecho-postpilot-menu-trigger';
     item.title = '写作';
     item.tabIndex = 0;
     item.setAttribute('role', 'button');
     item.setAttribute('aria-label', '写作');
     item.setAttribute('aria-haspopup', 'menu');
     item.setAttribute('aria-expanded', 'false');
-    item.innerHTML = SCRIBE_ICON;
-    item.appendChild(createScribeMenu(box));
+    item.innerHTML = POSTPILOT_ICON;
+    item.appendChild(createPostPilotMenu(box));
     item.addEventListener('click', function(event) {
       event.preventDefault();
       event.stopPropagation();
-      toggleScribeMenu(item);
+      togglePostPilotMenu(item);
     });
     item.addEventListener('keydown', function(event) {
       // Key events from form controls inside the menu (e.g. the userPrompt
       // textarea) bubble up to this trigger; let Enter insert newlines and
       // Space type normally instead of toggling the menu.
-      if (event.target && event.target.closest && event.target.closest('.typecho-scribe-menu')) return;
+      if (event.target && event.target.closest && event.target.closest('.typecho-postpilot-menu')) return;
       if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault();
-        toggleScribeMenu(item);
+        togglePostPilotMenu(item);
       } else if (event.key === 'Escape') {
-        closeScribeMenus();
+        closePostPilotMenus();
       }
     });
-    scribeButtons.push(item);
+    postPilotButtons.push(item);
     return item;
   }
 
   function createFallbackButton(box) {
-    var actions = box.querySelector('.typecho-scribe-fallback-actions');
-    if (!actions || actions.querySelector('.typecho-scribe-fallback-btn')) return;
+    var actions = box.querySelector('.typecho-postpilot-fallback-actions');
+    if (!actions || actions.querySelector('.typecho-postpilot-fallback-btn')) return;
     var wrapper = document.createElement('span');
-    wrapper.className = 'typecho-scribe-fallback-menu typecho-scribe-menu-trigger';
+    wrapper.className = 'typecho-postpilot-fallback-menu typecho-postpilot-menu-trigger';
     wrapper.style.position = 'relative';
     var button = document.createElement('button');
     button.type = 'button';
-    button.className = 'btn btn-xs typecho-scribe-fallback-btn';
-    button.innerHTML = SCRIBE_ICON;
+    button.className = 'btn btn-xs typecho-postpilot-fallback-btn';
+    button.innerHTML = POSTPILOT_ICON;
     button.title = '写作';
     button.setAttribute('aria-label', '写作');
     button.setAttribute('aria-haspopup', 'menu');
     button.setAttribute('aria-expanded', 'false');
     wrapper.appendChild(button);
-    wrapper.appendChild(createScribeMenu(box));
+    wrapper.appendChild(createPostPilotMenu(box));
     button.addEventListener('click', function(event) {
       event.preventDefault();
       event.stopPropagation();
-      toggleScribeMenu(wrapper);
+      togglePostPilotMenu(wrapper);
     });
     actions.appendChild(wrapper);
-    scribeButtons.push(button);
+    postPilotButtons.push(button);
     box.hidden = false;
   }
 
   function mountButton(box) {
-    if (document.getElementById('wmd-scribe-button')) return true;
+    if (document.getElementById('wmd-postpilot-button')) return true;
     var row = document.getElementById('wmd-button-row');
     if (!row) return false;
 
     var spacer = document.createElement('li');
-    spacer.className = 'wmd-spacer typecho-scribe-spacer';
+    spacer.className = 'wmd-spacer typecho-postpilot-spacer';
     row.appendChild(spacer);
     row.appendChild(createToolbarButton(box));
     box.hidden = false;
-    box.classList.add('typecho-scribe-mounted');
+    box.classList.add('typecho-postpilot-mounted');
     return true;
   }
 
   function wireModalEvents() {
-    var modal = document.querySelector('.typecho-scribe-modal');
+    var modal = document.querySelector('.typecho-postpilot-modal');
     if (!modal || modal.getAttribute('data-wired') === '1') return;
     modal.setAttribute('data-wired', '1');
 
@@ -2364,30 +2364,30 @@ ${SCRIBE_DIFF_ALGO_JS}
       closePreviewModal(true);
     }
 
-    modal.querySelectorAll('.typecho-scribe-modal-tab').forEach(function(button) {
+    modal.querySelectorAll('.typecho-postpilot-modal-tab').forEach(function(button) {
       button.addEventListener('click', function() {
-        setModalTab(button.getAttribute('data-scribe-tab') || 'write');
+        setModalTab(button.getAttribute('data-postpilot-tab') || 'write');
       });
     });
-    modal.querySelector('.typecho-scribe-modal-write').addEventListener('input', function() {
+    modal.querySelector('.typecho-postpilot-modal-write').addEventListener('input', function() {
       previewState.userEdited = true;
       previewState.currentText = this.value;
       renderModalViews();
       updateModalControls();
     });
     // 比对双栏同步滚动（双向互绑；程序化赋值与用户滚动都走同一事件通道）
-    var compareOriginal = modal.querySelector('.typecho-scribe-modal-compare-original');
-    var compareGenerated = modal.querySelector('.typecho-scribe-modal-compare-generated');
+    var compareOriginal = modal.querySelector('.typecho-postpilot-modal-compare-original');
+    var compareGenerated = modal.querySelector('.typecho-postpilot-modal-compare-generated');
     compareOriginal.addEventListener('scroll', function() {
       onCompareScroll(compareOriginal, compareGenerated);
     });
     compareGenerated.addEventListener('scroll', function() {
       onCompareScroll(compareGenerated, compareOriginal);
     });
-    modal.querySelector('.typecho-scribe-modal-close').addEventListener('click', closeModal);
-    modal.querySelector('.typecho-scribe-modal-cancel').addEventListener('click', closeModal);
-    modal.querySelector('.typecho-scribe-modal-confirm').addEventListener('click', confirmInsert);
-    modal.querySelector('.typecho-scribe-modal-followup-input').addEventListener('keydown', function(event) {
+    modal.querySelector('.typecho-postpilot-modal-close').addEventListener('click', closeModal);
+    modal.querySelector('.typecho-postpilot-modal-cancel').addEventListener('click', closeModal);
+    modal.querySelector('.typecho-postpilot-modal-confirm').addEventListener('click', confirmInsert);
+    modal.querySelector('.typecho-postpilot-modal-followup-input').addEventListener('keydown', function(event) {
       if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
         sendFollowUp();
@@ -2398,8 +2398,8 @@ ${SCRIBE_DIFF_ALGO_JS}
     });
   }
 
-  function initScribe() {
-    var box = document.querySelector('.typecho-scribe');
+  function initPostPilot() {
+    var box = document.querySelector('.typecho-postpilot');
     if (!box) return;
     var attempts = 0;
     var timer = window.setInterval(function() {
@@ -2414,13 +2414,13 @@ ${SCRIBE_DIFF_ALGO_JS}
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initScribe);
+    document.addEventListener('DOMContentLoaded', initPostPilot);
   } else {
-    initScribe();
+    initPostPilot();
   }
   document.addEventListener('click', function(event) {
-    if (event.target && event.target.closest && event.target.closest('.typecho-scribe-menu')) return;
-    closeScribeMenus();
+    if (event.target && event.target.closest && event.target.closest('.typecho-postpilot-menu')) return;
+    closePostPilotMenus();
   });
   document.addEventListener('keydown', function(event) {
     if (event.key === 'Escape' && previewState.open) {

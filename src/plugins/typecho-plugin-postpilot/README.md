@@ -1,4 +1,4 @@
-# Scribe
+# PostPilot
 
 Typecho-CF AI 写作助手插件，接入 OpenAI 兼容 LLM，在编辑器中生成、润色和纠错正文。
 

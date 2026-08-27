@@ -14,7 +14,7 @@
         "typecho-plugin-cache": "workspace:*",
         "typecho-plugin-notes": "workspace:*",
         "typecho-plugin-notifier": "workspace:*",
-        "typecho-plugin-scribe": "workspace:*",
+        "typecho-plugin-postpilot": "workspace:*",
         "typecho-plugin-turnstile": "workspace:*",
         "typecho-theme-warm": "workspace:*",
       },
@@ -44,11 +44,11 @@
     },
     "src/plugins/typecho-plugin-notifier": {
       "name": "typecho-plugin-notifier",
-      "version": "2.0.0",
+      "version": "2.2.0",
     },
-    "src/plugins/typecho-plugin-scribe": {
-      "name": "typecho-plugin-scribe",
-      "version": "1.0.0",
+    "src/plugins/typecho-plugin-postpilot": {
+      "name": "typecho-plugin-postpilot",
+      "version": "1.2.0",
     },
     "src/plugins/typecho-plugin-turnstile": {
       "name": "typecho-plugin-turnstile",
@@ -828,7 +828,7 @@
 
     "typecho-plugin-notifier": ["typecho-plugin-notifier@workspace:src/plugins/typecho-plugin-notifier"],
 
-    "typecho-plugin-scribe": ["typecho-plugin-scribe@workspace:src/plugins/typecho-plugin-scribe"],
+    "typecho-plugin-postpilot": ["typecho-plugin-postpilot@workspace:src/plugins/typecho-plugin-postpilot"],
 
     "typecho-plugin-turnstile": ["typecho-plugin-turnstile@workspace:src/plugins/typecho-plugin-turnstile"],
 

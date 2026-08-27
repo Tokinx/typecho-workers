@@ -272,7 +272,7 @@ describe('typecho-theme-warm', () => {
     // <style> string; inside the template literal they must be written as
     // `\\n` so the emitted script keeps literal backslash-n. Assert the
     // exported constant still parses as valid JavaScript (guards against
-    // the same template-literal newline trap that broke the Scribe modal).
+    // the same template-literal newline trap that broke the PostPilot modal).
     const sourceMatch = viewImage.match(/export const viewImageSource = `([\s\S]*)`;/);
     expect(sourceMatch).toBeTruthy();
     const templateBody = sourceMatch![1];
