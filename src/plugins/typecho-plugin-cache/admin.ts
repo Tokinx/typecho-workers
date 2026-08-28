@@ -47,19 +47,19 @@ export function cacheAdminPageHtml(props: CacheAdminPageProps): string {
   const lastRefreshHtml = lastRefresh
     ? `<span data-ec-last-refresh="${lastRefresh}"></span>`
     : '<span>暂无记录</span>';
-  return `<section id="edge-cache-app">
+  return `<section id="edge-cache-app" class="col-mb-12">
   <p class="ec-status-line">${status}<span class="ec-summary">${summary} · 上次手动刷新: ${lastRefreshHtml}</span></p>
   <h3 class="ec-module-title">快捷刷新</h3>
-  <div class="ec-module ec-scene-grid" role="group" aria-label="按场景刷新缓存">
-    <div class="ec-action">
+  <div class="ec-scene-grid" role="group" aria-label="按场景刷新缓存">
+    <div class="ec-module ec-action">
       <button type="button" class="btn primary" id="ec-quick-frontend">前台立即更新</button>
       <span class="ec-hint">前台页面缓存与前台数据缓存</span>
     </div>
-    <div class="ec-action">
+    <div class="ec-module ec-action">
       <button type="button" class="btn" id="ec-quick-admin">后台立即更新</button>
       <span class="ec-hint">仅后台数据缓存</span>
     </div>
-    <div class="ec-action">
+    <div class="ec-module ec-action">
       <button type="button" class="btn" id="ec-quick-all">全部刷新</button>
       <span class="ec-hint">全部页面缓存和全部数据缓存</span>
     </div>
@@ -87,7 +87,7 @@ export function cacheAdminPageHtml(props: CacheAdminPageProps): string {
   <p id="cache-result" role="status" aria-live="polite"></p>
 </section>
 <style>
-.cache-status{display:inline-block;padding:4px 8px;border-radius:3px}.cache-status.available{background:#edf7ed;color:#246b2b}.cache-status.unavailable{background:#fff1f0;color:#9f2f29}.ec-status-line{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0 0}.ec-summary{font-size:12px;color:#666}.ec-module-title{font-size:14px;font-weight:600;color:#333;margin:16px 0 8px}.ec-module{border:1px solid #e5e5e5;border-radius:3px;padding:12px 16px;margin:0 0 6px;background:#fafafa}.ec-module.ec-scene-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}.ec-action{display:flex;flex-direction:column;align-items:flex-start;gap:6px}.ec-module.ec-quick{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}.ec-hint{font-size:12px;color:#888}.ec-scope-group{margin:0 0 12px}.ec-scope-label{font-size:13px;font-weight:600;color:#555;margin:0 0 4px}.cache-scopes{display:flex;flex-wrap:wrap;gap:10px 16px;margin:0}.cache-scope{display:inline-flex;align-items:center;gap:5px;font-size:13px;color:#333;cursor:pointer;user-select:none}#cache-refresh-btn{color:#fff !important}#cache-refresh-btn[disabled]{opacity:.5;cursor:default}#cache-result{min-height:24px;margin-top:10px}
+.cache-status{display:inline-block;padding:4px 8px;border-radius:3px}.cache-status.available{background:#edf7ed;color:#246b2b}.cache-status.unavailable{background:#fff1f0;color:#9f2f29}.ec-status-line{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0 0}.ec-summary{font-size:12px;color:#666}.ec-module-title{font-size:14px;font-weight:600;color:#333;margin:16px 0 8px}.ec-module{border:1px solid #e5e5e5;border-radius:3px;padding:12px 16px;margin:0 0 6px;background:#fafafa}.ec-scene-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin:0 0 6px}.ec-action{display:flex;flex-direction:column;align-items:flex-start;gap:6px}.ec-module.ec-quick{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}.ec-hint{font-size:12px;color:#888}.ec-scope-group{margin:0 0 12px}.ec-scope-label{font-size:13px;font-weight:600;color:#555;margin:0 0 4px}.cache-scopes{display:flex;flex-wrap:wrap;gap:10px 16px;margin:0}.cache-scope{display:inline-flex;align-items:center;gap:5px;font-size:13px;color:#333;cursor:pointer;user-select:none}#cache-refresh-btn{color:#fff !important}#cache-refresh-btn[disabled]{opacity:.5;cursor:default}#cache-result{min-height:24px;margin-top:10px}
 </style>
 <script>
 (function(){

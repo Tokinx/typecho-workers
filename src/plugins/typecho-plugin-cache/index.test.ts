@@ -1426,12 +1426,11 @@ describe('plugin registration and controls', () => {
     expect(page).toContain('快捷刷新');
     expect(page).toContain('按需刷新');
     expect(page).toContain('>维护<');
-    // 容器铺满内容区：不再使用栅格类与限宽居中
-    expect(page).toContain('<section id="edge-cache-app">');
-    expect(page).not.toContain('col-mb-12');
+    // 容器保持 Typecho 后台栅格类；不再限宽居中（内容铺满内容区）
+    expect(page).toContain('<section id="edge-cache-app" class="col-mb-12">');
     expect(page).not.toContain('max-width:760px');
     expect(page).toContain('ec-scene-grid');
-    expect(page).toContain('class="ec-action"');
+    expect(page).toContain('class="ec-module ec-action"');
     // 按需刷新：HTML 域 checkbox + 数据缓存组 checkbox
     expect(page).toContain('type="checkbox" value="home"');
     expect(page).toContain('data-cache-domain="home"');
@@ -1447,7 +1446,7 @@ describe('plugin registration and controls', () => {
     expect(page).toContain('id="ec-compact-btn"');
     // disabled 状态下按钮文字保持白色可读
     expect(page).toContain('#cache-refresh-btn{color:#fff !important}');
-    expect(page).toContain('<section id="edge-cache-app">');
+    expect(page).toContain('<section id="edge-cache-app" class="col-mb-12">');
     // 未记录过手动刷新时状态条显示暂无记录
     expect(page).toContain('暂无记录');
     // 标题旁注入「设置」链接，指向插件配置页
