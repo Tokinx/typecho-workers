@@ -422,6 +422,32 @@ describe('typecho-plugin-cache provider', () => {
     expect(publicNext).toHaveBeenCalledOnce();
   });
 
+  it('treats publish-time warm-up requests as read-write despite no-cache', async () => {
+    const kv = new MemoryKv();
+    await activate(kv);
+    const warmupNext = vi.fn(async () => new Response('<html>warmed</html>', {
+      headers: { 'Content-Type': 'text/html', [PUBLIC_HTML_HEADER]: '1' },
+    }));
+    const warmup = requestContext();
+    warmup.request = new Request(warmup.request, {
+      headers: { 'Cache-Control': 'no-cache', 'X-Typecho-Cache-Warmup': '1' },
+    });
+    const miss = await earlyRequestProvider.handle(warmup, warmupNext);
+    expect(miss.headers.get('X-Typecho-Cache')).toBe('MISS');
+    expect(warmupNext).toHaveBeenCalledOnce();
+
+    // Plain no-cache requests keep bypassing and store nothing.
+    const plainNoCache = requestContext();
+    plainNoCache.request = new Request(plainNoCache.request, { headers: { 'Cache-Control': 'no-cache' } });
+    const bypass = await earlyRequestProvider.handle(plainNoCache, warmupNext);
+    expect(bypass.headers.get('X-Typecho-Cache')).toBe('BYPASS');
+
+    // The warmed entry is shared: an anonymous visitor gets it from L1.
+    const anonymous = await earlyRequestProvider.handle(requestContext(), warmupNext);
+    expect(anonymous.headers.get('X-Typecho-Cache')).toBe('L1');
+    expect(await anonymous.text()).toContain('warmed');
+  });
+
   it('does not cache an unmarked response from a non-public theme', async () => {
     const kv = new MemoryKv();
     await activate(kv);

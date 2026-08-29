@@ -1,9 +1,9 @@
 /**
  * Unit tests for cache URL planning.
  */
-import { beforeEach, describe, it, expect } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { schema } from '@/db';
-import { buildContentPurgeUrls, invalidatePublicCache, resetCacheVersionMemo } from '@/lib/cache';
+import { buildContentPurgeUrls, buildContentWarmupUrls, invalidatePublicCache, resetCacheVersionMemo, warmPublicCacheUrls } from '@/lib/cache';
 import { registerEarlyRequestLoaders, resetEarlyRequestProvidersForTests } from '@/lib/early-request';
 import { createTestDb } from '../helpers';
 
@@ -36,6 +36,53 @@ describe('buildContentPurgeUrls()', () => {
     });
 
     expect(urls.filter((url) => url === 'https://example.com/archives/1/')).toHaveLength(1);
+  });
+});
+
+describe('buildContentWarmupUrls()', () => {
+  it('builds home and feed plus the permalink', () => {
+    expect(buildContentWarmupUrls('https://example.com', 'https://example.com/archives/1/')).toEqual([
+      'https://example.com/',
+      'https://example.com/feed',
+      'https://example.com/archives/1/',
+    ]);
+  });
+
+  it('keeps the list minimal without a permalink', () => {
+    expect(buildContentWarmupUrls('https://example.com/')).toEqual([
+      'https://example.com/',
+      'https://example.com/feed',
+    ]);
+  });
+
+  it('deduplicates when the permalink is the home page', () => {
+    expect(buildContentWarmupUrls('https://example.com/', 'https://example.com/')).toEqual([
+      'https://example.com/',
+      'https://example.com/feed',
+    ]);
+  });
+
+  it('returns nothing without a usable siteUrl', () => {
+    expect(buildContentWarmupUrls('')).toEqual([]);
+    expect(buildContentWarmupUrls('not-a-url', 'https://example.com/')).toEqual([]);
+  });
+});
+
+describe('warmPublicCacheUrls()', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('fetches each URL with the warmup marker and tolerates failures', async () => {
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce(new Response('ok', { status: 200 }))
+      .mockRejectedValueOnce(new Error('network down'));
+    vi.stubGlobal('fetch', fetchSpy);
+    await expect(warmPublicCacheUrls(['https://example.com/', 'https://example.com/feed'])).resolves.toBeUndefined();
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const init = fetchSpy.mock.calls[0][1];
+    expect(init.headers['X-Typecho-Cache-Warmup']).toBe('1');
+    expect(init.headers['Cache-Control']).toBe('no-cache');
   });
 });
 

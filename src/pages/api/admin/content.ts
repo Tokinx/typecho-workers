@@ -5,7 +5,7 @@ import { canManageResource } from '@/lib/auth';
 import { isAdminActionResponse, requireAdminAction } from '@/lib/admin-auth';
 import { buildPermalink, generateSlug } from '@/lib/content';
 import { applyFilter, doHook } from '@/lib/plugin';
-import { invalidatePublicCache, type PublicCacheDomain } from '@/lib/cache';
+import { buildContentWarmupUrls, invalidatePublicCache, warmPublicCacheUrls, type PublicCacheDomain } from '@/lib/cache';
 import { jsonError, jsonOk } from '@/lib/http';
 import { createAdminNoticeRedirectHeaders } from '@/lib/flash';
 import { canViewContent } from '@/lib/content-visibility';
@@ -216,16 +216,24 @@ function detailDomainFor(type: string | null | undefined): PublicCacheDomain {
 
 async function purgeContentAndRelatedCache(
   db: any,
-  _options: SiteOptions,
+  options: SiteOptions,
   _cid: number,
   fallbackContent?: typeof schema.contents.$inferSelect,
   /**
    * Cache-relevant state of the content BEFORE this change. `wasPublic`
    * marks URLs that may already sit in public caches, so the detail domain
    * must be invalidated; `wasType` disambiguates the detail domain when the
-   * content type changed.
+   * content type changed; `warmContentUrl` asks the render-on-write warm-up
+   * to fetch the permalink (skipped on delete — it would render a 404).
    */
-  extra?: { categoryUrls?: string[]; tagUrls?: string[]; wasPublic?: boolean; wasType?: string | null },
+  extra?: {
+    categoryUrls?: string[];
+    tagUrls?: string[];
+    wasPublic?: boolean;
+    wasType?: string | null;
+    warmContentUrl?: boolean;
+  },
+  locals?: App.Locals,
 ) {
   const content = fallbackContent;
 
@@ -248,7 +256,7 @@ async function purgeContentAndRelatedCache(
       if (!domains.includes(domain)) domains.push(domain);
     }
   }
-  await invalidatePublicCache(db, {
+  const cacheHandled = await invalidatePublicCache(db, {
     reason: 'content',
     domains,
     sharedDomains: [
@@ -256,6 +264,27 @@ async function purgeContentAndRelatedCache(
       'admin-dashboard', 'admin-content', 'admin-comments', 'admin-metas', 'admin-media', 'admin-users',
     ],
   });
+
+  // Render-on-write: self-fetch the affected hot pages right after the
+  // generation bump so the page-cache provider renders them once here and
+  // the shared L2/L3 layers serve every colo — the first visitor gets a
+  // cache hit instead of paying full SSR. Requires the page-cache provider
+  // to be active and an execution context to keep the fetches off the
+  // response path; anything else falls back to render-on-miss.
+  if (cacheHandled === 'early' && (isPublic || wasPublic) && locals?.cfContext?.waitUntil) {
+    const permalink = extra?.warmContentUrl && content
+      ? buildPermalink(
+        { cid: content.cid, slug: content.slug, type: content.type, created: content.created },
+        options.siteUrl,
+        options.permalinkPattern,
+        options.pagePattern,
+      )
+      : null;
+    const warmupUrls = buildContentWarmupUrls(options.siteUrl, permalink);
+    if (warmupUrls.length > 0) {
+      locals.cfContext.waitUntil(warmPublicCacheUrls(warmupUrls));
+    }
+  }
 }
 
 export const POST: APIRoute = async ({ request, locals }) => {
@@ -504,7 +533,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
     await sendSubmittedTrackbacks(newCid, finalSlug);
 
-    await purgeContentAndRelatedCache(db, options, newCid, finishData as typeof schema.contents.$inferSelect);
+    await purgeContentAndRelatedCache(db, options, newCid, finishData as typeof schema.contents.$inferSelect, { warmContentUrl: true }, locals);
 
     const editUrl = type === 'page' ? `/admin/write-page?cid=${newCid}` : `/admin/write-post?cid=${newCid}`;
     const redirectUrl = isDraft
@@ -617,7 +646,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       ...existing,
       type: contentType,
       status,
-    }, { wasPublic: canViewContent(existing, {}), wasType: existing.type });
+    }, { wasPublic: canViewContent(existing, {}), wasType: existing.type, warmContentUrl: true }, locals);
 
     const editUrl = type === 'page' ? `/admin/write-page?cid=${cid}` : `/admin/write-post?cid=${cid}`;
     const redirectUrl = isDraft
@@ -682,7 +711,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     // fresh version — that cached corpse would then serve forever.
     await purgeContentAndRelatedCache(db, options, cid, existing, {
       wasPublic: canViewContent(existing, {}),
-    });
+    }, locals);
 
     // Trigger post-delete hook
     await doHook(pluginCtx, isPage ? 'page:finishDelete' : 'post:finishDelete', existing);

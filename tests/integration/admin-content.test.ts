@@ -186,6 +186,97 @@ describe('POST /api/admin/content', () => {
     expect(events[0].domains).toEqual(['home', 'archive', 'other', 'post']);
   });
 
+  it('warms home, the permalink and the feed after publishing', async () => {
+    captureInvalidations();
+    const fetchSpy = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response('<html>ok</html>', {
+      status: 200,
+      headers: { 'Content-Type': 'text/html' },
+    }));
+    vi.stubGlobal('fetch', fetchSpy);
+    const admin = await testDb.query.users.findFirst();
+    const cookie = await makeAuthCookie(testDb, admin!.uid, TEST_AUTH_CODE, TEST_SECRET);
+    const req = await makeContentRequest({
+      do: 'create',
+      type: 'post',
+      title: 'Warm me',
+      text: 'Body',
+      status: 'publish',
+      visibility: 'publish',
+    }, cookie);
+
+    const warmupPromises: Promise<unknown>[] = [];
+    const res = await POST({
+      request: req,
+      locals: { cfContext: { waitUntil: (p: Promise<unknown>) => { warmupPromises.push(p); } } },
+    } as any);
+    expect(res.status).toBe(302);
+    await Promise.all(warmupPromises);
+
+    const warmUrls = fetchSpy.mock.calls.map((call) => String(call[0]));
+    expect(warmUrls).toContain('https://example.com/');
+    expect(warmUrls).toContain('https://example.com/feed');
+    expect(warmUrls.some((url) => /^https:\/\/example\.com\/archives\/\d+\/$/.test(url))).toBe(true);
+    const init = fetchSpy.mock.calls[0]?.[1];
+    expect(init?.headers).toMatchObject({ 'X-Typecho-Cache-Warmup': '1', 'Cache-Control': 'no-cache' });
+    vi.unstubAllGlobals();
+  });
+
+  it('skips warm-up without an execution context', async () => {
+    captureInvalidations();
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    const admin = await testDb.query.users.findFirst();
+    const cookie = await makeAuthCookie(testDb, admin!.uid, TEST_AUTH_CODE, TEST_SECRET);
+    const req = await makeContentRequest({
+      do: 'create',
+      type: 'post',
+      title: 'No context',
+      text: 'Body',
+      status: 'publish',
+      visibility: 'publish',
+    }, cookie);
+
+    const res = await POST({ request: req, locals: {} } as any);
+    expect(res.status).toBe(302);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it('warms only home and feed when deleting content', async () => {
+    captureInvalidations();
+    const fetchSpy = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response('<html>gone</html>', { status: 404 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    await testDb.insert(schema.contents).values({
+      title: 'Warm delete',
+      slug: 'warm-delete',
+      type: 'post',
+      status: 'publish',
+      authorId: 1,
+    });
+    const row = await testDb.query.contents.findFirst({ where: eq(schema.contents.slug, 'warm-delete') });
+    const admin = await testDb.query.users.findFirst();
+    const cookie = await makeAuthCookie(testDb, admin!.uid, TEST_AUTH_CODE, TEST_SECRET);
+    const req = await makeContentRequest({
+      do: 'delete',
+      cid: String(row!.cid),
+      type: 'post',
+    }, cookie);
+
+    const warmupPromises: Promise<unknown>[] = [];
+    const res = await POST({
+      request: req,
+      locals: { cfContext: { waitUntil: (p: Promise<unknown>) => { warmupPromises.push(p); } } },
+    } as any);
+    expect(res.status).toBe(302);
+    await Promise.all(warmupPromises);
+
+    expect(fetchSpy.mock.calls.map((call) => String(call[0]))).toEqual([
+      'https://example.com/',
+      'https://example.com/feed',
+    ]);
+    vi.unstubAllGlobals();
+  });
+
   it('counts duplicate tag names once when creating content', async () => {
     const admin = await testDb.query.users.findFirst();
     const cookie = await makeAuthCookie(testDb, admin!.uid, TEST_AUTH_CODE, TEST_SECRET);

@@ -7,7 +7,7 @@ import type {
   SharedDataRead,
 } from '@/lib/early-request';
 import type { PublicCacheDomain, PublicCacheInvalidation, SharedCacheDomain } from '@/lib/cache';
-import { PUBLIC_HTML_HEADER } from '@/lib/cache';
+import { CACHE_WARMUP_HEADER, PUBLIC_HTML_HEADER } from '@/lib/cache';
 import { env } from 'cloudflare:workers';
 import { compilePermalinkPattern, type PermalinkPatternKind } from '@/lib/permalink-pattern';
 import { parsePluginOption } from '@/lib/plugin';
@@ -884,6 +884,11 @@ export function parseCookieNames(cookieHeader: string | null): Set<string> {
 }
 
 function requestCachePolicy(request: Request): RequestCachePolicy {
+  // Publish-time warm-up self-requests send Cache-Control: no-cache to defeat
+  // stale platform-cache entries, yet must render into the shared cache
+  // layers. Forging the marker only warms public pages, so it is safe to
+  // honor from any client.
+  if (request.headers.get(CACHE_WARMUP_HEADER) === '1') return 'read-write';
   if (request.headers.has('Authorization')) return 'bypass';
   const cacheControl = request.headers.get('Cache-Control')?.toLowerCase() || '';
   if (cacheControl.includes('no-cache') || cacheControl.includes('no-store')) return 'bypass';

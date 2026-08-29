@@ -15,6 +15,7 @@ import { schema, type Database } from '@/db';
 import { OPTIONS_CACHE_TTL_SECONDS } from '@/lib/constants';
 import { advanceOptionsSnapshotGeneration } from '@/lib/options-snapshot-generation';
 import { notifyEarlyRequestInvalidation } from '@/lib/early-request';
+import { fetchWithTimeout } from '@/lib/fetch';
 
 export type PublicCacheDomain = 'home' | 'post' | 'page' | 'note' | 'archive' | 'other';
 /**
@@ -43,6 +44,9 @@ export type SharedCacheDomain =
 
 /** Internal response marker consumed by the page cache provider. */
 export const PUBLIC_HTML_HEADER = 'X-Typecho-Public-HTML';
+
+/** Internal request marker identifying publish-time cache-warmup self-requests. */
+export const CACHE_WARMUP_HEADER = 'X-Typecho-Cache-Warmup';
 
 export interface PublicCacheInvalidation {
   reason: string;
@@ -155,6 +159,53 @@ export async function invalidatePublicCache(
 ): Promise<'early' | 'none'> {
   if (await notifyEarlyRequestInvalidation(event)) return 'early';
   return 'none';
+}
+
+/**
+ * Render-on-write cache warming: after a content change the affected public
+ * pages are self-fetched so the page-cache provider renders and stores them
+ * under the fresh generation. Each self-request carries no-cache so stale
+ * platform-cache entries cannot short-circuit the render, plus the warm-up
+ * marker that the page-cache provider honors as a read-write policy.
+ * Failures are non-fatal — visitors fall back to render-on-miss.
+ */
+export async function warmPublicCacheUrls(urls: string[]): Promise<void> {
+  await Promise.allSettled(urls.map(async (url) => {
+    try {
+      const response = await fetchWithTimeout(url, {
+        method: 'GET',
+        headers: {
+          'Cache-Control': 'no-cache',
+          [CACHE_WARMUP_HEADER]: '1',
+        },
+      });
+      if (!response.ok) {
+        console.error(`[cache] Warmup fetch for ${url} returned ${response.status}`);
+      }
+      if (response.body) {
+        try {
+          await response.body.cancel();
+        } catch {
+          // Body may already be consumed — nothing to release.
+        }
+      }
+    } catch (error) {
+      console.error('[cache] Warmup fetch failed:', error);
+    }
+  }));
+}
+
+/**
+ * Build the render-on-write warm-up list for a content change: the home page
+ * and the main feed always, plus the changed permalink itself on create and
+ * update (a deleted permalink would render a 404, which is never cached).
+ */
+export function buildContentWarmupUrls(siteUrl: string, permalink?: string | null): string[] {
+  const base = siteUrl?.trim().replace(/\/+$/, '');
+  if (!base || !/^https?:\/\//i.test(base)) return [];
+  const urls = new Set<string>([`${base}/`, `${base}/feed`]);
+  if (permalink) urls.add(permalink);
+  return [...urls];
 }
 
 /**
