@@ -78,6 +78,15 @@ const renderedContentCache = new Map<string, RenderedContent>();
 const commentSanitizeOptionsCache = new Map<string, sanitizeHtml.IOptions>();
 const COMMENT_SANITIZE_CACHE_MAX_ENTRIES = 32;
 
+const FULL_RENDER_CACHE_MAX_ENTRIES = 32;
+const renderedFullContentCache = new Map<string, string>();
+
+async function sha256Hex(value: string): Promise<string> {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
 function stripMarkdownPrefix(text: string): string {
   return text.startsWith(MARKDOWN_PREFIX) ? text.slice(MARKDOWN_PREFIX.length) : text;
 }
@@ -161,6 +170,22 @@ export function renderCommentText(text: string, options: CommentRenderOptions = 
 export async function renderMarkdownFiltered(ctx: HookContext, text: string): Promise<string> {
   if (!text) return '';
 
+  // Full renders (filters + marked.parse + sanitizeHtml) are the expensive
+  // part of a page-cache MISS. Memoize per source text + activated plugin
+  // set — the only state the content:markdown / content:content filters can
+  // observe. Option or plugin changes clear this through
+  // resetMarkdownRenderCache() via the invalidation funnel.
+  const cacheKey = text.length <= RENDER_CACHE_MAX_SOURCE_LENGTH
+    ? `${await sha256Hex(text)}\0${[...(ctx.activatedPlugins ?? [])].sort().join(',')}`
+    : null;
+  const cached = cacheKey ? renderedFullContentCache.get(cacheKey) : undefined;
+  if (cached !== undefined && cacheKey) {
+    // Refresh insertion order for LRU eviction.
+    renderedFullContentCache.delete(cacheKey);
+    renderedFullContentCache.set(cacheKey, cached);
+    return cached;
+  }
+
   let content = stripMarkdownPrefix(text);
   // Remove <!--more--> from full-content renders — it is only meaningful
   // for list/excerpt views where renderContentExcerpt() is used instead.
@@ -184,7 +209,23 @@ export async function renderMarkdownFiltered(ctx: HookContext, text: string): Pr
     console.error('[markdown] content:content filter failed:', error);
   }
 
+  if (cacheKey) {
+    renderedFullContentCache.set(cacheKey, sanitized);
+    if (renderedFullContentCache.size > FULL_RENDER_CACHE_MAX_ENTRIES) {
+      const oldest = renderedFullContentCache.keys().next().value;
+      if (oldest !== undefined) renderedFullContentCache.delete(oldest);
+    }
+  }
   return sanitized;
+}
+
+/**
+ * Drop memoized full-content renders. Filter output depends on plugin
+ * configuration, which can change without a deploy — invalidation events
+ * carrying the 'all' or 'content' shared domains clear it.
+ */
+export function resetMarkdownRenderCache(): void {
+  renderedFullContentCache.clear();
 }
 
 /**

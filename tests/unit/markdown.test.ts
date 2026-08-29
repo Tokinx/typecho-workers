@@ -6,9 +6,11 @@
  * a single pass so that reference-style links, footnotes, and other
  * constructs that span the boundary are resolved correctly.
  */
-import { describe, it, expect } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { addHook, type HookContext } from '@/lib/plugin';
-import { autop, escapeHtml, generateExcerpt, renderCommentText, renderContentExcerpt, renderMarkdown, renderMarkdownFiltered, stripHtmlTags, stripTypechoMarkers } from '@/lib/markdown';
+import { autop, escapeHtml, generateExcerpt, renderCommentText, renderContentExcerpt, renderMarkdown, renderMarkdownFiltered, resetMarkdownRenderCache, stripHtmlTags, stripTypechoMarkers } from '@/lib/markdown';
+import { notifyEarlyRequestInvalidation } from '@/lib/early-request';
+import { marked } from 'marked';
 
 // ---------------------------------------------------------------------------
 // renderMarkdown
@@ -58,6 +60,88 @@ describe('renderMarkdownFiltered failure isolation', () => {
     const html = await renderMarkdownFiltered(ctx, '**safe**\n\n<script>alert(1)</script>');
     expect(html).not.toContain('<script>');
     expect(html).toContain('<strong>safe</strong>');
+  });
+});
+
+describe('renderMarkdownFiltered memoization', () => {
+  beforeEach(() => {
+    resetMarkdownRenderCache();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('reuses the memoized render for identical source and plugin set', async () => {
+    const parseSpy = vi.spyOn(marked, 'parse');
+    const ctx: HookContext = { activatedPlugins: new Set() };
+    const first = await renderMarkdownFiltered(ctx, '**memo** text');
+    const callsAfterFirst = parseSpy.mock.calls.length;
+    const second = await renderMarkdownFiltered(ctx, '**memo** text');
+    expect(second).toBe(first);
+    expect(parseSpy.mock.calls.length).toBe(callsAfterFirst);
+  });
+
+  it('re-renders when the activated plugin set differs', async () => {
+    let filterCalls = 0;
+    const pluginId = 'memo-marker-plugin';
+    addHook('content:markdown', pluginId, (value: string) => {
+      filterCalls += 1;
+      return `${value} memo marker`;
+    });
+    const anonymous: HookContext = { activatedPlugins: new Set() };
+    const withPlugin: HookContext = { activatedPlugins: new Set([pluginId]) };
+
+    const plain = await renderMarkdownFiltered(anonymous, 'memo source text');
+    expect(filterCalls).toBe(0);
+
+    const transformed = await renderMarkdownFiltered(withPlugin, 'memo source text');
+    expect(filterCalls).toBe(1);
+    expect(transformed).not.toBe(plain);
+
+    // Same plugin set again → cache hit, the filter does not re-run.
+    await renderMarkdownFiltered(withPlugin, 'memo source text');
+    expect(filterCalls).toBe(1);
+  });
+
+  it('re-renders after resetMarkdownRenderCache', async () => {
+    const parseSpy = vi.spyOn(marked, 'parse');
+    const ctx: HookContext = { activatedPlugins: new Set() };
+    await renderMarkdownFiltered(ctx, '**reset me**');
+    const callsAfterFirst = parseSpy.mock.calls.length;
+    resetMarkdownRenderCache();
+    await renderMarkdownFiltered(ctx, '**reset me**');
+    expect(parseSpy.mock.calls.length).toBe(callsAfterFirst + 1);
+  });
+
+  it('re-renders when an invalidation covers the content domain', async () => {
+    const parseSpy = vi.spyOn(marked, 'parse');
+    const ctx: HookContext = { activatedPlugins: new Set() };
+    await renderMarkdownFiltered(ctx, '**invalidatable**');
+    const callsAfterFirst = parseSpy.mock.calls.length;
+    await notifyEarlyRequestInvalidation({ reason: 'options', domains: [], sharedDomains: ['all'] });
+    await renderMarkdownFiltered(ctx, '**invalidatable**');
+    expect(parseSpy.mock.calls.length).toBe(callsAfterFirst + 1);
+  });
+
+  it('skips unrelated invalidations', async () => {
+    const parseSpy = vi.spyOn(marked, 'parse');
+    const ctx: HookContext = { activatedPlugins: new Set() };
+    await renderMarkdownFiltered(ctx, '**unrelated**');
+    const callsAfterFirst = parseSpy.mock.calls.length;
+    await notifyEarlyRequestInvalidation({ reason: 'comment', domains: [], sharedDomains: ['comments'] });
+    await renderMarkdownFiltered(ctx, '**unrelated**');
+    expect(parseSpy.mock.calls.length).toBe(callsAfterFirst);
+  });
+
+  it('does not memoize oversized sources', async () => {
+    const parseSpy = vi.spyOn(marked, 'parse');
+    const ctx: HookContext = { activatedPlugins: new Set() };
+    const huge = 'x'.repeat(100_001);
+    await renderMarkdownFiltered(ctx, huge);
+    const callsAfterFirst = parseSpy.mock.calls.length;
+    await renderMarkdownFiltered(ctx, huge);
+    expect(parseSpy.mock.calls.length).toBe(callsAfterFirst + 1);
   });
 });
 

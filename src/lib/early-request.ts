@@ -12,6 +12,7 @@
  */
 
 import type { PublicCacheInvalidation, SharedCacheDomain } from '@/lib/cache';
+import { resetMarkdownRenderCache } from '@/lib/markdown';
 
 export interface EarlyRequestContext {
   request: Request;
@@ -203,6 +204,13 @@ export async function runEarlyRequestProviders(
 
 export async function notifyEarlyRequestInvalidation(event: PublicCacheInvalidation): Promise<boolean> {
   invalidateSharedDataGenerations(event.sharedDomains);
+  // Memoized full-content markdown renders key on source text + plugin set.
+  // Option / plugin-configuration changes can alter filter output without
+  // touching the text, so drop the memo on broad invalidations.
+  const sharedDomains = event.sharedDomains as readonly string[] | undefined;
+  if (sharedDomains?.includes('all') || sharedDomains?.includes('content')) {
+    resetMarkdownRenderCache();
+  }
   const providers = await loadProviders();
   let handled = false;
   for (const [pluginId, provider] of providers) {
