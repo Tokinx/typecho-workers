@@ -67,10 +67,8 @@ if (notesEnabled && stream !== 'posts') {
       page: pagination.currentPage,
       pageSize: pagination.pageSize,
       topic,
-      viewerUid: noteContext.user?.uid,
     },
     { siteUrl: urls.siteUrl, permalinkPattern: options.permalinkPattern },
-    noteContext,
   );
   const mixedPostIds = result
     .items.filter((item): item is NoteListItem & { type: 'post' } => item.type === 'post')

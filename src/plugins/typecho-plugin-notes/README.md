@@ -25,8 +25,8 @@ Schema，数据存放在现有的 `typecho_contents`、`typecho_metas`、
 
 插件不修改核心主题 Props，也不提供前台 HTTP API。主题在 Astro frontmatter 中调用
 `getNotesStreamForTheme()`，一次只加载当前需要的 `notes` 或 `mixed` 流，渲染过程不需要浏览器请求。
-匿名访问时只包含已公开且未到未来发布时间的笔记；传入当前用户的 `viewerUid` 后，还会包含该用户
-自己的私密笔记。草稿不会进入任何主题变量，只能在后台笔记管理页面查看。
+主题输出永远只包含已公开且未到未来发布时间的笔记——私密笔记只在后台笔记管理页面可见，
+不存在任何把它们带入前台主题流的参数或代码路径。草稿同样不会进入任何主题变量。
 
 以主题的 `Index.astro` 为例：
 
@@ -42,7 +42,6 @@ const { items, pagination } = await getNotesStreamForTheme(
     page: 1,
     pageSize: 10,
     topic: Astro.url.searchParams.get('topic'),
-    viewerUid: user?.uid,
   },
   { siteUrl: urls.siteUrl, permalinkPattern: options.permalinkPattern },
 );
@@ -54,8 +53,8 @@ const { items, pagination } = await getNotesStreamForTheme(
 当前主题的 `Post.astro`。
 
 公开流使用 `pageSize + 1` 前看分页，`pagination.totalsExact` 固定为 `false`，主题仅根据
-`hasPrev` 与 `hasNext` 渲染前后页。匿名结果会按流、页码、页大小、话题、站点 URL 和固定链接模式
-进入共享 `notes` 缓存域；传入 `viewerUid` 的私密视图不会使用共享缓存。旧的
+`hasPrev` 与 `hasNext` 渲染前后页。流结果按页码、页大小、话题、站点 URL 和固定链接模式
+进入共享 `notes` 缓存域，跨访客复用。旧的
 `getNotesForTheme()` 仍保留给需要同时读取两条流和精确总数的兼容调用，但不适合前台主题列表。
 
 公开笔记默认开启评论，直接复用 Post 详情中的 `/api/comment` 表单、审核设置、反垃圾校验与回复流程。

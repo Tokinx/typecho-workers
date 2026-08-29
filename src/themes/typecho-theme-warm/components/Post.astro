@@ -22,7 +22,7 @@ const noteContext = pluginCtx.activatedPlugins.has('typecho-plugin-notes')
   ? await createContext(Astro.locals, Astro.request)
   : null;
 const note = noteContext
-  ? await getNoteForTheme(noteContext.db ?? getDb(env.DB), post.cid, urls.siteUrl, noteContext.user?.uid, noteContext)
+  ? await getNoteForTheme(noteContext.db ?? getDb(env.DB), post.cid, urls.siteUrl)
   : null;
 const isNote = note?.type === 'note';
 const settings = warmSettings(options);

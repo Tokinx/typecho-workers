@@ -385,7 +385,7 @@ describe('typecho-plugin-notes', () => {
     expect(deleteResponse.status).toBe(200);
   });
 
-  it('exposes public notes anonymously and the current author private notes when logged in', async () => {
+  it('exposes public notes to themes and keeps private notes admin-only', async () => {
     const { contents } = await import('@/db/schema');
     const now = Math.floor(Date.now() / 1000);
     const created = await handleNotesRequest(new Request('https://example.com/api/admin/notes', {
@@ -422,14 +422,14 @@ describe('typecho-plugin-notes', () => {
     expect(variables.mixed.find(item => item.cid === noteCid)?.topics[0]?.name).toBe('主题开发');
     expect(variables.mixed.some(item => item.source === '私密笔记')).toBe(false);
 
-    const loggedInVariables = await getNotesForTheme(db as any, { viewerUid: 1 }, {
+    // Private notes stay in the admin backend: theme helpers never surface
+    // them, not even for the author who created them.
+    const privateVariables = await getNotesForTheme(db as any, {}, {
       siteUrl: 'https://example.com',
       permalinkPattern: '/post/{slug}/',
     });
-    expect(loggedInVariables.notes.map(item => item.cid)).toEqual(expect.arrayContaining([noteCid, privateCid]));
-    expect(loggedInVariables.notes.some(item => item.source === '草稿笔记')).toBe(false);
-    expect(loggedInVariables.notes.some(item => item.source === '他人的私密笔记')).toBe(false);
-    expect((await getNoteForTheme(db as any, privateCid, 'https://example.com', 1))?.cid).toBe(privateCid);
+    expect(privateVariables.notes.map(item => item.cid)).toEqual([noteCid]);
+    expect(privateVariables.mixed.some(item => item.cid === privateCid)).toBe(false);
     expect(await getNoteForTheme(db as any, privateCid, 'https://example.com')).toBeNull();
   });
 
@@ -528,14 +528,18 @@ describe('typecho-plugin-notes', () => {
       siteUrl: 'https://example.com', permalinkPattern: '/post/{slug}/',
     });
     expect(mixed.items.some(item => item.type === 'post')).toBe(true);
+    expect(mixed.items.some(item => item.status === 'private')).toBe(false);
     expect(writes).toBe(3);
 
-    const readsBeforePrivateLoad = reads;
-    const privateNotes = await getNotesStreamForTheme(db as any, 'notes', { pageSize: 5, viewerUid: 1 }, {
+    // The author's own private note never reaches a theme stream, and the
+    // stream stays a shared public-cache load (no viewer-scoped reads).
+    const readsBeforePrivateCheck = reads;
+    const streamWithPrivateNote = await getNotesStreamForTheme(db as any, 'notes', { pageSize: 2 }, {
       siteUrl: 'https://example.com', permalinkPattern: '/post/{slug}/',
     });
-    expect(privateNotes.items.some(item => item.status === 'private')).toBe(true);
-    expect(reads).toBe(readsBeforePrivateLoad);
+    expect(streamWithPrivateNote.items.some(item => item.status === 'private')).toBe(false);
+    expect(streamWithPrivateNote.items.some(item => item.source === '私密笔记')).toBe(false);
+    expect(reads).toBe(readsBeforePrivateCheck + 1);
     expect(writes).toBe(3);
 
     await notifyEarlyRequestInvalidation({ reason: 'note-update', domains: [], sharedDomains: ['notes'] });

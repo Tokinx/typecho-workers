@@ -4,8 +4,6 @@ import { buildPermalink, renderMarkdown } from 'typecho/plugin-sdk';
 import { invalidatePublicCache } from '@/lib/cache';
 import { getClientIp } from '@/lib/context';
 import { loadEarlyRequestSharedData } from '@/lib/early-request';
-import { loadQueryCache } from '@/lib/query-cache';
-import type { RequestContext } from '@/lib/context';
 import { renderCommentText } from '@/lib/markdown';
 import { parseAttachmentMeta } from '@/lib/attachment';
 import { jsonError, jsonOk } from '@/lib/http';
@@ -41,8 +39,6 @@ export interface NotesActionContext {
 export interface ThemeNotesQuery {
   /** A Topic ID, slug, or name. */
   topic?: number | string | null;
-  /** Logged-in author whose private notes may be included. */
-  viewerUid?: number | null;
   page?: number;
   pageSize?: number;
 }
@@ -110,9 +106,9 @@ export interface NotesListResult {
 }
 
 export interface NotesThemeVariables {
-  /** Public notes plus the current author's private notes when `viewerUid` is set. */
+  /** Public notes only — private notes never appear in theme output. */
   notes: NoteListItem[];
-  /** Public posts merged with the notes visible to the current viewer. */
+  /** Public posts merged with public notes. */
   mixed: NoteListItem[];
   topics: NoteTopic[];
   pagination: {
@@ -518,7 +514,6 @@ async function listNotesData(db: Database, rawOptions: ListOptions = {}): Promis
   const page = clampInteger(rawOptions.page, 1, 1, 100_000);
   const pageSize = clampInteger(rawOptions.pageSize, 12, 1, 50);
   const cid = rawOptions.cid ? clampInteger(rawOptions.cid, 0, 1, Number.MAX_SAFE_INTEGER) : 0;
-  const viewerUid = clampInteger(rawOptions.viewerUid, 0, 0, Number.MAX_SAFE_INTEGER);
   const keywords = admin && typeof rawOptions.keywords === 'string'
     ? rawOptions.keywords.trim().slice(0, 100)
     : '';
@@ -530,21 +525,13 @@ async function listNotesData(db: Database, rawOptions: ListOptions = {}): Promis
   }
 
   const now = Math.floor(Date.now() / 1000);
-  const publicNoteCondition = and(
+  // Theme output is viewer-independent: private notes stay in the admin
+  // backend, so public queries can only ever see published notes.
+  const visibleNoteCondition = and(
     eq(schema.contents.type, NOTE_TYPE),
     eq(schema.contents.status, 'publish'),
     lte(schema.contents.created, now),
   );
-  const visibleNoteCondition = viewerUid > 0
-    ? and(
-      eq(schema.contents.type, NOTE_TYPE),
-      lte(schema.contents.created, now),
-      or(
-        eq(schema.contents.status, 'publish'),
-        and(eq(schema.contents.status, 'private'), eq(schema.contents.authorId, viewerUid)),
-      ),
-    )
-    : publicNoteCondition;
   const publicPostCondition = and(
     eq(schema.contents.type, 'post'),
     eq(schema.contents.status, 'publish'),
@@ -623,7 +610,6 @@ async function listThemeNotesStreamData(
 ): Promise<ThemeNotesStream> {
   const page = clampInteger(query.page, 1, 1, 100_000);
   const pageSize = clampInteger(query.pageSize, 12, 1, 50);
-  const viewerUid = clampInteger(query.viewerUid, 0, 0, Number.MAX_SAFE_INTEGER);
   const topicMid = await resolveTopicMid(db, query.topic);
   if (topicMid === null) {
     return {
@@ -633,21 +619,13 @@ async function listThemeNotesStreamData(
   }
 
   const now = Math.floor(Date.now() / 1000);
-  const publicNoteCondition = and(
+  // Theme streams are public-only: private notes never leave the admin
+  // backend, so the rendered HTML stays identical for every viewer.
+  const visibleNoteCondition = and(
     eq(schema.contents.type, NOTE_TYPE),
     eq(schema.contents.status, 'publish'),
     lte(schema.contents.created, now),
   );
-  const visibleNoteCondition = viewerUid > 0
-    ? and(
-      eq(schema.contents.type, NOTE_TYPE),
-      lte(schema.contents.created, now),
-      or(
-        eq(schema.contents.status, 'publish'),
-        and(eq(schema.contents.status, 'private'), eq(schema.contents.authorId, viewerUid)),
-      ),
-    )
-    : publicNoteCondition;
   const publicPostCondition = and(
     eq(schema.contents.type, 'post'),
     eq(schema.contents.status, 'publish'),
@@ -699,30 +677,20 @@ function themeNotesStreamCacheKey(
 }
 
 /**
- * Load exactly one Notes stream for a theme. Anonymous public streams use the
- * shared `notes` cache domain; a viewer's private-note view always goes to D1.
+ * Load exactly one Notes stream for a theme. Streams are public-only and
+ * shared across viewers through the `notes` cache domain.
  */
 export async function getNotesStreamForTheme(
   db: Database,
   mode: ThemeNotesStreamMode,
   query: ThemeNotesQuery = {},
   themeOptions: ThemeNotesOptions | string = {},
-  viewerContext?: RequestContext,
 ): Promise<ThemeNotesStream> {
   const resolvedOptions = resolveThemeOptions(themeOptions);
-  const load = () => listThemeNotesStreamData(db, mode, query, resolvedOptions);
-  if (clampInteger(query.viewerUid, 0, 0, Number.MAX_SAFE_INTEGER) > 0) {
-    if (!viewerContext || viewerContext.user?.uid !== query.viewerUid) return load();
-    return loadQueryCache(viewerContext, {
-      domain: 'notes',
-      scope: 'viewer',
-      key: { stream: mode, query: themeNotesStreamCacheKey(mode, query, resolvedOptions) },
-    }, load);
-  }
   return loadEarlyRequestSharedData(
     'notes',
     themeNotesStreamCacheKey(mode, query, resolvedOptions),
-    async () => load(),
+    async () => listThemeNotesStreamData(db, mode, query, resolvedOptions),
   );
 }
 
@@ -761,17 +729,8 @@ export async function getNoteForTheme(
   db: Database,
   cid: number,
   siteUrl = '',
-  viewerUid?: number | null,
-  viewerContext?: RequestContext,
 ): Promise<NoteListItem | null> {
-  const load = () => listNotesData(db, { cid, pageSize: 1, admin: false, siteUrl, viewerUid });
-  const result = viewerUid && viewerContext?.user?.uid === viewerUid
-    ? await loadQueryCache(viewerContext, {
-      domain: 'notes',
-      scope: 'viewer',
-      key: { note: cid, siteUrl },
-    }, load)
-    : await load();
+  const result = await listNotesData(db, { cid, pageSize: 1, admin: false, siteUrl });
   return result.data[0] || null;
 }
 
