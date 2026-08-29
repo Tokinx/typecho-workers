@@ -5,6 +5,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as schema from '@/db/schema';
 import { createTestDb, seedAdmin, makeAuthCookie, type TestDatabase } from '../helpers';
 import { eq } from 'drizzle-orm';
+import type { PublicCacheInvalidation } from '@/lib/cache';
+import { registerEarlyRequestLoaders, resetEarlyRequestProvidersForTests } from '@/lib/early-request';
 
 let testDb: TestDatabase;
 
@@ -48,6 +50,140 @@ describe('POST /api/admin/content', () => {
     testDb = await createTestDb();
     await seedAdmin(testDb, { secret: TEST_SECRET, authCode: TEST_AUTH_CODE });
     await testDb.insert(schema.options).values({ name: 'siteUrl', user: 0, value: 'https://example.com' });
+    resetEarlyRequestProvidersForTests();
+  });
+
+  /** Register a stub page-cache provider that records invalidation events. */
+  function captureInvalidations(): PublicCacheInvalidation[] {
+    const events: PublicCacheInvalidation[] = [];
+    registerEarlyRequestLoaders({
+      cache: async () => ({
+        handle: async (_context, next) => next(),
+        invalidate: async (event) => {
+          events.push(event);
+          return true;
+        },
+      }),
+    });
+    return events;
+  }
+
+  it('publishes a post into the list domains without touching detail domains', async () => {
+    const events = captureInvalidations();
+    const admin = await testDb.query.users.findFirst();
+    const cookie = await makeAuthCookie(testDb, admin!.uid, TEST_AUTH_CODE, TEST_SECRET);
+    const req = await makeContentRequest({
+      do: 'create',
+      type: 'post',
+      title: 'Cache domains',
+      text: 'Body',
+      status: 'publish',
+      visibility: 'publish',
+    }, cookie);
+
+    const res = await POST({ request: req, locals: {} } as any);
+    expect(res.status).toBe(302);
+    expect(events).toHaveLength(1);
+    expect(events[0].reason).toBe('content');
+    expect(events[0].domains).toEqual(['home', 'archive', 'other']);
+  });
+
+  it('keeps draft saves away from page caches entirely', async () => {
+    const events = captureInvalidations();
+    const admin = await testDb.query.users.findFirst();
+    const cookie = await makeAuthCookie(testDb, admin!.uid, TEST_AUTH_CODE, TEST_SECRET);
+    const req = await makeContentRequest({
+      do: 'create',
+      type: 'post',
+      title: 'Draft post',
+      text: 'Body',
+      status: 'draft',
+    }, cookie);
+
+    const res = await POST({ request: req, locals: {} } as any);
+    expect(res.status).toBe(302);
+    expect(events).toHaveLength(1);
+    expect(events[0].domains).toEqual([]);
+  });
+
+  it('bumps the post detail domain when updating published content', async () => {
+    const events = captureInvalidations();
+    await testDb.insert(schema.contents).values({
+      title: 'Published post',
+      slug: 'published-post',
+      type: 'post',
+      status: 'publish',
+      authorId: 1,
+    });
+    const row = await testDb.query.contents.findFirst({ where: eq(schema.contents.slug, 'published-post') });
+    const admin = await testDb.query.users.findFirst();
+    const cookie = await makeAuthCookie(testDb, admin!.uid, TEST_AUTH_CODE, TEST_SECRET);
+    const req = await makeContentRequest({
+      do: 'update',
+      cid: String(row!.cid),
+      type: 'post',
+      title: 'Published post updated',
+      text: 'Body',
+      status: 'publish',
+      visibility: 'publish',
+    }, cookie);
+
+    const res = await POST({ request: req, locals: {} } as any);
+    expect(res.status).toBe(302);
+    expect(events).toHaveLength(1);
+    expect(events[0].domains).toEqual(['home', 'archive', 'other', 'post']);
+  });
+
+  it('bumps the page detail domain when updating published pages', async () => {
+    const events = captureInvalidations();
+    await testDb.insert(schema.contents).values({
+      title: 'About page',
+      slug: 'about',
+      type: 'page',
+      status: 'publish',
+      authorId: 1,
+    });
+    const row = await testDb.query.contents.findFirst({ where: eq(schema.contents.slug, 'about') });
+    const admin = await testDb.query.users.findFirst();
+    const cookie = await makeAuthCookie(testDb, admin!.uid, TEST_AUTH_CODE, TEST_SECRET);
+    const req = await makeContentRequest({
+      do: 'update',
+      cid: String(row!.cid),
+      type: 'page',
+      title: 'About page updated',
+      text: 'Body',
+      status: 'publish',
+      visibility: 'publish',
+    }, cookie);
+
+    const res = await POST({ request: req, locals: {} } as any);
+    expect(res.status).toBe(302);
+    expect(events).toHaveLength(1);
+    expect(events[0].domains).toEqual(['home', 'archive', 'other', 'page']);
+  });
+
+  it('bumps the detail domain when deleting published content', async () => {
+    const events = captureInvalidations();
+    await testDb.insert(schema.contents).values({
+      title: 'Doomed post',
+      slug: 'doomed-post',
+      type: 'post',
+      status: 'publish',
+      authorId: 1,
+    });
+    const row = await testDb.query.contents.findFirst({ where: eq(schema.contents.slug, 'doomed-post') });
+    const admin = await testDb.query.users.findFirst();
+    const cookie = await makeAuthCookie(testDb, admin!.uid, TEST_AUTH_CODE, TEST_SECRET);
+    const req = await makeContentRequest({
+      do: 'delete',
+      cid: String(row!.cid),
+      type: 'post',
+    }, cookie);
+
+    const res = await POST({ request: req, locals: {} } as any);
+    expect(res.status).toBe(302);
+    expect(events).toHaveLength(1);
+    expect(events[0].domains).toEqual(['home', 'archive', 'other', 'post']);
   });
 
   it('counts duplicate tag names once when creating content', async () => {

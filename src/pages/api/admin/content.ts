@@ -5,7 +5,7 @@ import { canManageResource } from '@/lib/auth';
 import { isAdminActionResponse, requireAdminAction } from '@/lib/admin-auth';
 import { buildPermalink, generateSlug } from '@/lib/content';
 import { applyFilter, doHook } from '@/lib/plugin';
-import { invalidatePublicCache } from '@/lib/cache';
+import { invalidatePublicCache, type PublicCacheDomain } from '@/lib/cache';
 import { jsonError, jsonOk } from '@/lib/http';
 import { createAdminNoticeRedirectHeaders } from '@/lib/flash';
 import { canViewContent } from '@/lib/content-visibility';
@@ -209,29 +209,48 @@ async function validatePageParent(db: any, rawValue: string, currentCid: number)
   return { parent };
 }
 
+/** Page-cache domain that renders this content type's detail pages. */
+function detailDomainFor(type: string | null | undefined): PublicCacheDomain {
+  return type?.startsWith('page') ? 'page' : 'post';
+}
+
 async function purgeContentAndRelatedCache(
   db: any,
   _options: SiteOptions,
   _cid: number,
   fallbackContent?: typeof schema.contents.$inferSelect,
   /**
-   * Extra category/tag URLs to purge — used when a piece of content is
-   * being reassigned so the OLD categories/tags see their post lists
-   * refresh alongside the new ones.
+   * Cache-relevant state of the content BEFORE this change. `wasPublic`
+   * marks URLs that may already sit in public caches, so the detail domain
+   * must be invalidated; `wasType` disambiguates the detail domain when the
+   * content type changed.
    */
-  extra?: { categoryUrls?: string[]; tagUrls?: string[]; wasPublic?: boolean },
+  extra?: { categoryUrls?: string[]; tagUrls?: string[]; wasPublic?: boolean; wasType?: string | null },
 ) {
   const content = fallbackContent;
 
   // Skip cache work for drafts — they never appear on public pages, so
   // purging index/feed/category URLs is pure waste.
   const isPublic = !!content && canViewContent(content, {});
-  // Every public cache key embeds cacheVersion. A single version bump replaces
-  // URL-by-URL purges and avoids loading relationships solely to build keys
-  // that the Cache API no longer stores.
+  const wasPublic = !!extra?.wasPublic;
+  // Publishing only moves the home/archive lists (and the feed/sitemap in
+  // `other`); unrelated detail pages stay cached. Only content that WAS
+  // public before can have a cached detail page, so its detail domain is
+  // bumped just for updates and deletes — a first publish renders a brand
+  // new URL with no cache entry to invalidate.
+  const domains: PublicCacheDomain[] = [];
+  if (isPublic || wasPublic) {
+    domains.push('home', 'archive', 'other');
+  }
+  if (wasPublic) {
+    for (const type of [extra?.wasType ?? content?.type, isPublic ? content?.type : null]) {
+      const domain = detailDomainFor(type);
+      if (!domains.includes(domain)) domains.push(domain);
+    }
+  }
   await invalidatePublicCache(db, {
     reason: 'content',
-    domains: isPublic || extra?.wasPublic ? ['all'] : [],
+    domains,
     sharedDomains: [
       'navigation', 'sidebar', 'metas', 'comments', 'notes', 'archive', 'content',
       'admin-dashboard', 'admin-content', 'admin-comments', 'admin-metas', 'admin-media', 'admin-users',
@@ -598,7 +617,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       ...existing,
       type: contentType,
       status,
-    }, { wasPublic: canViewContent(existing, {}) });
+    }, { wasPublic: canViewContent(existing, {}), wasType: existing.type });
 
     const editUrl = type === 'page' ? `/admin/write-page?cid=${cid}` : `/admin/write-post?cid=${cid}`;
     const redirectUrl = isDraft
@@ -661,7 +680,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
     // the delete, a concurrent public GET between bump and delete would
     // re-read the still-present row from D1 and cache it under the
     // fresh version — that cached corpse would then serve forever.
-    await purgeContentAndRelatedCache(db, options, cid, existing);
+    await purgeContentAndRelatedCache(db, options, cid, existing, {
+      wasPublic: canViewContent(existing, {}),
+    });
 
     // Trigger post-delete hook
     await doHook(pluginCtx, isPage ? 'page:finishDelete' : 'post:finishDelete', existing);

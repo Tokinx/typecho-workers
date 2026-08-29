@@ -1500,6 +1500,26 @@ describe('plugin registration and controls', () => {
     expect(purgeSpy).toHaveBeenCalledTimes(2);
   });
 
+  it('bumps only the publish-affected domains and leaves g:all alone', async () => {
+    const kv = new MemoryKv();
+    env.TYPECHO_CACHE = kv as any;
+    const hooks = collectHooks();
+    const purgeSpy = vi.spyOn(platformCache, 'purge');
+    const result = await hooks.get('plugin:typecho-plugin-cache:action')!({ handled: false }, {
+      action: 'invalidate',
+      payload: { domains: ['home', 'archive', 'other', 'post'] },
+    });
+    expect(result).toMatchObject({ handled: true, success: true });
+    expect([...kv.store.keys()].filter((key) => key.startsWith('typecho:edge-cache:v1:g:'))).toEqual([
+      'typecho:edge-cache:v1:g:home',
+      'typecho:edge-cache:v1:g:archive',
+      'typecho:edge-cache:v1:g:other',
+      'typecho:edge-cache:v1:g:post',
+    ]);
+    expect([...kv.store.keys()]).not.toContain('typecho:edge-cache:v1:g:all');
+    expect(purgeSpy).toHaveBeenCalledWith({ tags: ['tc:home', 'tc:archive', 'tc:other', 'tc:post'] });
+  });
+
   it('invalidates all page and shared-data generations on a manual full refresh', async () => {
     const kv = new MemoryKv();
     env.TYPECHO_CACHE = kv as any;
