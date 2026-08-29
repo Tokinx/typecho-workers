@@ -17,6 +17,7 @@ import { env } from 'cloudflare:workers';
 import { publishedPostCondition } from '@/lib/content-visibility';
 import { runEarlyRequestProviders, syncEarlyRequestProviders } from '@/lib/early-request';
 import { PUBLIC_HTML_HEADER } from '@/lib/cache';
+import { formatRequestMetrics, shouldSampleRequest, type RequestPhases } from '@/lib/request-metrics';
 
 // Plugin loader registration (generated at build time by plugin-loader.ts).
 // Statically imported so the lazy plugin loader table exists before the first
@@ -84,9 +85,17 @@ async function resolvePaginatedPath(
   return { page, target: `${targetPath}${search}` };
 }
 
+// Phase-timing holders, keyed by the Astro context object so concurrent
+// requests never observe each other's timings. Only sampled requests get a
+// holder; coreMiddleware reads it to split bootstrap from route render.
+const phaseHolders = new WeakMap<object, RequestPhases>();
+let metricsSeenRequest = false;
+
 const coreMiddleware = defineMiddleware(async (context, next) => {
   const url = new URL(context.request.url);
   const path = url.pathname;
+  const phases = phaseHolders.get(context);
+  const bootstrapStartedAt = phases ? performance.now() : 0;
 
   // Skip middleware for static assets, install page, and install API
   if (
@@ -143,6 +152,7 @@ const coreMiddleware = defineMiddleware(async (context, next) => {
   await setActivatedPlugins(pluginCtx, activatedIds);
   await syncEarlyRequestProviders(context.request, activatedIds, options);
   setRequestCoreContext(context.locals, { db, options, pluginCtx }, context.request);
+  if (phases) phases.bootstrapMs = performance.now() - bootstrapStartedAt;
 
   // Admin-configured external domains appended to the CSP (basic settings).
   const cspWhitelist = options.cspWhitelist ?? undefined;
@@ -339,7 +349,9 @@ const coreMiddleware = defineMiddleware(async (context, next) => {
   // Execute the route handler
   let response: Response;
   try {
+    const renderStartedAt = phases ? performance.now() : 0;
     response = await next();
+    if (phases) phases.renderMs = performance.now() - renderStartedAt;
   } catch (err) {
     console.error('[middleware] next() threw:', path, err);
     return applySecurityHeaders(new Response('Server error', { status: 500 }), { request: context.request, cspWhitelist }, pluginCtx);
@@ -364,6 +376,10 @@ const coreMiddleware = defineMiddleware(async (context, next) => {
 });
 
 export const onRequest = defineMiddleware(async (context, next) => {
+  const { sampled, cold } = shouldSampleRequest(metricsSeenRequest);
+  metricsSeenRequest = true;
+  const phases: RequestPhases = { cold, earlyStartedAt: performance.now() };
+  if (sampled) phaseHolders.set(context, phases);
   // Streaming SSR makes `Astro.response.headers.set()` inside theme components
   // unreliable (WarmShell's marker was silently dropped), so the cache
   // plugin's public-HTML marker may be missing from rendered pages. Backfill
@@ -390,6 +406,15 @@ export const onRequest = defineMiddleware(async (context, next) => {
       ? promise => context.locals.cfContext!.waitUntil(promise)
       : undefined,
   }, renderNext);
+  if (sampled) {
+    phases.earlyMs = performance.now() - phases.earlyStartedAt;
+    console.log(`[metrics] ${formatRequestMetrics(phases, {
+      path: context.url.pathname,
+      method: context.request.method,
+      status: response.status,
+      cache: response.headers.get('X-Typecho-Cache'),
+    })}`);
+  }
   if (!response.headers.has(PUBLIC_HTML_HEADER)) return response;
   const headers = new Headers(response.headers);
   headers.delete(PUBLIC_HTML_HEADER);
