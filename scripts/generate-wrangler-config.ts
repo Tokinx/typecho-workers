@@ -89,15 +89,17 @@ ${kvNamespaceId ? `[[kv_namespaces]]
 binding = "TYPECHO_CACHE"
 id = ${tomlString(kvNamespaceId)}
 
-` : ''}[observability]
-enabled = false
+` : ''}# Workers Logs persistence: [metrics] phase samples need to land in the
+# stored logs to be queryable; real-time tail alone keeps them invisible.
+[observability]
+enabled = true
 head_sampling_rate = 1
 
 [observability.logs]
 enabled = true
 head_sampling_rate = 1
 invocation_logs = false
-persist = false
+persist = true
 
 [observability.traces]
 enabled = false
