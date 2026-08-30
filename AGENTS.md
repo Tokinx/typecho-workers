@@ -345,7 +345,7 @@ Notes 插件的笔记管理页是完整参考实现：`admin:page` 返回包含 
 
 ### 8.5 安全响应头
 
-中间件 (`src/middleware.ts`) 通过 `applySecurityHeaders()` 在每次中间件托管响应中自动添加以下安全响应头，除非路由处理程序已设置同名 Header；包括普通路由、插件 `route:request` 响应、缓存命中响应、安装/静态资源早返回路径：
+中间件 (`src/middleware.ts`) 通过 `applySecurityHeaders()` 在每次中间件托管响应中自动添加以下安全响应头，除非路由处理程序已设置同名 Header；包括普通路由、插件 `route:request` 响应、安装/静态资源早返回路径。缓存命中响应不逐请求执行 `applySecurityHeaders()`——安全头在页面写入缓存时随响应头一并固化（`responseHeadersForStorage` 保留 CSP 等），命中时原样返回：
 
 | Header | Value |
 |--------|-------|

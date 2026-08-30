@@ -12,7 +12,6 @@
  */
 
 import type { PublicCacheInvalidation, SharedCacheDomain } from '@/lib/cache';
-import { resetMarkdownRenderCache } from '@/lib/markdown';
 
 export interface EarlyRequestContext {
   request: Request;
@@ -206,9 +205,13 @@ export async function notifyEarlyRequestInvalidation(event: PublicCacheInvalidat
   invalidateSharedDataGenerations(event.sharedDomains);
   // Memoized full-content markdown renders key on source text + plugin set.
   // Option / plugin-configuration changes can alter filter output without
-  // touching the text, so drop the memo on broad invalidations.
+  // touching the text, so drop the memo on broad invalidations. The markdown
+  // module (marked + sanitize-html) is deliberately loaded here via dynamic
+  // import: this funnel never runs on a cache hit, and a static import would
+  // anchor the 460KB markdown chunk into the first-request module graph.
   const sharedDomains = event.sharedDomains as readonly string[] | undefined;
   if (sharedDomains?.includes('all') || sharedDomains?.includes('content')) {
+    const { resetMarkdownRenderCache } = await import('@/lib/markdown');
     resetMarkdownRenderCache();
   }
   const providers = await loadProviders();
