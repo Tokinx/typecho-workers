@@ -448,6 +448,36 @@ describe('typecho-plugin-cache provider', () => {
     expect(await anonymous.text()).toContain('warmed');
   });
 
+  it('memoizes URL hashes across repeat hits', async () => {
+    const kv = new MemoryKv();
+    await activate(kv);
+    const next = vi.fn(async () => new Response('<html>memo hash</html>', {
+      headers: { 'Content-Type': 'text/html', [PUBLIC_HTML_HEADER]: '1' },
+    }));
+    const url = 'https://example.com/archives/42/';
+    const first = await earlyRequestProvider.handle(requestContext(url), next);
+    expect(first.headers.get('X-Typecho-Cache')).toBe('MISS');
+
+    const digestSpy = vi.spyOn(crypto.subtle, 'digest');
+    try {
+      await earlyRequestProvider.handle(requestContext(url), next);
+      await earlyRequestProvider.handle(requestContext(url), next);
+      expect(digestSpy).not.toHaveBeenCalled();
+    } finally {
+      digestSpy.mockRestore();
+    }
+
+    // Resetting the provider memo re-hashes on the next request.
+    resetCacheProviderForTests();
+    const digestSpyAfterReset = vi.spyOn(crypto.subtle, 'digest');
+    try {
+      await earlyRequestProvider.handle(requestContext(url), next);
+      expect(digestSpyAfterReset).toHaveBeenCalledTimes(1);
+    } finally {
+      digestSpyAfterReset.mockRestore();
+    }
+  });
+
   it('does not cache an unmarked response from a non-public theme', async () => {
     const kv = new MemoryKv();
     await activate(kv);

@@ -152,9 +152,9 @@ async function loadProviders(): Promise<Array<[string, EarlyRequestProvider]>> {
   return loaded.filter((entry): entry is [string, EarlyRequestProvider] => entry[1] !== null);
 }
 
-function isEligibleEarlyRequest(request: Request): boolean {
+function isEligibleEarlyRequest(request: Request, url: URL): boolean {
   if (request.method !== 'GET') return false;
-  const path = new URL(request.url).pathname;
+  const path = url.pathname;
   if (
     path === '/install' ||
     path === '/api/install' ||
@@ -179,7 +179,7 @@ export async function runEarlyRequestProviders(
   context: EarlyRequestContext,
   next: EarlyRequestNext,
 ): Promise<Response> {
-  if (!isEligibleEarlyRequest(context.request) || providerLoaders.size === 0) return next();
+  if (!isEligibleEarlyRequest(context.request, context.url) || providerLoaders.size === 0) return next();
 
   const providers = await loadProviders();
   if (providers.length === 0) return next();

@@ -511,7 +511,10 @@ function isTrackingParam(name: string): boolean {
 }
 
 export function normalizeCacheUrl(url: URL, domain: PublicCacheDomain): string | null {
-  const normalized = new URL(url.toString());
+  // Queryless URLs — the overwhelming majority of cache hits — skip the
+  // defensive clone: nothing below mutates the URL when there is no query
+  // to filter, and requests never carry a fragment.
+  const normalized = url.search || url.hash ? new URL(url.toString()) : url;
   normalized.hash = '';
   const allowed = new Set<string>();
   if (domain === 'home') {
@@ -539,6 +542,31 @@ export function normalizeCacheUrl(url: URL, domain: PublicCacheDomain): string |
 async function sha256(value: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
   return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+const URL_HASH_MEMO_ENTRIES = 256;
+const urlHashMemo = new Map<string, string>();
+
+/**
+ * SHA-256 of the normalized URL is half of every cache id, so hot pages
+ * re-hash the same string on every hit. A small LRU keyed by the URL string
+ * turns repeat visits into pure Map lookups.
+ */
+async function sha256WithMemo(value: string): Promise<string> {
+  const cached = urlHashMemo.get(value);
+  if (cached !== undefined) {
+    // Refresh insertion order for LRU eviction.
+    urlHashMemo.delete(value);
+    urlHashMemo.set(value, cached);
+    return cached;
+  }
+  const digest = await sha256(value);
+  urlHashMemo.set(value, digest);
+  if (urlHashMemo.size > URL_HASH_MEMO_ENTRIES) {
+    const oldest = urlHashMemo.keys().next().value;
+    if (oldest !== undefined) urlHashMemo.delete(oldest);
+  }
+  return digest;
 }
 
 function l1Request(key: string): Request {
@@ -1014,7 +1042,7 @@ async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNex
     const [globalGeneration, domainGeneration, urlHash] = await Promise.all([
       generation(kv, 'all'),
       generation(kv, domain),
-      sha256(normalizedUrl),
+      sha256WithMemo(normalizedUrl),
     ]);
     cacheId = `${domain}:${globalGeneration}:${domainGeneration}:${urlHash}`;
     l1Key = l1Request(cacheId);
@@ -1175,6 +1203,7 @@ export const earlyRequestProvider: EarlyRequestProvider = {
 export function resetCacheProviderForTests(): void {
   controlMemo = null;
   generationMemo.clear();
+  urlHashMemo.clear();
   inFlight.clear();
   runtimeConfig = null;
   lastD1CleanupAt = 0;
