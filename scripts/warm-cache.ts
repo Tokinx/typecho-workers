@@ -72,7 +72,7 @@ function normalizeSiteUrl(site: string): string {
 }
 
 function resolveUrl(site: string | undefined, value: string): string | null {
-  const trimmed = value.trim();
+  const trimmed = value.trim().replace(/\r$/, '');
   if (!trimmed) return null;
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
   if (!site) return null;
@@ -101,11 +101,17 @@ async function fetchText(url: string): Promise<string> {
 
 function parseSitemapLocs(xml: string, site: string): string[] {
   const locs: string[] = [];
+  const siteOrigin = new URL(site).origin;
   const re = /<loc>([^<]+)<\/loc>/gi;
   let match: RegExpExecArray | null;
   while ((match = re.exec(xml)) !== null) {
-    const loc = match[1].trim();
-    if (loc.startsWith(site)) locs.push(loc);
+    const loc = match[1].trim().replace(/&amp;/g, '&');
+    if (!loc.startsWith('http')) continue;
+    try {
+      if (new URL(loc).origin === siteOrigin) locs.push(loc);
+    } catch {
+      // Malformed URL — skip.
+    }
   }
   return locs;
 }

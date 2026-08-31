@@ -61,7 +61,7 @@ function parseArgs(): CliOptions {
       case '--file': opts.file = next(); break;
       case '--stdin': opts.stdin = true; break;
       case '--service': opts.service = next(); break;
-      case '--limit': opts.limit = Number(next()); break;
+      case '--limit': opts.limit = Math.max(1, Math.trunc(Number(next()))); break;
       case '--help':
         console.log(`Usage: bun run scripts/analyze-metrics.ts [--days N | --from YYYY-MM-DD --to YYYY-MM-DD]
        bun run scripts/analyze-metrics.ts --file path.ndjson
@@ -111,10 +111,12 @@ async function fetchTelemetryEvents(
 ): Promise<MetricsEntry[]> {
   const entries: MetricsEntry[] = [];
   let continuationToken: string | undefined;
+  let pageSize: number;
   do {
+    pageSize = Math.max(1, Math.min(limit - entries.length, 1_000));
     const body: Record<string, unknown> = {
       timeframe: { from: fromMs, to: toMs },
-      limit: Math.min(limit - entries.length, 1_000),
+      limit: pageSize,
       parameters: {
         datasets: ['workers'],
         filters: [
@@ -129,13 +131,15 @@ async function fetchTelemetryEvents(
       `/accounts/${accountId}/workers/observability/telemetry/query`,
       { method: 'POST', body: JSON.stringify(body) },
     );
-    for (const event of result.events || []) {
+    const events = result.events || [];
+    for (const event of events) {
       if (!event.message) continue;
       const entry = parseMetricsMessage(event.message);
       if (entry) entries.push(entry);
     }
     continuationToken = result.continuationToken;
-  } while (continuationToken && entries.length < limit);
+    if (events.length === 0) break;
+  } while (continuationToken && entries.length < limit && pageSize > 0);
 
   return entries;
 }

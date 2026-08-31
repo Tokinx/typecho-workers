@@ -34,11 +34,17 @@ export async function cloudflareFetch<T>(
       ...(init.headers || {}),
     },
   });
-  const body = await response.json() as {
+  const resultBody = await response.text();
+  let body: {
     success?: boolean;
     errors?: CloudflareApiError[];
     result?: T;
   };
+  try {
+    body = JSON.parse(resultBody) as typeof body;
+  } catch {
+    throw new Error(`Cloudflare API ${path} failed (HTTP ${response.status} ${response.statusText}, non-JSON body)`);
+  }
   if (!response.ok || body.success === false) {
     const detail = body.errors?.map(error => `${error.code}: ${error.message}`).join('; ')
       || response.statusText;
