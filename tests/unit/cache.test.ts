@@ -40,6 +40,20 @@ describe('buildContentPurgeUrls()', () => {
 });
 
 describe('buildContentWarmupUrls()', () => {
+  it('includes related category and tag archive URLs', () => {
+    const urls = buildContentWarmupUrls('https://example.com', 'https://example.com/archives/1/', {
+      categoryUrls: ['https://example.com/category/tech/'],
+      tagUrls: ['https://example.com/tag/astro/', 'https://example.com/tag/astro/'],
+    });
+    expect(urls).toEqual([
+      'https://example.com/',
+      'https://example.com/feed',
+      'https://example.com/archives/1/',
+      'https://example.com/category/tech/',
+      'https://example.com/tag/astro/',
+    ]);
+  });
+
   it('builds home and feed plus the permalink', () => {
     expect(buildContentWarmupUrls('https://example.com', 'https://example.com/archives/1/')).toEqual([
       'https://example.com/',

@@ -197,14 +197,29 @@ export async function warmPublicCacheUrls(urls: string[]): Promise<void> {
 
 /**
  * Build the render-on-write warm-up list for a content change: the home page
- * and the main feed always, plus the changed permalink itself on create and
- * update (a deleted permalink would render a 404, which is never cached).
+ * and the main feed always, plus the changed permalink and related archive
+ * pages (category/tag) when provided.
  */
-export function buildContentWarmupUrls(siteUrl: string, permalink?: string | null): string[] {
+export interface ContentWarmupUrlsOptions {
+  categoryUrls?: Array<string | null | undefined>;
+  tagUrls?: Array<string | null | undefined>;
+}
+
+export function buildContentWarmupUrls(
+  siteUrl: string,
+  permalink?: string | null,
+  related: ContentWarmupUrlsOptions = {},
+): string[] {
   const base = siteUrl?.trim().replace(/\/+$/, '');
   if (!base || !/^https?:\/\//i.test(base)) return [];
   const urls = new Set<string>([`${base}/`, `${base}/feed`]);
   if (permalink) urls.add(permalink);
+  for (const url of related.categoryUrls || []) {
+    if (url) urls.add(url);
+  }
+  for (const url of related.tagUrls || []) {
+    if (url) urls.add(url);
+  }
   return [...urls];
 }
 
