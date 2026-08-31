@@ -3,7 +3,7 @@ import { schema } from '@/db';
 import { type SiteOptions } from '@/lib/options';
 import { canManageResource } from '@/lib/auth';
 import { isAdminActionResponse, requireAdminAction } from '@/lib/admin-auth';
-import { buildPermalink, generateSlug } from '@/lib/content';
+import { buildPermalink, generateSlug, buildCategoryLink, buildTagLink } from '@/lib/content';
 import { applyFilter, doHook } from '@/lib/plugin';
 import { buildContentWarmupUrls, invalidatePublicCache, warmPublicCacheUrls, type PublicCacheDomain } from '@/lib/cache';
 import { jsonError, jsonOk } from '@/lib/http';
@@ -214,6 +214,54 @@ function detailDomainFor(type: string | null | undefined): PublicCacheDomain {
   return type?.startsWith('page') ? 'page' : 'post';
 }
 
+/** Resolve category/tag archive URLs for cache warm-up after content writes. */
+async function loadMetaArchiveUrls(
+  db: any,
+  mids: number[],
+  options: SiteOptions,
+): Promise<{ categoryUrls: string[]; tagUrls: string[] }> {
+  const uniqueMids = [...new Set(mids.filter(mid => Number.isInteger(mid) && mid > 0))];
+  if (uniqueMids.length === 0) return { categoryUrls: [], tagUrls: [] };
+
+  const rows = await db.select({
+    mid: schema.metas.mid,
+    slug: schema.metas.slug,
+    type: schema.metas.type,
+  })
+    .from(schema.metas)
+    .where(sqlInChunks(schema.metas.mid, uniqueMids));
+
+  const categoryUrls: string[] = [];
+  const tagUrls: string[] = [];
+  for (const row of rows) {
+    if (!row.slug) continue;
+    if (row.type === 'category') {
+      categoryUrls.push(buildCategoryLink(
+        row.slug,
+        options.siteUrl,
+        options.categoryPattern as string | undefined,
+        row.mid,
+      ));
+    } else if (row.type === 'tag') {
+      tagUrls.push(buildTagLink(row.slug, options.siteUrl));
+    }
+  }
+  return { categoryUrls, tagUrls };
+}
+
+async function loadContentArchiveUrls(
+  db: any,
+  cid: number,
+  options: SiteOptions,
+  extraMids: number[] = [],
+): Promise<{ categoryUrls: string[]; tagUrls: string[] }> {
+  const rels = await db.select({ mid: schema.relationships.mid })
+    .from(schema.relationships)
+    .where(eq(schema.relationships.cid, cid));
+  const mids = [...new Set([...extraMids, ...rels.map((row: { mid: number }) => row.mid)])];
+  return loadMetaArchiveUrls(db, mids, options);
+}
+
 async function purgeContentAndRelatedCache(
   db: any,
   options: SiteOptions,
@@ -280,7 +328,10 @@ async function purgeContentAndRelatedCache(
         options.pagePattern,
       )
       : null;
-    const warmupUrls = buildContentWarmupUrls(options.siteUrl, permalink);
+    const warmupUrls = buildContentWarmupUrls(options.siteUrl, permalink, {
+      categoryUrls: extra?.categoryUrls,
+      tagUrls: extra?.tagUrls,
+    });
     if (warmupUrls.length > 0) {
       locals.cfContext.waitUntil(warmPublicCacheUrls(warmupUrls));
     }
@@ -533,7 +584,11 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
     await sendSubmittedTrackbacks(newCid, finalSlug);
 
-    await purgeContentAndRelatedCache(db, options, newCid, finishData as typeof schema.contents.$inferSelect, { warmContentUrl: true }, locals);
+    const archiveUrls = await loadContentArchiveUrls(db, newCid, options);
+    await purgeContentAndRelatedCache(db, options, newCid, finishData as typeof schema.contents.$inferSelect, {
+      warmContentUrl: true,
+      ...archiveUrls,
+    }, locals);
 
     const editUrl = type === 'page' ? `/admin/write-page?cid=${newCid}` : `/admin/write-post?cid=${newCid}`;
     const redirectUrl = isDraft
@@ -642,11 +697,17 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
     await sendSubmittedTrackbacks(cid, finalSlug);
 
+    const archiveUrls = await loadContentArchiveUrls(db, cid, options, oldMids);
     await purgeContentAndRelatedCache(db, options, cid, {
       ...existing,
       type: contentType,
       status,
-    }, { wasPublic: canViewContent(existing, {}), wasType: existing.type, warmContentUrl: true }, locals);
+    }, {
+      wasPublic: canViewContent(existing, {}),
+      wasType: existing.type,
+      warmContentUrl: true,
+      ...archiveUrls,
+    }, locals);
 
     const editUrl = type === 'page' ? `/admin/write-page?cid=${cid}` : `/admin/write-post?cid=${cid}`;
     const redirectUrl = isDraft
@@ -709,8 +770,12 @@ export const POST: APIRoute = async ({ request, locals }) => {
     // the delete, a concurrent public GET between bump and delete would
     // re-read the still-present row from D1 and cache it under the
     // fresh version — that cached corpse would then serve forever.
+    const archiveUrls = rels.length > 0
+      ? await loadMetaArchiveUrls(db, rels.map(rel => rel.mid), options)
+      : { categoryUrls: [], tagUrls: [] };
     await purgeContentAndRelatedCache(db, options, cid, existing, {
       wasPublic: canViewContent(existing, {}),
+      ...archiveUrls,
     }, locals);
 
     // Trigger post-delete hook
