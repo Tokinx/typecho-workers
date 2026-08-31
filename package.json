@@ -18,8 +18,9 @@
     "dev": "astro dev --force",
     "build": "astro build",
     "generate:cloudflare-config": "bun run scripts/generate-wrangler-config.ts",
-    "build:cloudflare": "bun run generate:cloudflare-config && astro build",
-    "deploy": "bun run build && wrangler deploy --config dist/server/wrangler.json",
+    "patch:deploy-wrangler": "bun run scripts/patch-deploy-wrangler.ts",
+    "build:cloudflare": "bun run generate:cloudflare-config && astro build && bun run patch:deploy-wrangler",
+    "deploy": "bun run build && bun run patch:deploy-wrangler && wrangler deploy --config dist/server/wrangler.json",
     "deploy:cloudflare-build": "wrangler deploy --config dist/server/wrangler.json",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -32,7 +33,8 @@
     "reset-password:cloudflare": "bun run scripts/reset-password.ts --target cloudflare",
     "perf:metrics": "bun run scripts/analyze-metrics.ts",
     "perf:usage": "bun run scripts/analyze-usage.ts",
-    "perf:warm": "bun run scripts/warm-cache.ts"
+    "perf:warm": "bun run scripts/warm-cache.ts",
+    "perf:baseline": "bun run scripts/capture-baseline.ts"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^14.1.5",
