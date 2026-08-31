@@ -6,9 +6,11 @@
  *   bun run perf:usage -- --days 3
  *   bun run perf:usage -- --from 2026-08-29 --to 2026-08-31
  *
+ * Auth: Wrangler OAuth (`wrangler login`) preferred; or an API token with
+ * Account Analytics Read scoped to the target account.
+ *
  * Env:
- *   CLOUDFLARE_API_TOKEN
- *   CLOUDFLARE_ACCOUNT_ID
+ *   CLOUDFLARE_ACCOUNT_ID — auto-detected from `wrangler whoami` when omitted
  *   TYPECHO_WORKER_NAME (default: typecho-workers)
  *   TYPECHO_D1_DATABASE_ID (optional, for per-database D1 rows)
  */
@@ -16,7 +18,7 @@
 import {
   cloudflareGraphql,
   parseDateRange,
-  requireEnv,
+  resolveAccountId,
 } from './performance/lib/cloudflare-api.ts';
 
 interface CliOptions {
@@ -67,7 +69,6 @@ query TypechoUsage(
     accounts(filter: { accountTag: $accountTag }) {
       workersInvocationsAdaptive(
         filter: {
-          accountTag: $accountTag
           scriptName: $scriptName
           date_geq: $dateFrom
           date_leq: $dateTo
@@ -77,19 +78,29 @@ query TypechoUsage(
         dimensions { date }
         sum {
           requests
-          requestsStatusExceededCpu
           errors
         }
         quantiles {
-          cpuTimeUsP50
-          cpuTimeUsP75
-          cpuTimeUsP90
-          cpuTimeUsP99
+          cpuTimeP50
+          cpuTimeP75
+          cpuTimeP90
+          cpuTimeP99
         }
+      }
+      workersInvocationsAdaptiveExceeded: workersInvocationsAdaptive(
+        filter: {
+          scriptName: $scriptName
+          date_geq: $dateFrom
+          date_leq: $dateTo
+          status: "exceededCpu"
+        }
+        limit: 10000
+      ) {
+        dimensions { date }
+        sum { requests }
       }
       workersCacheRequestsAdaptiveGroups(
         filter: {
-          accountTag: $accountTag
           scriptName: $scriptName
           date_geq: $dateFrom
           date_leq: $dateTo
@@ -101,7 +112,6 @@ query TypechoUsage(
       }
       d1AnalyticsAdaptiveGroups(
         filter: {
-          accountTag: $accountTag
           date_geq: $dateFrom
           date_leq: $dateTo
           databaseId: $databaseId
@@ -113,7 +123,6 @@ query TypechoUsage(
       }
       kvOperationsAdaptiveGroups(
         filter: {
-          accountTag: $accountTag
           date_geq: $dateFrom
           date_leq: $dateTo
         }
@@ -131,16 +140,15 @@ interface UsageRow {
   dimensions?: { date?: string; cacheStatus?: string; actionType?: string };
   sum?: {
     requests?: number;
-    requestsStatusExceededCpu?: number;
     errors?: number;
     readQueries?: number;
     writeQueries?: number;
   };
   quantiles?: {
-    cpuTimeUsP50?: number;
-    cpuTimeUsP75?: number;
-    cpuTimeUsP90?: number;
-    cpuTimeUsP99?: number;
+    cpuTimeP50?: number;
+    cpuTimeP75?: number;
+    cpuTimeP90?: number;
+    cpuTimeP99?: number;
   };
 }
 
@@ -148,6 +156,7 @@ interface UsageQueryData {
   viewer: {
     accounts: Array<{
       workersInvocationsAdaptive: UsageRow[];
+      workersInvocationsAdaptiveExceeded: UsageRow[];
       workersCacheRequestsAdaptiveGroups: UsageRow[];
       d1AnalyticsAdaptiveGroups: UsageRow[];
       kvOperationsAdaptiveGroups: UsageRow[];
@@ -160,7 +169,18 @@ function usToMs(value: number | undefined): string {
   return (value / 1_000).toFixed(1);
 }
 
-function printWorkerCpu(rows: UsageRow[]): void {
+function exceededByDate(rows: UsageRow[]): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const row of rows) {
+    const date = row.dimensions?.date;
+    if (!date) continue;
+    map.set(date, row.sum?.requests ?? 0);
+  }
+  return map;
+}
+
+function printWorkerCpu(rows: UsageRow[], exceededRows: UsageRow[]): void {
+  const exceeded = exceededByDate(exceededRows);
   console.log('## Worker CPU / invocations');
   console.log('date       requests  1102   errors  P50ms  P75ms  P90ms  P99ms');
   for (const row of rows.sort((a, b) => (a.dimensions?.date || '').localeCompare(b.dimensions?.date || ''))) {
@@ -171,12 +191,12 @@ function printWorkerCpu(rows: UsageRow[]): void {
       [
         date,
         String(sum.requests ?? 0).padStart(8),
-        String(sum.requestsStatusExceededCpu ?? 0).padStart(6),
+        String(exceeded.get(date) ?? 0).padStart(6),
         String(sum.errors ?? 0).padStart(7),
-        usToMs(q.cpuTimeUsP50).padStart(6),
-        usToMs(q.cpuTimeUsP75).padStart(6),
-        usToMs(q.cpuTimeUsP90).padStart(6),
-        usToMs(q.cpuTimeUsP99).padStart(6),
+        usToMs(q.cpuTimeP50).padStart(6),
+        usToMs(q.cpuTimeP75).padStart(6),
+        usToMs(q.cpuTimeP90).padStart(6),
+        usToMs(q.cpuTimeP99).padStart(6),
       ].join('  '),
     );
   }
@@ -210,7 +230,7 @@ function printD1(rows: UsageRow[]): void {
     console.log('');
     return;
   }
-  console.log('## D1 read/write');
+  console.log('## D1 read/write (database queries, not row reads)');
   console.log('date       reads      writes');
   for (const row of rows.sort((a, b) => (a.dimensions?.date || '').localeCompare(b.dimensions?.date || ''))) {
     console.log(
@@ -245,7 +265,7 @@ function printKv(rows: UsageRow[]): void {
 async function main(): Promise<void> {
   const opts = parseArgs();
   const range = parseDateRange(opts);
-  const accountTag = requireEnv('CLOUDFLARE_ACCOUNT_ID');
+  const accountTag = resolveAccountId();
 
   const data = await cloudflareGraphql<UsageQueryData>(USAGE_QUERY, {
     accountTag,
@@ -262,7 +282,10 @@ async function main(): Promise<void> {
   console.log(`script=${opts.scriptName}  account=${accountTag}`);
   console.log('');
 
-  printWorkerCpu(account.workersInvocationsAdaptive || []);
+  printWorkerCpu(
+    account.workersInvocationsAdaptive || [],
+    account.workersInvocationsAdaptiveExceeded || [],
+  );
   printCacheStatus(account.workersCacheRequestsAdaptiveGroups || []);
   printD1(account.d1AnalyticsAdaptiveGroups || []);
   printKv(account.kvOperationsAdaptiveGroups || []);

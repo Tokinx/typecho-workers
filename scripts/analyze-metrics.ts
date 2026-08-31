@@ -12,17 +12,21 @@
  *   cat metrics.ndjson | bun run perf:metrics -- --stdin
  *
  * Env:
- *   CLOUDFLARE_API_TOKEN
- *   CLOUDFLARE_ACCOUNT_ID
+ *   CLOUDFLARE_API_TOKEN — Observability Read (tried before Wrangler OAuth)
+ *   CLOUDFLARE_ACCOUNT_ID — auto-detected from `wrangler whoami` when omitted
  *   TYPECHO_WORKER_NAME (default: typecho-workers)
+ *
+ * GraphQL uses Wrangler OAuth when available (API tokens with only
+ * Observability Read cannot query account analytics).
  */
 
 import { readFileSync } from 'node:fs';
 import {
-  cloudflareFetch,
+  cloudflareFetchWithAuthFallback,
   dateRangeToMs,
   parseDateRange,
-  requireEnv,
+  resolveAccountId,
+  telemetryTokenCandidates,
 } from './performance/lib/cloudflare-api.ts';
 import {
   aggregateMetrics,
@@ -94,11 +98,15 @@ function entriesFromNdjson(text: string): MetricsEntry[] {
 
 interface TelemetryEvent {
   message?: string;
-  timestamp?: string;
+}
+
+interface TelemetryEventsBlock {
+  count?: number;
+  events?: TelemetryEvent[];
 }
 
 interface TelemetryQueryResult {
-  events?: TelemetryEvent[];
+  events?: TelemetryEventsBlock;
   continuationToken?: string;
 }
 
@@ -115,23 +123,26 @@ async function fetchTelemetryEvents(
   do {
     pageSize = Math.max(1, Math.min(limit - entries.length, 1_000));
     const body: Record<string, unknown> = {
+      queryId: 'typecho-metrics-baseline',
+      view: 'events',
       timeframe: { from: fromMs, to: toMs },
       limit: pageSize,
       parameters: {
         datasets: ['workers'],
         filters: [
-          { key: '$metadata.service', operation: 'eq', value: service, type: 'string' },
+          { key: '$workers.scriptName', operation: 'eq', value: service, type: 'string' },
           { key: 'message', operation: 'includes', value: '[metrics]', type: 'string' },
         ],
       },
     };
     if (continuationToken) body.continuationToken = continuationToken;
 
-    const result = await cloudflareFetch<TelemetryQueryResult>(
+    const result = await cloudflareFetchWithAuthFallback<TelemetryQueryResult>(
       `/accounts/${accountId}/workers/observability/telemetry/query`,
       { method: 'POST', body: JSON.stringify(body) },
+      telemetryTokenCandidates(),
     );
-    const events = result.events || [];
+    const events = result.events?.events || [];
     for (const event of events) {
       if (!event.message) continue;
       const entry = parseMetricsMessage(event.message);
@@ -184,7 +195,7 @@ async function main(): Promise<void> {
   } else if (opts.file) {
     entries = entriesFromNdjson(readFileSync(opts.file, 'utf8'));
   } else {
-    const accountId = requireEnv('CLOUDFLARE_ACCOUNT_ID');
+    const accountId = resolveAccountId();
     const range = parseDateRange(opts);
     const { fromMs, toMs } = dateRangeToMs(range.from, range.to);
     console.error(`Querying telemetry ${range.from} .. ${range.to} (${opts.service})…`);
