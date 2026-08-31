@@ -29,7 +29,10 @@
     "db:migrate:typecho": "bun run scripts/migrate.ts",
     "db:migrate:wordpress": "bun run scripts/migrate-wordpress.ts",
     "reset-password": "bun run scripts/reset-password.ts --target local",
-    "reset-password:cloudflare": "bun run scripts/reset-password.ts --target cloudflare"
+    "reset-password:cloudflare": "bun run scripts/reset-password.ts --target cloudflare",
+    "perf:metrics": "bun run scripts/analyze-metrics.ts",
+    "perf:usage": "bun run scripts/analyze-usage.ts",
+    "perf:warm": "bun run scripts/warm-cache.ts"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^14.1.5",
