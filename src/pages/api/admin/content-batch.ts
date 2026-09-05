@@ -199,7 +199,7 @@ async function handler({ request, locals, url }: { request: Request; locals: App
       domains: affectsPublicCache ? ['all'] : [],
       sharedDomains: [
         'navigation', 'sidebar', 'metas', 'comments', 'notes', 'archive', 'content',
-        'admin-dashboard', 'admin-content', 'admin-comments', 'admin-metas', 'admin-media', 'admin-users',
+        'admin-dashboard', 'admin-content',
       ],
     });
   }

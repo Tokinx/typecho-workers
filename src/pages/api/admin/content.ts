@@ -307,9 +307,11 @@ async function purgeContentAndRelatedCache(
   const cacheHandled = await invalidatePublicCache(db, {
     reason: 'content',
     domains,
+    // Frontend data domains + the admin lists this write changes. Other
+    // admin-* domains are invalidated by their own write endpoints.
     sharedDomains: [
       'navigation', 'sidebar', 'metas', 'comments', 'notes', 'archive', 'content',
-      'admin-dashboard', 'admin-content', 'admin-comments', 'admin-metas', 'admin-media', 'admin-users',
+      'admin-dashboard', 'admin-content',
     ],
   });
 
