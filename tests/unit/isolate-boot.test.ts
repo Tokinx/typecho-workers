@@ -77,7 +77,7 @@ describe('ensureTablesReady', () => {
 
 describe('ensureDatabaseReady', () => {
   it('uses the persistent schema version fast path on a cold isolate', async () => {
-    const first = vi.fn().mockResolvedValue({ runtimeSchemaVersion: '20260806' });
+    const first = vi.fn().mockResolvedValue({ runtimeSchemaVersion: '20260905' });
     const d1 = {
       prepare: vi.fn().mockReturnValue({ first }),
       batch: vi.fn(),
@@ -126,7 +126,7 @@ describe('ensureDatabaseReady', () => {
 
     const a = ensureDatabaseReady(d1);
     const b = ensureDatabaseReady(d1);
-    release({ runtimeSchemaVersion: '20260806' } as any);
+    release({ runtimeSchemaVersion: '20260905' } as any);
     await Promise.all([a, b]);
 
     expect(d1.prepare).toHaveBeenCalledOnce();
@@ -156,7 +156,7 @@ describe('ensureDatabaseReady', () => {
 
     await ensureDatabaseReady(d1);
 
-    expect(batch).toHaveBeenCalledTimes(2);
+    expect(batch).toHaveBeenCalledTimes(3);
     expect((batch.mock.calls[0][0] as Array<{ sql: string }>)[0].sql).toContain('typecho_db_cache');
     expect(markerRun).toHaveBeenCalledOnce();
   });

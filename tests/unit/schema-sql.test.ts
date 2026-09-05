@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { generateCreateSQL } from '@/lib/schema-sql';
 
 describe('generateCreateSQL', () => {
-  it('generates CREATE TABLE statements for all 10 tables', () => {
+  it('generates CREATE TABLE statements for all 11 tables', () => {
     const stmts = generateCreateSQL();
 
     const createTableStmts = stmts.filter(s => s.startsWith('CREATE TABLE IF NOT EXISTS'));
-    expect(createTableStmts.length).toBe(10);
+    expect(createTableStmts.length).toBe(11);
 
     const tableNames = createTableStmts.map(s => {
       const match = s.match(/`(typecho_\w+)`/);
@@ -21,6 +21,7 @@ describe('generateCreateSQL', () => {
     expect(tableNames).toContain('typecho_fields');
     expect(tableNames).toContain('typecho_login_failures');
     expect(tableNames).toContain('typecho_password_reset_requests');
+    expect(tableNames).toContain('typecho_webauthn_credentials');
     expect(tableNames).toContain('typecho_db_cache');
   });
 
@@ -28,8 +29,8 @@ describe('generateCreateSQL', () => {
     const stmts = generateCreateSQL();
 
     const uniqueIndexes = stmts.filter(s => s.startsWith('CREATE UNIQUE INDEX'));
-    // Core unique indexes plus the one-time reset token hash.
-    expect(uniqueIndexes.length).toBe(7);
+    // Core unique indexes plus reset token hash and webauthn credentialId.
+    expect(uniqueIndexes.length).toBe(8);
 
     const indexNames = uniqueIndexes.map(s => {
       const match = s.match(/`(typecho_\w+)`/);
@@ -42,6 +43,7 @@ describe('generateCreateSQL', () => {
     expect(indexNames).toContain('typecho_options_name_user');
     expect(indexNames).toContain('typecho_fields_cid_name');
     expect(indexNames).toContain('typecho_password_reset_requests_tokenHash');
+    expect(indexNames).toContain('typecho_webauthn_credentials_credentialId');
   });
 
   it('generates plain CREATE INDEX statements', () => {

@@ -151,6 +151,35 @@ const profileBottomHtml = await applyFilterSafely(ctx, 'admin:profile:bottom', '
       </>
     )}
 
+    <section id="passkeys">
+      <h3>通行密钥</h3>
+      <p class="description">
+        通行密钥（Passkey）可用指纹、面容或本机安全密钥登录后台，密码登录仍然可用。
+        需在 HTTPS 或 localhost 下使用。
+      </p>
+      <ul class="typecho-option" id="typecho-option-item-passkey-list-14">
+        <li>
+          <label class="typecho-label">已注册的通行密钥</label>
+          <div id="passkey-list" class="passkey-list" data-csrf={csrfToken}>加载中…</div>
+        </li>
+      </ul>
+      <ul class="typecho-option" id="typecho-option-item-passkey-name-15">
+        <li>
+          <label class="typecho-label" for="passkey-name">名称（可选）</label>
+          <input type="text" id="passkey-name" class="text w-60" maxlength="64" placeholder="例如：本机 MacBook" autocomplete="off" />
+          <p class="description">便于区分多把密钥；留空则使用默认名称。</p>
+        </li>
+      </ul>
+      <ul class="typecho-option typecho-option-submit" id="typecho-option-item-passkey-submit-16">
+        <li>
+          <button type="button" class="btn primary" id="passkey-register">添加通行密钥</button>
+          <span id="passkey-status" class="description" style="margin-left:8px"></span>
+        </li>
+      </ul>
+    </section>
+
+    <br />
+
     <section id="change-password">
       <h3>密码修改</h3>
       <form method="post" action="/api/admin/profile">
@@ -183,3 +212,182 @@ const profileBottomHtml = await applyFilterSafely(ctx, 'admin:profile:bottom', '
     {profileBottomHtml && <Fragment set:html={profileBottomHtml} />}
   </div>
 </Admin>
+
+<script is:inline>
+(function () {
+  var listEl = document.getElementById('passkey-list');
+  var statusEl = document.getElementById('passkey-status');
+  var registerBtn = document.getElementById('passkey-register');
+  var nameInput = document.getElementById('passkey-name');
+  if (!listEl || !registerBtn) return;
+
+  var csrf = listEl.getAttribute('data-csrf') || '';
+
+  function setStatus(msg, isError) {
+    if (!statusEl) return;
+    statusEl.textContent = msg || '';
+    statusEl.style.color = isError ? '#B94A48' : '';
+  }
+
+  function b64urlToBuffer(value) {
+    var padded = value.replace(/-/g, '+').replace(/_/g, '/');
+    while (padded.length % 4) padded += '=';
+    var binary = atob(padded);
+    var bytes = new Uint8Array(binary.length);
+    for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes.buffer;
+  }
+
+  function bufferToB64url(buffer) {
+    var bytes = new Uint8Array(buffer);
+    var binary = '';
+    for (var i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  }
+
+  function prepCreateOptions(options) {
+    var pub = Object.assign({}, options);
+    pub.challenge = b64urlToBuffer(options.challenge);
+    pub.user = Object.assign({}, options.user, { id: b64urlToBuffer(options.user.id) });
+    if (options.excludeCredentials) {
+      pub.excludeCredentials = options.excludeCredentials.map(function (c) {
+        return Object.assign({}, c, { id: b64urlToBuffer(c.id) });
+      });
+    }
+    return pub;
+  }
+
+  function credentialToJSON(cred) {
+    var response = cred.response;
+    return {
+      id: cred.id,
+      rawId: bufferToB64url(cred.rawId),
+      type: cred.type,
+      clientExtensionResults: cred.getClientExtensionResults ? cred.getClientExtensionResults() : {},
+      response: {
+        clientDataJSON: bufferToB64url(response.clientDataJSON),
+        attestationObject: bufferToB64url(response.attestationObject),
+        transports: response.getTransports ? response.getTransports() : undefined,
+      },
+    };
+  }
+
+  function formatTime(ts) {
+    if (!ts) return '—';
+    var d = new Date(ts * 1000);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleString();
+  }
+
+  function renderList(credentials) {
+    if (!credentials.length) {
+      listEl.innerHTML = '<p class="description" style="margin:0">尚未注册通行密钥。</p>';
+      return;
+    }
+    listEl.innerHTML = '';
+    var ul = document.createElement('ul');
+    ul.style.cssText = 'list-style:none;margin:0;padding:0';
+    credentials.forEach(function (item) {
+      var li = document.createElement('li');
+      li.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid #E9E9E6';
+      var meta = document.createElement('span');
+      var strong = document.createElement('strong');
+      strong.textContent = item.name || '通行密钥';
+      var small = document.createElement('small');
+      small.className = 'description';
+      small.textContent = '创建于 ' + formatTime(item.createdAt) + ' · 最近使用 ' + formatTime(item.lastUsedAt);
+      meta.appendChild(strong);
+      meta.appendChild(document.createElement('br'));
+      meta.appendChild(small);
+      var del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'btn btn-xs passkey-delete';
+      del.setAttribute('data-id', String(item.id));
+      del.textContent = '删除';
+      li.appendChild(meta);
+      li.appendChild(del);
+      ul.appendChild(li);
+    });
+    listEl.appendChild(ul);
+  }
+
+  async function loadList() {
+    try {
+      var res = await fetch('/api/admin/passkey', { credentials: 'same-origin' });
+      var data = await res.json();
+      if (!res.ok) throw new Error(data.error || '加载失败');
+      renderList(data.credentials || []);
+    } catch (err) {
+      listEl.textContent = err.message || '加载失败';
+    }
+  }
+
+  listEl.addEventListener('click', async function (event) {
+    var target = event.target;
+    if (!(target instanceof HTMLElement) || !target.classList.contains('passkey-delete')) return;
+    var id = target.getAttribute('data-id');
+    if (!id || !confirm('确认删除这把通行密钥？')) return;
+    setStatus('正在删除…');
+    try {
+      var res = await fetch('/api/admin/passkey?id=' + encodeURIComponent(id), {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: { 'X-CSRF-Token': csrf },
+      });
+      var data = await res.json();
+      if (!res.ok) throw new Error(data.error || '删除失败');
+      setStatus('已删除');
+      await loadList();
+    } catch (err) {
+      setStatus(err.message || '删除失败', true);
+    }
+  });
+
+  registerBtn.addEventListener('click', async function () {
+    if (!window.PublicKeyCredential) {
+      setStatus('当前浏览器不支持通行密钥', true);
+      return;
+    }
+    registerBtn.disabled = true;
+    setStatus('等待验证器…');
+    try {
+      var optRes = await fetch('/api/admin/passkey/register-options', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'X-CSRF-Token': csrf, 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      var optData = await optRes.json();
+      if (!optRes.ok) throw new Error(optData.error || '无法开始注册');
+
+      var credential = await navigator.credentials.create({
+        publicKey: prepCreateOptions(optData.options),
+      });
+      if (!credential) throw new Error('未完成通行密钥创建');
+
+      var regRes = await fetch('/api/admin/passkey/register', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'X-CSRF-Token': csrf, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          challengeToken: optData.challengeToken,
+          response: credentialToJSON(credential),
+          name: nameInput ? nameInput.value : '',
+        }),
+      });
+      var regData = await regRes.json();
+      if (!regRes.ok) throw new Error(regData.error || '注册失败');
+      if (nameInput) nameInput.value = '';
+      setStatus('通行密钥已添加');
+      await loadList();
+    } catch (err) {
+      var msg = err && err.name === 'NotAllowedError' ? '已取消或被浏览器拒绝' : (err.message || '注册失败');
+      setStatus(msg, true);
+    } finally {
+      registerBtn.disabled = false;
+    }
+  });
+
+  loadList();
+})();
+</script>

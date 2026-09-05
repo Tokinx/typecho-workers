@@ -173,6 +173,25 @@ export const passwordResetRequests = sqliteTable('typecho_password_reset_request
   uniqueIndex('typecho_password_reset_requests_tokenHash').on(table.tokenHash),
 ]);
 
+// ==================== WebAuthn / Passkey credentials ====================
+// One row per registered authenticator. Does not alter typecho_users columns.
+export const webauthnCredentials = sqliteTable('typecho_webauthn_credentials', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  uid: integer('uid').notNull(),
+  credentialId: text('credentialId').notNull(),
+  publicKey: text('publicKey').notNull(),
+  counter: integer('counter').notNull().default(0),
+  transports: text('transports'),
+  deviceType: text('deviceType'),
+  backedUp: integer('backedUp').notNull().default(0),
+  name: text('name'),
+  createdAt: integer('createdAt').notNull().default(0),
+  lastUsedAt: integer('lastUsedAt').notNull().default(0),
+}, (table) => [
+  uniqueIndex('typecho_webauthn_credentials_credentialId').on(table.credentialId),
+  index('typecho_webauthn_credentials_uid').on(table.uid),
+]);
+
 // ==================== Edge Cache L3 ====================
 // D1-backed key-value page cache. The generation is part of the cache key so
 // invalidation can advance a namespace without scanning or deleting rows.

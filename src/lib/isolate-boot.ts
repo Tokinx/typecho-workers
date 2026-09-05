@@ -25,10 +25,12 @@ interface IsolateBoot {
   databaseReadyPassed: boolean;
   tableCheckPassed: boolean;
   passwordResetSchemaPassed: boolean;
+  webauthnSchemaPassed: boolean;
   indexEnsurePassed: boolean;
   databaseReadyPending?: Promise<void>;
   tableCheckPending?: Promise<void>;
   passwordResetSchemaPending?: Promise<void>;
+  webauthnSchemaPending?: Promise<void>;
   indexEnsurePending?: Promise<void>;
 }
 
@@ -36,6 +38,7 @@ const state: IsolateBoot = {
   databaseReadyPassed: false,
   tableCheckPassed: false,
   passwordResetSchemaPassed: false,
+  webauthnSchemaPassed: false,
   indexEnsurePassed: false,
 };
 
@@ -47,18 +50,18 @@ export function resetIsolateBoot(): void {
   state.databaseReadyPassed = false;
   state.tableCheckPassed = false;
   state.passwordResetSchemaPassed = false;
+  state.webauthnSchemaPassed = false;
   state.indexEnsurePassed = false;
   state.databaseReadyPending = undefined;
   state.tableCheckPending = undefined;
   state.passwordResetSchemaPending = undefined;
+  state.webauthnSchemaPending = undefined;
   state.indexEnsurePending = undefined;
 }
 
 // Reserved by the Typecho-Workers runtime schema bootstrap. Bump this whenever the
-// runtime password-reset upgrade or generated index set changes. A stable
-// database needs one query per cold isolate instead of probing every table,
-// column and index.
-const RUNTIME_SCHEMA_VERSION = '20260806';
+// runtime password-reset upgrade, webauthn table, or generated index set changes.
+const RUNTIME_SCHEMA_VERSION = '20260905';
 const RUNTIME_SCHEMA_VERSION_KEY = 'runtimeSchemaVersion';
 
 export async function ensureDatabaseReady(d1: D1Database): Promise<void> {
@@ -99,12 +102,14 @@ export async function ensureDatabaseReady(d1: D1Database): Promise<void> {
     if (marker.runtimeSchemaVersion === RUNTIME_SCHEMA_VERSION) {
       state.tableCheckPassed = true;
       state.passwordResetSchemaPassed = true;
+      state.webauthnSchemaPassed = true;
       state.indexEnsurePassed = true;
       state.databaseReadyPassed = true;
       return;
     }
 
     await ensurePasswordResetSchema(d1);
+    await ensureWebAuthnSchema(d1);
     await ensureEdgeCacheSchema(d1);
     await ensureIndexesReady(d1);
     await d1.prepare(
@@ -218,6 +223,26 @@ export async function ensurePasswordResetSchema(d1: D1Database): Promise<void> {
     await pending;
   } finally {
     if (state.passwordResetSchemaPending === pending) state.passwordResetSchemaPending = undefined;
+  }
+}
+
+/**
+ * Ensures the WebAuthn / Passkey credential table exists.
+ * Idempotent CREATE TABLE IF NOT EXISTS for upgrades of existing installs.
+ */
+export async function ensureWebAuthnSchema(d1: D1Database): Promise<void> {
+  if (state.webauthnSchemaPassed) return;
+  if (state.webauthnSchemaPending) return state.webauthnSchemaPending;
+  const pending = (async () => {
+    const statements = generateTableSQL(schema.webauthnCredentials).map(sql => d1.prepare(sql));
+    if (statements.length > 0) await d1.batch(statements);
+    state.webauthnSchemaPassed = true;
+  })();
+  state.webauthnSchemaPending = pending;
+  try {
+    await pending;
+  } finally {
+    if (state.webauthnSchemaPending === pending) state.webauthnSchemaPending = undefined;
   }
 }
 

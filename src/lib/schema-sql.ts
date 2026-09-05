@@ -98,6 +98,7 @@ const allTables: SQLiteTable[] = [
   schema.fields,
   schema.loginFailures,
   schema.passwordResetRequests,
+  schema.webauthnCredentials,
   schema.edgeCache,
 ];
 

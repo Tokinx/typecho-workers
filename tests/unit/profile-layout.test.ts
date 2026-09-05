@@ -10,13 +10,17 @@ describe('Typecho 1.3 personal settings layout', () => {
     expect(source).toContain("formatDate(user!.logged, 'Y-m-d H:i'");
   });
 
-  it('keeps profile, writing, and password settings in the Typecho order', () => {
+  it('keeps profile, writing, passkey, and password settings in order', () => {
     const profile = source.indexOf('<h3>个人资料</h3>');
     const writing = source.indexOf('<section id="writing-option">');
+    const passkeys = source.indexOf('<section id="passkeys">');
     const password = source.indexOf('<section id="change-password">');
     expect(profile).toBeLessThan(writing);
-    expect(writing).toBeLessThan(password);
+    expect(writing).toBeLessThan(passkeys);
+    expect(passkeys).toBeLessThan(password);
     expect(source).toContain('{isContributor && (');
+    expect(source).toContain('id="passkey-register"');
+    expect(source).toContain('/api/admin/passkey');
   });
 
   it('includes every user writing preference and the profile extension hook', () => {
@@ -32,13 +36,15 @@ describe('Typecho 1.3 personal settings layout', () => {
     for (const id of [
       'screenName-0', 'url-1', 'mail-2', 'do-3', 'submit-4',
       'markdown-5', 'autoSave-6', 'defaultAllow-7',
-      'do-8', 'submit-9', 'password-10', 'confirm-11', 'do-12', 'submit-13',
+      'do-8', 'submit-9',
+      'passkey-list-14', 'passkey-name-15', 'passkey-submit-16',
+      'password-10', 'confirm-11', 'do-12', 'submit-13',
     ]) {
       expect(source).toContain(`id="typecho-option-item-${id}"`);
     }
 
     const optionBlocks = [...source.matchAll(/<ul class="typecho-option[^\"]*" id="typecho-option-item-[^"]+"[^>]*>([\s\S]*?)<\/ul>/g)];
-    expect(optionBlocks).toHaveLength(14);
+    expect(optionBlocks).toHaveLength(17);
     for (const [, block] of optionBlocks) {
       expect(block.match(/<li>/g)).toHaveLength(1);
     }
