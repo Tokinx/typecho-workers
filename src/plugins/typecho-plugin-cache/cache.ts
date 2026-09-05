@@ -63,7 +63,11 @@ export const ADMIN_DATA_CACHE_DOMAINS = new Set<SharedCacheDomain>([
   'admin-dashboard', 'admin-content', 'admin-comments', 'admin-metas', 'admin-media',
   'admin-users', 'admin-options',
 ]);
-const TRACKING_PARAMS = new Set(['fbclid', 'gclid', 'dclid', 'msclkid']);
+const TRACKING_PARAMS = new Set([
+  'fbclid', 'gclid', 'dclid', 'msclkid',
+  'ref', 'source', 'from',
+  'mc_cid', 'mc_eid',
+]);
 const NO_CACHE_CONTROL = 'no-store, no-cache, must-revalidate';
 // Platform layer (Workers Caching) headers. @astrojs/cloudflare appends
 // `Cloudflare-CDN-Cache-Control: no-store` to responses that lack this header,
@@ -71,6 +75,20 @@ const NO_CACHE_CONTROL = 'no-store, no-cache, must-revalidate';
 const PLATFORM_CACHE_HEADER = 'Cloudflare-CDN-Cache-Control';
 const CACHE_TAG_HEADER = 'Cache-Tag';
 const PLATFORM_TAG_PREFIX = 'tc:';
+/** Set alongside `X-Typecho-Cache: BYPASS` so curl / logs can classify avoidable bypasses. */
+export const CACHE_BYPASS_REASON_HEADER = 'X-Typecho-Cache-Bypass';
+
+export type BypassReason =
+  | 'authorization'
+  | 'cache-control'
+  | 'unsafe-query'
+  | 'domain-disabled'
+  | 'ttl-zero'
+  | 'unapproved-comment'
+  | 'uncacheable'
+  | 'kv-missing'
+  | 'control-missing'
+  | 'lookup-failed';
 const L1_TTL_OPTIONS = [0, 3_600, 43_200, 86_400, 259_200, 604_800, 2_592_000];
 const L2_TTL_OPTIONS = [0, 86_400, 259_200, 604_800];
 const L3_TTL_OPTIONS = [0, 300, 3_600, 21_600, 43_200, 86_400];
@@ -578,10 +596,16 @@ function withCacheHeader(
   value: 'L1' | 'L2' | 'L3' | 'MISS' | 'BYPASS',
   l1Ttl?: number,
   domain?: PublicCacheDomain,
+  bypassReason?: BypassReason,
 ): Response {
   const headers = new Headers(response.headers);
   headers.delete(PUBLIC_HTML_HEADER);
   headers.set('X-Typecho-Cache', value);
+  if (value === 'BYPASS' && bypassReason) {
+    headers.set(CACHE_BYPASS_REASON_HEADER, bypassReason);
+  } else {
+    headers.delete(CACHE_BYPASS_REASON_HEADER);
+  }
   if (value !== 'BYPASS' && l1Ttl && l1Ttl > 0 && domain) {
     // Platform layer (Workers Caching) absorbs this response at the edge with
     // the plugin's L1 TTL and tags it for bulk purge. Browsers still
@@ -617,7 +641,10 @@ function canCacheResponse(response: Response, requirePublicHtml = false): boolea
 }
 
 function responseHeadersForStorage(headers: Headers): Array<[string, string]> {
-  const skipped = new Set(['set-cookie', 'content-length', 'content-encoding', 'transfer-encoding', 'connection', 'x-typecho-cache', PUBLIC_HTML_HEADER.toLowerCase()]);
+  const skipped = new Set([
+    'set-cookie', 'content-length', 'content-encoding', 'transfer-encoding', 'connection',
+    'x-typecho-cache', CACHE_BYPASS_REASON_HEADER.toLowerCase(), PUBLIC_HTML_HEADER.toLowerCase(),
+  ]);
   return [...headers.entries()].filter(([name]) => !skipped.has(name.toLowerCase()));
 }
 
@@ -901,6 +928,12 @@ async function rewriteHtmlResponse(
 
 type RequestCachePolicy = 'read-write' | 'read-only' | 'bypass';
 
+interface RequestCacheDecision {
+  policy: RequestCachePolicy;
+  /** Present when policy is bypass, or when a read-only cold miss should report BYPASS. */
+  reason?: BypassReason;
+}
+
 export function parseCookieNames(cookieHeader: string | null): Set<string> {
   const names = new Set<string>();
   for (const part of (cookieHeader || '').split(';')) {
@@ -911,15 +944,25 @@ export function parseCookieNames(cookieHeader: string | null): Set<string> {
   return names;
 }
 
-function requestCachePolicy(request: Request): RequestCachePolicy {
+function requestCachePolicy(request: Request): RequestCacheDecision {
   // Publish-time warm-up self-requests send Cache-Control: no-cache to defeat
   // stale platform-cache entries, yet must render into the shared cache
   // layers. Forging the marker only warms public pages, so it is safe to
   // honor from any client.
-  if (request.headers.get(CACHE_WARMUP_HEADER) === '1') return 'read-write';
-  if (request.headers.has('Authorization')) return 'bypass';
+  if (request.headers.get(CACHE_WARMUP_HEADER) === '1') return { policy: 'read-write' };
+  if (request.headers.has('Authorization')) {
+    return { policy: 'bypass', reason: 'authorization' };
+  }
   const cacheControl = request.headers.get('Cache-Control')?.toLowerCase() || '';
-  if (cacheControl.includes('no-cache') || cacheControl.includes('no-store')) return 'bypass';
+  // no-store: client forbids shared reuse — full bypass.
+  if (cacheControl.includes('no-store')) {
+    return { policy: 'bypass', reason: 'cache-control' };
+  }
+  // no-cache (browser hard-refresh): read warm L1/L2/L3 entries but never write
+  // a new variant. Cold miss still SSRs and returns BYPASS.
+  if (cacheControl.includes('no-cache')) {
+    return { policy: 'read-only', reason: 'cache-control' };
+  }
 
   const cookieNames = parseCookieNames(request.headers.get('Cookie'));
   // Frontend HTML is deliberately decoupled from the authenticated viewer.
@@ -927,14 +970,15 @@ function requestCachePolicy(request: Request): RequestCachePolicy {
   // unapproved-comment cookie remains read-only because it can reveal a
   // submitter's pending comment on an otherwise public page.
   if (cookieNames.has('__typecho_unapproved_comment')) {
-    return 'read-only';
+    return { policy: 'read-only', reason: 'unapproved-comment' };
   }
-  return 'read-write';
+  return { policy: 'read-write' };
 }
 
 async function renderWithRuntimeRewrite(
   context: EarlyRequestContext,
   next: EarlyRequestNext,
+  bypassReason: BypassReason = 'kv-missing',
 ): Promise<Response> {
   const response = await next();
   const control = requestRuntime.get(context.request);
@@ -944,10 +988,12 @@ async function renderWithRuntimeRewrite(
       await rewriteHtmlResponse(response, control.config, context.url.origin, control.options.siteUrl),
       'BYPASS',
       control.config.l1Ttl,
+      undefined,
+      bypassReason,
     );
   } catch (error) {
     console.error('[edge-cache] HTML rewrite failed:', error);
-    return withCacheHeader(response, 'BYPASS', control.config.l1Ttl);
+    return withCacheHeader(response, 'BYPASS', control.config.l1Ttl, undefined, bypassReason);
   }
 }
 
@@ -975,7 +1021,7 @@ async function renderAndCache(
     // its cache headers (X-Typecho-Cache + platform header + Cache-Tag). Pass
     // it through instead of overriding with a BYPASS that would drop the tags.
     if (response.headers.has('X-Typecho-Cache')) return response;
-    return withCacheHeader(response, 'BYPASS', control.config.l1Ttl);
+    return withCacheHeader(response, 'BYPASS', control.config.l1Ttl, undefined, 'uncacheable');
   }
 
   const cacheable = response.clone();
@@ -988,7 +1034,7 @@ async function renderAndCache(
 
 async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNext): Promise<Response> {
   const kv = asKv(context.env.TYPECHO_CACHE);
-  if (!kv) return renderWithRuntimeRewrite(context, next);
+  if (!kv) return renderWithRuntimeRewrite(context, next, 'kv-missing');
   const d1 = d1Binding(context);
 
   let control: CacheControlDocument | null;
@@ -996,7 +1042,7 @@ async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNex
     control = await loadControl(kv);
   } catch (error) {
     console.error('[edge-cache] Control read failed:', error);
-    return renderWithRuntimeRewrite(context, next);
+    return renderWithRuntimeRewrite(context, next, 'control-missing');
   }
   if (!control) {
     // Control document missing (e.g. the KV namespace was swapped or the doc
@@ -1010,29 +1056,42 @@ async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNex
         console.error('[edge-cache] Control rebuild failed:', error);
       });
     } else {
-      return renderWithRuntimeRewrite(context, next);
+      return renderWithRuntimeRewrite(context, next, 'control-missing');
     }
   }
 
   const domain = classifyCacheDomain(context.url.pathname, control);
   const normalizedUrl = normalizeCacheUrl(context.url, domain);
   const domainEnabled = control.config.cacheScopes.includes(domain);
-  const policy = requestCachePolicy(context.request);
-  const bypass = policy === 'bypass' || !normalizedUrl;
+  const decision = requestCachePolicy(context.request);
+  const policy = decision.policy;
   const l2Ttl = control.config.l2Ttl;
   const l3Ttl = control.config.l3Ttl;
-  if (!domainEnabled || bypass) {
+
+  if (!domainEnabled) {
     const response = await next();
     const rewritten = await rewriteHtmlResponse(response, control.config, context.url.origin, control.options.siteUrl)
       .catch(() => response);
-    return withCacheHeader(rewritten, 'BYPASS', control.config.l1Ttl);
+    return withCacheHeader(rewritten, 'BYPASS', control.config.l1Ttl, undefined, 'domain-disabled');
+  }
+  if (policy === 'bypass') {
+    const response = await next();
+    const rewritten = await rewriteHtmlResponse(response, control.config, context.url.origin, control.options.siteUrl)
+      .catch(() => response);
+    return withCacheHeader(rewritten, 'BYPASS', control.config.l1Ttl, undefined, decision.reason ?? 'cache-control');
+  }
+  if (!normalizedUrl) {
+    const response = await next();
+    const rewritten = await rewriteHtmlResponse(response, control.config, context.url.origin, control.options.siteUrl)
+      .catch(() => response);
+    return withCacheHeader(rewritten, 'BYPASS', control.config.l1Ttl, undefined, 'unsafe-query');
   }
 
   if (control.config.l1Ttl === 0 && l2Ttl === 0 && l3Ttl === 0) {
     const response = await next();
     const rewritten = await rewriteHtmlResponse(response, control.config, context.url.origin, control.options.siteUrl)
       .catch(() => response);
-    return withCacheHeader(rewritten, 'BYPASS', 0);
+    return withCacheHeader(rewritten, 'BYPASS', 0, undefined, 'ttl-zero');
   }
 
   let cacheId: string;
@@ -1070,7 +1129,7 @@ async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNex
     }
   } catch (error) {
     console.error('[edge-cache] Cache lookup failed; falling back to D1:', error);
-    return renderWithRuntimeRewrite(context, next);
+    return renderWithRuntimeRewrite(context, next, 'lookup-failed');
   }
 
   if (d1 && l3Ttl > 0) {
@@ -1089,10 +1148,9 @@ async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNex
   }
 
   if (policy === 'read-only') {
-    // The submitter's pending comment is rendered into this page. Render it
-    // fresh but never store it in any cache layer — a cached variant would
-    // leak the unapproved comment to visitors without the cookie. The BYPASS
-    // response carries no platform headers, so the adapter marks it no-store.
+    // Read-only cold miss: render fresh but never store. Used for unapproved-
+    // comment cookies (must not leak pending comments) and browser no-cache
+    // hard-refresh (may read warm layers above, but must not write).
     const response = await next();
     const rewritten = await rewriteHtmlResponse(
       response,
@@ -1100,7 +1158,13 @@ async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNex
       context.url.origin,
       control.options.siteUrl,
     ).catch(() => response);
-    return withCacheHeader(rewritten, 'BYPASS', control.config.l1Ttl);
+    return withCacheHeader(
+      rewritten,
+      'BYPASS',
+      control.config.l1Ttl,
+      undefined,
+      decision.reason ?? 'unapproved-comment',
+    );
   }
 
   const inFlightKey = cacheId;

@@ -13,6 +13,7 @@ import {
 } from '@/lib/early-request';
 import { loadQueryCache } from '@/lib/query-cache';
 import {
+  CACHE_BYPASS_REASON_HEADER,
   CACHE_CONTROL_KEY,
   CACHE_PLUGIN_ID,
   buildControlDocument,
@@ -20,6 +21,7 @@ import {
   earlyRequestProvider,
   LAST_REFRESH_KEY,
   normalizeCacheConfig,
+  normalizeCacheUrl,
   PUBLIC_HTML_HEADER,
   resetCacheProviderForTests,
   rewriteHtmlString,
@@ -379,17 +381,67 @@ describe('typecho-plugin-cache provider', () => {
     const unknown = requestContext('https://example.com/?feature=one');
     const authorization = requestContext();
     authorization.request = new Request(authorization.request, { headers: { Authorization: 'Bearer secret' } });
-    const noCache = requestContext();
-    noCache.request = new Request(noCache.request, { headers: { 'Cache-Control': 'no-cache' } });
+    const noStore = requestContext();
+    noStore.request = new Request(noStore.request, { headers: { 'Cache-Control': 'no-store' } });
 
     const ordinaryResponse = await earlyRequestProvider.handle(ordinaryCookie, next);
     expect(ordinaryResponse.headers.get('X-Typecho-Cache')).toBe('MISS');
     expect((await earlyRequestProvider.handle(caseVariantCookie, next)).headers.get('X-Typecho-Cache')).toBe('L1');
-    for (const context of [password, unknown, authorization, noCache]) {
-      const response = await earlyRequestProvider.handle(context, next);
-      expect(response.headers.get('X-Typecho-Cache')).toBe('BYPASS');
-    }
+
+    const passwordResponse = await earlyRequestProvider.handle(password, next);
+    expect(passwordResponse.headers.get('X-Typecho-Cache')).toBe('BYPASS');
+    expect(passwordResponse.headers.get(CACHE_BYPASS_REASON_HEADER)).toBe('unsafe-query');
+
+    const unknownResponse = await earlyRequestProvider.handle(unknown, next);
+    expect(unknownResponse.headers.get('X-Typecho-Cache')).toBe('BYPASS');
+    expect(unknownResponse.headers.get(CACHE_BYPASS_REASON_HEADER)).toBe('unsafe-query');
+
+    const authorizationResponse = await earlyRequestProvider.handle(authorization, next);
+    expect(authorizationResponse.headers.get('X-Typecho-Cache')).toBe('BYPASS');
+    expect(authorizationResponse.headers.get(CACHE_BYPASS_REASON_HEADER)).toBe('authorization');
+
+    const noStoreResponse = await earlyRequestProvider.handle(noStore, next);
+    expect(noStoreResponse.headers.get('X-Typecho-Cache')).toBe('BYPASS');
+    expect(noStoreResponse.headers.get(CACHE_BYPASS_REASON_HEADER)).toBe('cache-control');
+
     expect(next).toHaveBeenCalledTimes(5);
+  });
+
+  it('treats request no-cache as read-only so warm pages still hit', async () => {
+    const kv = new MemoryKv();
+    await activate(kv);
+    const next = vi.fn(async () => new Response('<html>public</html>', {
+      headers: { 'Content-Type': 'text/html', [PUBLIC_HTML_HEADER]: '1' },
+    }));
+    await earlyRequestProvider.handle(requestContext(), next);
+
+    const hardRefresh = requestContext();
+    hardRefresh.request = new Request(hardRefresh.request, { headers: { 'Cache-Control': 'no-cache' } });
+    const hit = await earlyRequestProvider.handle(hardRefresh, next);
+    expect(hit.headers.get('X-Typecho-Cache')).toBe('L1');
+    expect(hit.headers.get(CACHE_BYPASS_REASON_HEADER)).toBeNull();
+    expect(next).toHaveBeenCalledOnce();
+
+    await earlyRequestProvider.invalidate!({ reason: 'test', domains: ['all'] });
+    const cold = await earlyRequestProvider.handle(hardRefresh, next);
+    expect(cold.headers.get('X-Typecho-Cache')).toBe('BYPASS');
+    expect(cold.headers.get(CACHE_BYPASS_REASON_HEADER)).toBe('cache-control');
+  });
+
+  it('strips common tracking query params so they share the public cache key', async () => {
+    const kv = new MemoryKv();
+    await activate(kv);
+    const next = vi.fn(async () => new Response('<html>tracked</html>', {
+      headers: { 'Content-Type': 'text/html', [PUBLIC_HTML_HEADER]: '1' },
+    }));
+    const miss = await earlyRequestProvider.handle(
+      requestContext('https://example.com/?from=rss&utm_source=newsletter&ref=home'),
+      next,
+    );
+    expect(miss.headers.get('X-Typecho-Cache')).toBe('MISS');
+    const hit = await earlyRequestProvider.handle(requestContext('https://example.com/'), next);
+    expect(hit.headers.get('X-Typecho-Cache')).toBe('L1');
+    expect(next).toHaveBeenCalledOnce();
   });
 
   it('lets an authenticated cold request populate the shared public page cache', async () => {
@@ -436,11 +488,11 @@ describe('typecho-plugin-cache provider', () => {
     expect(miss.headers.get('X-Typecho-Cache')).toBe('MISS');
     expect(warmupNext).toHaveBeenCalledOnce();
 
-    // Plain no-cache requests keep bypassing and store nothing.
+    // Plain no-cache requests may read the warmed entry (read-only) but do not write.
     const plainNoCache = requestContext();
     plainNoCache.request = new Request(plainNoCache.request, { headers: { 'Cache-Control': 'no-cache' } });
-    const bypass = await earlyRequestProvider.handle(plainNoCache, warmupNext);
-    expect(bypass.headers.get('X-Typecho-Cache')).toBe('BYPASS');
+    const hit = await earlyRequestProvider.handle(plainNoCache, warmupNext);
+    expect(hit.headers.get('X-Typecho-Cache')).toBe('L1');
 
     // The warmed entry is shared: an anonymous visitor gets it from L1.
     const anonymous = await earlyRequestProvider.handle(requestContext(), warmupNext);
@@ -1280,6 +1332,15 @@ describe('cache domain classification', () => {
     expect(classifyCacheDomain('/pages/about/', control)).toBe('page');
     expect(classifyCacheDomain('/topics/cloudflare/', control)).toBe('archive');
     expect(classifyCacheDomain('/topics/cloudflare/page/3/', control)).toBe('archive');
+  });
+
+  it('strips tracking params and rejects unsafe query keys', () => {
+    expect(normalizeCacheUrl(new URL('https://example.com/?from=rss&utm_campaign=x'), 'home'))
+      .toBe('https://example.com/');
+    expect(normalizeCacheUrl(new URL('https://example.com/?ref=nav&source=share'), 'home'))
+      .toBe('https://example.com/');
+    expect(normalizeCacheUrl(new URL('https://example.com/?feature=one'), 'home')).toBeNull();
+    expect(normalizeCacheUrl(new URL('https://example.com/archives/1/?password=x'), 'post')).toBeNull();
   });
 });
 

@@ -9,7 +9,8 @@ class MockCache {
 
   async match(request: Request | string): Promise<Response | undefined> {
     const key = typeof request === 'string' ? request : request.url;
-    return this.store.get(key);
+    const stored = this.store.get(key);
+    return stored?.clone();
   }
 
   async put(request: Request | string, response: Response): Promise<void> {
