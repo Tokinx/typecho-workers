@@ -572,11 +572,37 @@ describe('typecho-plugin-notifier', () => {
       const urls = fetchMock.mock.calls.map(([u]) => u);
       expect(urls).toEqual([
         'https://api.resend.com/emails', // admin
-        WEBHOOK_URL,
         'https://api.resend.com/emails', // parent commenter
+        WEBHOOK_URL,
       ]);
       const webhookBody = fetchMock.mock.calls.find(([u]) => u === WEBHOOK_URL)![1].body;
       expect(JSON.parse(webhookBody)).toEqual({ author: '访客', content: '不错的文章' });
+    });
+
+    it('dedupes when the parent commenter mailbox is already an admin recipient', async () => {
+      const fetchMock = stubFetch();
+      const hooks = collectHooks();
+      const handler = hooks.get('feedback:finishComment')!;
+      const db = mockDb({
+        query: {
+          ...mockDb().query,
+          comments: {
+            findFirst: vi.fn().mockResolvedValue({
+              mail: 'Admin@example.com',
+              author: '管理员',
+              text: '我先留个言',
+            }),
+          },
+        },
+      });
+      await handler(replyFixture, makeExtra({
+        options: options({ commentEmail: '1', commentWebhook: '1', replyEmail: '1' }),
+        db,
+      }));
+      const emailCalls = fetchMock.mock.calls.filter(([u]) => u === 'https://api.resend.com/emails');
+      expect(emailCalls).toHaveLength(1);
+      expect(JSON.parse(emailCalls[0][1].body).to[0]).toBe('admin@example.com');
+      expect(fetchMock.mock.calls.some(([u]) => u === WEBHOOK_URL)).toBe(true);
     });
 
     it('escapes comment content inside the WebHook JSON payload', async () => {
@@ -949,7 +975,7 @@ describe('typecho-plugin-notifier', () => {
       expect(html).toContain('name="mailBody"');
       expect(html).toContain('name="systemWebhookPayload"');
       expect(html).toContain('name="commentWebhookPayload"');
-      expect(html).toContain('模板占位符');
+      expect(html).toContain('notifier-ph-groups');
       expect(html).toContain('获取 API Key');
       expect(html).toContain('nf-emailProvider-link');
       expect(html).toContain('https://resend.com');

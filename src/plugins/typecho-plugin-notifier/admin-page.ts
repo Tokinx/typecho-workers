@@ -100,8 +100,8 @@ export function adminPageHtml(csrf: string, config: NotifierConfig, _siteTitle: 
     `<div class="notifier-ph-row"><span class="notifier-ph-label">${label}</span>${ph(keys)}</div>`;
   const SYSTEM_PH_LABELS: Record<string, string> = {
     '{subject}': '邮件主题',
-    '{body}': '正文（HTML）',
-    '{text}': '纯文本',
+    '{body}': '富文本正文',
+    '{text}': '纯文本正文',
     '{reason}': '原因',
     '{to}': '收件人',
   };

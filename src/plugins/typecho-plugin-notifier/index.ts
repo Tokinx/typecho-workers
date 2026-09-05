@@ -265,46 +265,49 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
         authorIsAdmin = Boolean(author && author.group === 'administrator');
       }
 
-      if (wantAdmin) {
-        if (config.commentEmail && isEmailReady(config)) {
-          const mail = renderEmail(config.mailSubject, config.mailBody, vars);
-          for (const recipient of await adminRecipients(extra.db, comment.authorId)) {
-            const result = await sendEmail(config.emailProvider, config.emailApiKey, config.emailFrom, {
-              to: recipient.to,
-              fromName: config.emailFromName,
-              subject: mail.subject,
-              html: mail.html,
-              text: mail.text,
-            });
-            logSendFailure(result);
-          }
-        }
-        if (!authorIsAdmin) {
-          if (config.commentWebhook && isWebhookReady(config)) {
-            const result = await sendWebhook(
-              config.webhookUrl,
-              config.webhookToken,
-              renderTemplate(config.commentWebhookPayload, jsonEscapeVars(vars)),
-            );
-            logSendFailure(result);
-          }
+      // Collect email recipients from admin + reply paths, then send once per mailbox.
+      // Both paths reuse the same 「新消息」 template, so overlapping addresses would look like duplicates.
+      const emailTos: string[] = [];
+      if (wantAdmin && config.commentEmail && isEmailReady(config)) {
+        for (const recipient of await adminRecipients(extra.db, comment.authorId)) {
+          emailTos.push(recipient.to);
         }
       }
+      if (
+        wantReply
+        && isEmailReady(config)
+        && parentComment?.mail
+        && isValidEmail(parentComment.mail)
+        && parentComment.mail.toLowerCase() !== String(comment.mail || '').toLowerCase()
+      ) {
+        emailTos.push(parentComment.mail);
+      }
 
-      if (wantReply) {
-        if (
-          parentComment?.mail && isValidEmail(parentComment.mail)
-          && parentComment.mail !== comment.mail
-        ) {
-          // The reply mail reuses the same 「新消息」 template as admin notifications.
-          const mail = renderEmail(config.mailSubject, config.mailBody, vars);
+      if (emailTos.length > 0) {
+        const mail = renderEmail(config.mailSubject, config.mailBody, vars);
+        const seen = new Set<string>();
+        for (const to of emailTos) {
+          const key = to.trim().toLowerCase();
+          if (!key || seen.has(key)) continue;
+          seen.add(key);
           const result = await sendEmail(config.emailProvider, config.emailApiKey, config.emailFrom, {
-            to: parentComment.mail,
+            to,
             fromName: config.emailFromName,
             subject: mail.subject,
             html: mail.html,
             text: mail.text,
           });
+          logSendFailure(result);
+        }
+      }
+
+      if (wantAdmin && !authorIsAdmin) {
+        if (config.commentWebhook && isWebhookReady(config)) {
+          const result = await sendWebhook(
+            config.webhookUrl,
+            config.webhookToken,
+            renderTemplate(config.commentWebhookPayload, jsonEscapeVars(vars)),
+          );
           logSendFailure(result);
         }
       }
