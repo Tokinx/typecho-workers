@@ -514,7 +514,7 @@ src/
 │   ├── typecho-plugin-cache/        # Edge Cache：L1/L2/L3 + 数据缓存 + CDN 改写
 │   ├── typecho-plugin-notifier/     # 多渠道通知（邮件/WebHook + 统一设置页）
 │   ├── typecho-plugin-notes/        # 笔记内容类型与时间线
-│   ├── typecho-plugin-postpilot/    # AI 写作辅助
+│   ├── typecho-plugin-engine/       # AI 智能引擎（写作辅助 / 摘要 / 搜索范围）
 │   └── typecho-plugin-turnstile/    # Cloudflare Turnstile 人机验证
 └── themes/                          # 内置主题（工作区包）
     └── README.md                    # 主题开发完整规范

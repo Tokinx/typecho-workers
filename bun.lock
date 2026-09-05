@@ -14,9 +14,9 @@
         "tslib": "^2.8.1",
         "typecho-plugin-antispam": "workspace:*",
         "typecho-plugin-cache": "workspace:*",
+        "typecho-plugin-engine": "workspace:*",
         "typecho-plugin-notes": "workspace:*",
         "typecho-plugin-notifier": "workspace:*",
-        "typecho-plugin-postpilot": "workspace:*",
         "typecho-plugin-turnstile": "workspace:*",
         "typecho-theme-warm": "workspace:*",
       },
@@ -40,6 +40,10 @@
       "name": "typecho-plugin-cache",
       "version": "1.0.0",
     },
+    "src/plugins/typecho-plugin-engine": {
+      "name": "typecho-plugin-engine",
+      "version": "2.0.0",
+    },
     "src/plugins/typecho-plugin-notes": {
       "name": "typecho-plugin-notes",
       "version": "1.0.0",
@@ -47,10 +51,6 @@
     "src/plugins/typecho-plugin-notifier": {
       "name": "typecho-plugin-notifier",
       "version": "2.2.0",
-    },
-    "src/plugins/typecho-plugin-postpilot": {
-      "name": "typecho-plugin-postpilot",
-      "version": "1.2.0",
     },
     "src/plugins/typecho-plugin-turnstile": {
       "name": "typecho-plugin-turnstile",
@@ -872,11 +872,11 @@
 
     "typecho-plugin-cache": ["typecho-plugin-cache@workspace:src/plugins/typecho-plugin-cache"],
 
+    "typecho-plugin-engine": ["typecho-plugin-engine@workspace:src/plugins/typecho-plugin-engine"],
+
     "typecho-plugin-notes": ["typecho-plugin-notes@workspace:src/plugins/typecho-plugin-notes"],
 
     "typecho-plugin-notifier": ["typecho-plugin-notifier@workspace:src/plugins/typecho-plugin-notifier"],
-
-    "typecho-plugin-postpilot": ["typecho-plugin-postpilot@workspace:src/plugins/typecho-plugin-postpilot"],
 
     "typecho-plugin-turnstile": ["typecho-plugin-turnstile@workspace:src/plugins/typecho-plugin-turnstile"],
 

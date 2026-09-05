@@ -916,7 +916,7 @@ select { border: 1px solid #CCC; height: 28px; }
 
 .wmd-prompt-dialog button { margin-right: 10px; }
 
-/* 预览（#wmd-preview 同时被 PostPilot 弹窗通过 .wmd-preview 类复用） */
+/* 预览（#wmd-preview 同时被 Engine 弹窗通过 .wmd-preview 类复用） */
 #wmd-preview { background: #FFF; margin: 1em 0; padding: 0 15px; word-wrap: break-word; overflow: auto; border-radius: 2px; }
 
 #wmd-preview img, .wmd-preview img { max-width: 100%; }

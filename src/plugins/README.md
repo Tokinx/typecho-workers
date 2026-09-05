@@ -180,12 +180,12 @@ addHook('feedback:comment', pluginId, async (commentData: { _rejected?: string }
 | `admin:writePage:option` | 页面编辑器侧边栏选项 | `(page)` |
 | `admin:writePage:advanceOption` | 页面编辑器高级选项 | `(page)` |
 | `admin:writePage:bottom` | 页面编辑器底部区域 | `(page)` |
-| `post:finishPublish` | 文章发布后 | `(post)` |
-| `post:finishSave` | 文章保存后 | `(post)` |
+| `post:finishPublish` | 文章发布后 | `(post, extra?)` |
+| `post:finishSave` | 文章保存后 | `(post, extra?)` |
 | `post:delete` | 文章删除前 | `(post)` |
 | `post:finishDelete` | 文章删除后 | `(cid)` |
-| `page:finishPublish` | 页面发布后 | `(page)` |
-| `page:finishSave` | 页面保存后 | `(page)` |
+| `page:finishPublish` | 页面发布后 | `(page, extra?)` |
+| `page:finishSave` | 页面保存后 | `(page, extra?)` |
 | `page:delete` | 页面删除前 | `(page)` |
 | `page:finishDelete` | 页面删除后 | `(cid)` |
 | `feedback:finishComment` | 评论保存后 | `(comment, extra)` |
@@ -217,7 +217,7 @@ addHook('feedback:comment', pluginId, async (commentData: { _rejected?: string }
 
 `applyFilter` 默认会传播插件异常。业务链路（保存内容、评论、登录、插件配置等）会因此中止并暴露错误。纯展示注入点可由系统使用 `applyFilterSafely` 包裹，单个插件失败时跳过该插件输出并继续渲染。
 
-> 部分 call hook（如 `feedback:finishComment`）在业务数据后追加 `extra` 对象：`{ request, options, db, siteUrl, permalinkPattern, pagePattern }`，供插件读取配置、查询数据库与构造链接。旧插件忽略多余参数，完全向后兼容。
+> 部分 call hook（如 `feedback:finishComment`、`post/page:finishPublish`、`post/page:finishSave`）在业务数据后追加 `extra` 对象：`{ request, options, db, waitUntil?, siteUrl?, permalinkPattern?, pagePattern? }`，供插件读取配置、查询数据库、构造链接或后台异步任务。旧插件忽略多余参数，完全向后兼容。
 
 ---
 

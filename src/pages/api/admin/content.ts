@@ -577,12 +577,18 @@ export const POST: APIRoute = async ({ request, locals }) => {
       await attachTags(db, newCid, tags);
     }
 
-    // Trigger post/page finish hooks
+    // Trigger post/page finish hooks (extra matches feedback:finishComment shape)
     const finishData = { ...contentData, cid: newCid };
+    const finishExtra = {
+      request,
+      options,
+      db,
+      waitUntil: locals?.cfContext?.waitUntil?.bind(locals.cfContext),
+    };
     if (!isDraft) {
-      await doHook(pluginCtx, type === 'page' ? 'page:finishPublish' : 'post:finishPublish', finishData);
+      await doHook(pluginCtx, type === 'page' ? 'page:finishPublish' : 'post:finishPublish', finishData, finishExtra);
     }
-    await doHook(pluginCtx, type === 'page' ? 'page:finishSave' : 'post:finishSave', finishData);
+    await doHook(pluginCtx, type === 'page' ? 'page:finishSave' : 'post:finishSave', finishData, finishExtra);
 
     await sendSubmittedTrackbacks(newCid, finalSlug);
 
@@ -696,6 +702,36 @@ export const POST: APIRoute = async ({ request, locals }) => {
     if (tags) {
       await attachTags(db, cid, tags);
     }
+
+    // Trigger post/page finish hooks (create path already does this; update was missing)
+    const finishData = {
+      ...existing,
+      title,
+      created,
+      modified: now,
+      text,
+      order,
+      template,
+      type: contentType,
+      status,
+      password,
+      allowComment,
+      allowFeed,
+      slug: finalSlug,
+      cid,
+      ...(type === 'page' ? { parent: submittedPageParent ?? existing.parent ?? 0 } : {}),
+    };
+    const finishExtra = {
+      request,
+      options,
+      db,
+      waitUntil: locals?.cfContext?.waitUntil?.bind(locals.cfContext),
+      previousText: existing.text,
+    };
+    if (!isDraft) {
+      await doHook(pluginCtx, type === 'page' ? 'page:finishPublish' : 'post:finishPublish', finishData, finishExtra);
+    }
+    await doHook(pluginCtx, type === 'page' ? 'page:finishSave' : 'post:finishSave', finishData, finishExtra);
 
     await sendSubmittedTrackbacks(cid, finalSlug);
 

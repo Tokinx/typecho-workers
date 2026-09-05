@@ -48,7 +48,7 @@
     "typecho-plugin-cache": "workspace:*",
     "typecho-plugin-notes": "workspace:*",
     "typecho-plugin-notifier": "workspace:*",
-    "typecho-plugin-postpilot": "workspace:*",
+    "typecho-plugin-engine": "workspace:*",
     "typecho-plugin-turnstile": "workspace:*",
     "typecho-theme-warm": "workspace:*"
   },

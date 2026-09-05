@@ -21,7 +21,7 @@ registerPluginLoaders({
   'typecho-plugin-cache': () => import('@/plugins/typecho-plugin-cache/index').then((module) => module.default),
   'typecho-plugin-notifier': () => import('@/plugins/typecho-plugin-notifier/index').then((module) => module.default),
   'typecho-plugin-notes': () => import('@/plugins/typecho-plugin-notes/index').then((module) => module.default),
-  'typecho-plugin-postpilot': () => import('@/plugins/typecho-plugin-postpilot/index').then((module) => module.default),
+  'typecho-plugin-engine': () => import('@/plugins/typecho-plugin-engine/index').then((module) => module.default),
   'typecho-plugin-turnstile': () => import('@/plugins/typecho-plugin-turnstile/index').then((module) => module.default),
 }, { addHook, HookPoints });
 

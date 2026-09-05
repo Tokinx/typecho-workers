@@ -1,0 +1,26 @@
+{
+  "name": "typecho-plugin-engine",
+  "version": "2.0.0",
+  "description": "AI engine for Typecho-Workers: writing assistant, auto summaries, and search scope",
+  "keywords": ["typecho", "plugin", "ai", "writer", "summary", "search"],
+  "author": "Tokinx",
+  "license": "MIT",
+  "type": "module",
+  "main": "index.ts",
+  "typecho": {
+    "plugin": {
+      "id": "typecho-plugin-engine",
+      "name": "Engine",
+      "description": "AI 智能引擎，写作辅助、自动摘要与站内搜索范围",
+      "author": "Tokinx",
+      "authorUrl": "https://biji.io",
+      "version": "2.0.0",
+      "homepage": "https://github.com/Tokinx/typecho-workers/tree/master/src/plugins/typecho-plugin-engine",
+      "license": "MIT",
+      "tags": ["ai", "writer", "llm", "summary", "search"],
+      "adminPage": "engine",
+      "adminPageTitle": "Engine 设置",
+      "adminPageIsSettings": true
+    }
+  }
+}
