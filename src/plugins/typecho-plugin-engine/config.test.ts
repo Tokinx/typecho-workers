@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   loadSettings,
+  isAutoSummaryEnabled,
   normalizeSearchProvider,
   normalizeSettings,
   validateSettings,
@@ -63,4 +64,11 @@ describe('legacy search settings', () => {
     expect(validateSettings({ ...SETTINGS_DEFAULTS, searchProvider: 'bing' }).searchProvider).toBe('bing');
     expect(() => validateSettings({ ...SETTINGS_DEFAULTS, autoSummary: '1' })).toThrow(/API Key/);
   });
+});
+
+
+it('keeps automatic AI generation off by default and requires AI credentials when enabled', () => {
+  expect(isAutoSummaryEnabled(SETTINGS_DEFAULTS)).toBe(false);
+  expect(() => validateSettings({ ...SETTINGS_DEFAULTS, autoSummary: '1' })).toThrow(/API Key/);
+  expect(isAutoSummaryEnabled(validateSettings({ ...SETTINGS_DEFAULTS, apiKey: 'key', autoSummary: '1' }))).toBe(true);
 });

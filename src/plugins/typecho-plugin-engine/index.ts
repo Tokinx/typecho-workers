@@ -23,9 +23,7 @@ import {
   isAutoSummaryEnabled,
 } from './config';
 import {
-  fallbackSummaryFromText,
   upsertSummary,
-  readSummary,
   listPublishedForSummary,
 } from './summary';
 import {
@@ -949,7 +947,7 @@ async function callLLM(
 
 const SUMMARY_SYSTEM_PROMPT = [
   '你是一位内容摘要助手。',
-  '根据标题与正文生成适合站内搜索的简明中文摘要。',
+  '根据标题与正文生成帮助读者快速理解内容的简明中文摘要。',
   '摘要应覆盖主题与关键信息点，不要编造正文没有的事实。',
   '只输出摘要正文本身，不要标题、前后缀、列表符号或引号包裹。',
   '长度控制在 120～300 字。',
@@ -1032,54 +1030,33 @@ interface ContentFinishExtra {
   db?: Database;
   options?: Record<string, unknown>;
   waitUntil?: (promise: Promise<unknown>) => void;
-  previousText?: string | null;
 }
 
-function scheduleSummaryMaterialize(content: ContentFinishData, extra?: ContentFinishExtra): void {
+async function scheduleSummaryMaterialize(content: ContentFinishData, extra?: ContentFinishExtra): Promise<void> {
   const cid = Number(content.cid);
   if (!Number.isInteger(cid) || cid <= 0 || !extra?.db || !extra.options) return;
-  if (content.status !== 'publish') return;
-  if (content.type !== 'post' && content.type !== 'page') return;
+  if (content.status !== 'publish' || (content.type !== 'post' && content.type !== 'page')) return;
+  // Disabled means no summary work at all, including database reads/writes.
+  if (!isAutoSummaryEnabled(loadSettings(extra.options))) return;
 
   const db = extra.db;
   const options = extra.options;
-  const settings = loadSettings(options);
-  const title = content.title || '';
-  const text = content.text || '';
-  const textChanged = extra.previousText === undefined || extra.previousText !== text;
-
   const run = async () => {
     try {
-      if (isAutoSummaryEnabled(settings)) {
-        try {
-          const config = getConfig(options);
-          const summary = await callLLMSummary(config, title, text);
-          if (summary) {
-            await upsertSummary(db, cid, summary);
-            return;
-          }
-        } catch (error) {
-          console.error(`[${PLUGIN_ID}] AI 摘要失败，回退截断摘要:`, error);
-        }
-        const fallback = fallbackSummaryFromText(text);
-        if (fallback) await upsertSummary(db, cid, fallback);
-        return;
-      }
-
-      const existing = await readSummary(db, cid);
-      if (!existing || textChanged) {
-        const fallback = fallbackSummaryFromText(text);
-        if (fallback) await upsertSummary(db, cid, fallback);
-      }
+      const summary = await callLLMSummary(getConfig(options), content.title || '', content.text || '');
+      if (summary) await upsertSummary(db, cid, summary);
     } catch (error) {
-      console.error(`[${PLUGIN_ID}] 摘要物化失败:`, error);
+      // Publishing succeeds even if AI fails. Never replace an existing summary
+      // with a truncated fallback (or clear it on failure).
+      console.error(`[${PLUGIN_ID}] 智能摘要生成失败，保留已有摘要:`, error);
     }
   };
 
   if (extra.waitUntil) {
     extra.waitUntil(run());
   } else {
-    void run();
+    // Tests/adapters without an execution context must not drop the write.
+    await run();
   }
 }
 
@@ -2661,12 +2638,8 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
     },
   );
 
-  addHook('post:finishPublish', pluginId, (content: ContentFinishData, extra?: ContentFinishExtra) => {
-    scheduleSummaryMaterialize(content, extra);
-  });
-  addHook('page:finishPublish', pluginId, (content: ContentFinishData, extra?: ContentFinishExtra) => {
-    scheduleSummaryMaterialize(content, extra);
-  });
+  addHook('post:finishPublish', pluginId, scheduleSummaryMaterialize);
+  addHook('page:finishPublish', pluginId, scheduleSummaryMaterialize);
 
   addHook(
     'plugin:config:beforeSave',

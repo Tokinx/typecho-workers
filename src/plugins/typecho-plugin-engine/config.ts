@@ -6,7 +6,6 @@ import { normalizeSearchProvider, type SearchProvider } from './search';
 
 export const PLUGIN_ID = 'typecho-plugin-engine';
 export const ENGINE_SUMMARY_FIELD = 'engine_summary';
-export const SUMMARY_EXCERPT_LENGTH = 300;
 
 export { normalizeSearchProvider, type SearchProvider } from './search';
 
@@ -64,7 +63,7 @@ export function loadSettings(options?: Record<string, unknown>): EngineSettings 
 /** Validate LLM + Engine settings for save. Does not hit the provider. */
 export function validateSettings(settings?: Record<string, unknown>): EngineSettings {
   const config = normalizeSettings(settings);
-  // External/internal search and fallback summaries do not require an AI account.
+  // External/internal search does not require an AI account.
   const usesAi = Boolean(config.apiKey) || config.autoSummary === '1';
   if (usesAi && (!config.endpoint || !config.apiKey || !config.model)) {
     throw new Error('请填写接口地址、API Key 和模型名称');

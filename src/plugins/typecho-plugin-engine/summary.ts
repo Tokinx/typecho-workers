@@ -3,14 +3,9 @@
  */
 import { and, eq, inArray, or } from 'drizzle-orm';
 import { schema } from 'typecho/db';
-import { generateExcerpt } from '@/lib/markdown';
-import { ENGINE_SUMMARY_FIELD, SUMMARY_EXCERPT_LENGTH } from './config';
+import { ENGINE_SUMMARY_FIELD } from './config';
 
-export { ENGINE_SUMMARY_FIELD, SUMMARY_EXCERPT_LENGTH };
-
-export function fallbackSummaryFromText(text: string): string {
-  return generateExcerpt(text || '', SUMMARY_EXCERPT_LENGTH).trim();
-}
+export { ENGINE_SUMMARY_FIELD };
 
 export async function readSummary(db: any, cid: number): Promise<string | null> {
   const row = await db.query.fields.findFirst({

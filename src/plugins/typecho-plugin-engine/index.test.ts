@@ -180,7 +180,18 @@ describe('typecho-plugin-engine', () => {
       },
     });
     expect(page).toContain('基础设置');
-    expect(page).toContain('摘要设置');
+    expect(page).toContain('智能摘要');
+    expect(page).toContain('手动批量生成');
+    expect(page).toContain('role="switch" name="autoSummary" id="engine-autoSummary" value="1" checked');
+    expect(page).not.toContain('截断摘要模式');
+    expect(page).not.toContain('engine-summary-layout');
+    expect(page).toContain('class="engine-panel-head engine-summary-head"');
+    expect(page).toContain('aria-label="自动生成智能摘要"');
+    expect(page).not.toContain('aria-labelledby="engine-auto-summary-label"');
+    expect(page).not.toContain('engine-auto-summary-help');
+    expect(page).not.toContain('前台展示需要主题接入');
+    expect(page.indexOf('class="engine-summary-copy"')).toBeLessThan(page.indexOf('class="engine-summary-actions"'));
+    expect(page).toContain('@media (max-width: 640px)');
     expect(page).toContain('搜索方式');
     expect(page).toContain('engine-batch-start');
     expect(page).toContain('engine-row-2');

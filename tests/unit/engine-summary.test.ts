@@ -3,7 +3,6 @@ import { eq, and } from 'drizzle-orm';
 import { createTestDb, type TestDatabase } from '../helpers';
 import { schema } from '@/db';
 import {
-  fallbackSummaryFromText,
   upsertSummary,
   readSummary,
   listPublishedForSummary,
@@ -15,15 +14,6 @@ describe('engine summary helpers', () => {
 
   beforeEach(async () => {
     db = await createTestDb();
-  });
-
-  it('builds a truncated fallback summary', () => {
-    const text = '<!--markdown-->' + '甲'.repeat(500);
-    const summary = fallbackSummaryFromText(text);
-    expect(summary.length).toBeGreaterThan(0);
-    // generateExcerpt may append an ellipsis slightly past the max length.
-    expect(summary.length).toBeLessThanOrEqual(320);
-    expect(summary).not.toContain('<!--markdown-->');
   });
 
   it('upserts and reads engine_summary field', async () => {

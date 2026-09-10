@@ -41,13 +41,6 @@ function textInput(name: string, value: string, opts: { type?: string; placehold
   return `<input type="${type}" name="${name}" id="engine-${name}" class="text w-100" value="${attr(value)}"${ph}>`;
 }
 
-function select(name: string, value: string, options: Record<string, string>): string {
-  const opts = Object.entries(options)
-    .map(([v, label]) => `<option value="${attr(v)}"${v === value ? ' selected' : ''}>${escapeHtml(label)}</option>`)
-    .join('');
-  return `<select name="${name}" id="engine-${name}" class="w-100">${opts}</select>`;
-}
-
 function searchCards(
   name: string,
   value: string,
@@ -109,46 +102,36 @@ export function adminPageHtml(csrf: string, config: EngineSettings): string {
       </ul>
     </section>
 
-    <section class="engine-panel">
-      <header class="engine-panel-head">
-        <h3>摘要设置</h3>
+    <section class="engine-panel" aria-labelledby="engine-summary-title">
+      <header class="engine-panel-head engine-summary-head">
+        <div class="engine-summary-title">
+          <h3 id="engine-summary-title">智能摘要</h3>
+          <p>使用已保存的 AI 配置生成 120～300 字内容概览</p>
+        </div>
+        <label class="engine-toggle">
+          <input type="checkbox" role="switch" name="autoSummary" id="engine-autoSummary" value="1"${v('autoSummary') === '1' ? ' checked' : ''} aria-label="自动生成智能摘要">
+          <span id="engine-auto-summary-state" aria-hidden="true">${v('autoSummary') === '1' ? '开启' : '关闭'}</span>
+        </label>
       </header>
-      <div class="engine-summary-layout">
-        <div class="engine-summary-switch">
-          <div class="engine-switch-row">
-            <div>
-              <div class="engine-scope-top" style="align-items: flex-start;">
-                <label class="typecho-label" for="engine-autoSummary">
-                  发布时自动生成
-                </label>
-              </div>
-              <p>${select('autoSummary', v('autoSummary'), {
-                '0': '截断摘要模式',
-                '1': '智能摘要模式',
-              })}</p>
-              <p class="description">截断摘要：自动截取正文的前300字。<br/>智能摘要：由AI智能生成300字左右的摘要。</p>
+      <div class="engine-summary-batch">
+        <div class="engine-summary-batch-head">
+          <div class="engine-summary-copy">
+            <h4>手动批量生成</h4>
+            <p class="description">为已发布的文章和页面生成智能摘要，不受自动生成开关影响。</p>
+          </div>
+          <div class="engine-summary-actions">
+            <div class="engine-batch-actions">
+              <button type="button" class="btn primary" id="engine-batch-start">批量生成</button>
+              <button type="button" class="btn" id="engine-batch-stop" disabled>停止</button>
             </div>
+            <label class="engine-check"><input type="checkbox" id="engine-skip-existing" checked> 跳过已有摘要</label>
           </div>
         </div>
-        <div class="engine-summary-batch">
-          <label class="typecho-label" for="engine-autoSummary">
-            为全部文章生成摘要
-          </label>
-          <p class="engine-batch-actions">
-            <button type="button" class="btn primary" id="engine-batch-start">开始</button>
-            <button type="button" class="btn" id="engine-batch-stop" disabled>停止</button>
-          </p>
-          <p class="description">
-            <label class="engine-check"><input type="checkbox" id="engine-skip-existing" checked> 跳过已有摘要</label>
-            <br/>
-            按篇串行调用 AI。请勿关闭页面；单篇失败自动重试最多 3 次。
-          </p>
+        <div id="engine-batch-progress" class="engine-batch-progress" hidden>
+          <div class="engine-batch-bar"><div id="engine-batch-bar-fill"></div></div>
+          <p id="engine-batch-status" class="description" role="status" aria-live="polite"></p>
+          <ul id="engine-batch-log" class="engine-batch-log"></ul>
         </div>
-      </div>
-      <div id="engine-batch-progress" class="engine-batch-progress" hidden>
-        <div class="engine-batch-bar"><div id="engine-batch-bar-fill"></div></div>
-        <p id="engine-batch-status" class="description"></p>
-        <ul id="engine-batch-log" class="engine-batch-log"></ul>
       </div>
     </section>
 
@@ -207,29 +190,49 @@ export function adminPageHtml(csrf: string, config: EngineSettings): string {
 #engine-settings-app .engine-field select { height: 32px; }
 #engine-settings-app .engine-field .description { margin: .35em 0 0; }
 
-#engine-settings-app .engine-summary-layout {
+#engine-settings-app .engine-summary-head,
+#engine-settings-app .engine-summary-batch-head {
   display: grid;
-  grid-template-columns: 1fr 1.15fr;
-  gap: 1em 1.25em;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1em 1.5em;
 }
-#engine-settings-app .engine-summary-switch,
-#engine-settings-app .engine-summary-batch {
-  background: #fafafa;
-  border: 1px solid #eee;
-  border-radius: 6px;
-  padding: 1em;
+#engine-settings-app .engine-panel-head.engine-summary-head { margin-bottom: 0; }
+#engine-settings-app .engine-summary-title,
+#engine-settings-app .engine-summary-copy { min-width: 0; }
+#engine-settings-app .engine-summary-copy h4 { margin: 0 0 .4em; font-size: 1em; font-weight: 600; }
+#engine-settings-app .engine-summary-copy .description { margin: 0; line-height: 1.6; }
+#engine-settings-app .engine-summary-batch { margin-top: 1em; padding-top: 1em; border-top: 1px solid #eee; }
+#engine-settings-app .engine-summary-actions { display: flex; flex-direction: column; align-items: flex-start; gap: .65em; }
+#engine-settings-app .engine-summary-actions .btn { white-space: nowrap; }
+#engine-settings-app .engine-toggle { display: inline-flex; align-items: center; gap: .5em; margin: 0; white-space: nowrap; cursor: pointer; color: #666; }
+#engine-settings-app .engine-toggle input {
+  appearance: none;
+  position: relative;
+  width: 2.6em;
+  height: 1.5em;
+  margin: 0;
+  border: 1px solid transparent;
+  border-radius: 1em;
+  background: #b8c0c5;
+  cursor: pointer;
 }
-#engine-settings-app .engine-switch-row {
-  display: flex;
-  gap: 1em;
-  align-items: flex-start;
-  justify-content: space-between;
+#engine-settings-app .engine-toggle input::before {
+  content: '';
+  position: absolute;
+  width: 1.1em;
+  height: 1.1em;
+  top: calc(.2em - 1px);
+  left: calc(.2em - 1px);
+  border-radius: 50%;
+  background: #fff;
+  transition: transform .15s ease;
 }
-#engine-settings-app .engine-switch-row > div { flex: 1; min-width: 0; }
-#engine-settings-app .engine-switch-row select {
-  width: 11.5em;
-  flex-shrink: 0;
-  height: 32px;
+#engine-settings-app .engine-toggle input:checked { background: #467B96; }
+#engine-settings-app .engine-toggle input:checked::before { transform: translateX(1.1em); }
+#engine-settings-app .engine-toggle input:focus-visible { outline: 2px solid #467B96; outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) {
+  #engine-settings-app .engine-toggle input::before { transition: none; }
 }
 #engine-settings-app .engine-batch-actions {
   display: flex;
@@ -242,6 +245,7 @@ export function adminPageHtml(csrf: string, config: EngineSettings): string {
   gap: .35em;
   align-items: center;
   color: #555;
+  margin: 0;
 }
 #engine-settings-app .engine-batch-progress { margin-top: .9em; }
 #engine-settings-app .engine-batch-bar {
@@ -348,16 +352,15 @@ export function adminPageHtml(csrf: string, config: EngineSettings): string {
   #engine-settings-app .engine-row-3 {
     grid-template-columns: 1fr !important;
   }
-  #engine-settings-app .engine-summary-layout,
   #engine-settings-app .engine-scope-grid {
     display: flex;
     flex-direction: column;
   }
-  #engine-settings-app .engine-switch-row {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  #engine-settings-app .engine-switch-row select { width: 100%; }
+}
+@media (max-width: 640px) {
+  #engine-settings-app .engine-summary-head { gap: 1em; }
+  #engine-settings-app .engine-summary-batch-head { grid-template-columns: minmax(0, 1fr); gap: .85em; }
+  #engine-settings-app .engine-summary-actions { flex-direction: row; align-items: center; flex-wrap: wrap; gap: .75em 1em; }
 }
 </style>
 
@@ -376,6 +379,14 @@ export function adminPageHtml(csrf: string, config: EngineSettings): string {
   var csrf = ${JSON.stringify(csrf)};
   var configUrl = ${JSON.stringify(CONFIG_API_ROUTE)};
   var batchStop = false;
+  var autoSummary = document.getElementById('engine-autoSummary');
+  var autoSummaryState = document.getElementById('engine-auto-summary-state');
+  if (autoSummary && autoSummaryState) {
+    autoSummary.addEventListener('change', function () {
+      autoSummaryState.textContent = autoSummary.checked ? '开启' : '关闭';
+    });
+  }
+
 
   function showNotice(ok, message) {
     if (!notice) return;
