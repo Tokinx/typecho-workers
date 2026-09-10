@@ -2,13 +2,13 @@
  * Engine plugin persisted settings (options key: plugin:typecho-plugin-engine).
  */
 import { parsePluginOption } from 'typecho/plugin-sdk';
+import { normalizeSearchProvider, type SearchProvider } from './search';
 
 export const PLUGIN_ID = 'typecho-plugin-engine';
 export const ENGINE_SUMMARY_FIELD = 'engine_summary';
 export const SUMMARY_EXCERPT_LENGTH = 300;
 
-export const SEARCH_SCOPES = ['default', 'title', 'title_summary'] as const;
-export type SearchScope = (typeof SEARCH_SCOPES)[number];
+export { normalizeSearchProvider, type SearchProvider } from './search';
 
 export const MASKED_SECRET = '********';
 
@@ -20,8 +20,8 @@ export interface EngineSettings {
   maxTokens: string;
   /** "0" | "1" — generate AI summary on publish */
   autoSummary: string;
-  /** default | title | title_summary */
-  searchScope: SearchScope;
+  /** default | bing | google */
+  searchProvider: SearchProvider;
 }
 
 export const SETTINGS_DEFAULTS: EngineSettings = {
@@ -31,17 +31,10 @@ export const SETTINGS_DEFAULTS: EngineSettings = {
   temperature: '0.7',
   maxTokens: '128000',
   autoSummary: '0',
-  searchScope: 'default',
+  searchProvider: 'default',
 };
 
 const MAX_OUTPUT_TOKENS = 512_000;
-
-export function normalizeSearchScope(value: unknown): SearchScope {
-  const scope = String(value || 'default').trim();
-  return (SEARCH_SCOPES as readonly string[]).includes(scope)
-    ? (scope as SearchScope)
-    : 'default';
-}
 
 export function normalizeAutoSummary(value: unknown): string {
   if (value === true || value === 1 || value === '1') return '1';
@@ -56,7 +49,7 @@ export function normalizeSettings(settings?: Record<string, unknown>): EngineSet
     temperature: String(settings?.temperature || SETTINGS_DEFAULTS.temperature).trim(),
     maxTokens: String(settings?.maxTokens || SETTINGS_DEFAULTS.maxTokens).trim(),
     autoSummary: normalizeAutoSummary(settings?.autoSummary),
-    searchScope: normalizeSearchScope(settings?.searchScope),
+    searchProvider: normalizeSearchProvider(settings?.searchProvider),
   };
 }
 
@@ -71,18 +64,22 @@ export function loadSettings(options?: Record<string, unknown>): EngineSettings 
 /** Validate LLM + Engine settings for save. Does not hit the provider. */
 export function validateSettings(settings?: Record<string, unknown>): EngineSettings {
   const config = normalizeSettings(settings);
-  if (!config.endpoint || !config.apiKey || !config.model) {
+  // External/internal search and fallback summaries do not require an AI account.
+  const usesAi = Boolean(config.apiKey) || config.autoSummary === '1';
+  if (usesAi && (!config.endpoint || !config.apiKey || !config.model)) {
     throw new Error('请填写接口地址、API Key 和模型名称');
   }
 
-  let url: URL;
-  try {
-    url = new URL(config.endpoint);
-  } catch {
-    throw new Error('接口地址格式不正确');
-  }
-  if (!['https:', 'http:'].includes(url.protocol)) {
-    throw new Error('接口地址必须使用 http 或 https');
+  if (config.endpoint) {
+    let url: URL;
+    try {
+      url = new URL(config.endpoint);
+    } catch {
+      throw new Error('接口地址格式不正确');
+    }
+    if (!['https:', 'http:'].includes(url.protocol)) {
+      throw new Error('接口地址必须使用 http 或 https');
+    }
   }
 
   const temperature = Number(config.temperature);
@@ -106,7 +103,7 @@ export function toFormValues(config: EngineSettings): Record<string, string> {
     temperature: config.temperature,
     maxTokens: config.maxTokens,
     autoSummary: config.autoSummary,
-    searchScope: config.searchScope,
+    searchProvider: config.searchProvider,
   };
 }
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  normalizeSearchScope,
+  loadSettings,
+  normalizeSearchProvider,
   normalizeSettings,
   validateSettings,
   maskSecretFormValues,
@@ -8,14 +9,13 @@ import {
   toFormValues,
   MASKED_SECRET,
   SETTINGS_DEFAULTS,
-} from '@/plugins/typecho-plugin-engine/config';
-import { resolveSearchScope } from '@/lib/search-scope';
+} from './config';
 
 describe('engine config', () => {
-  it('normalizes searchScope and autoSummary', () => {
-    expect(normalizeSearchScope('title_summary')).toBe('title_summary');
-    expect(normalizeSearchScope('nope')).toBe('default');
-    expect(normalizeSettings({ autoSummary: '1', searchScope: 'title' }).autoSummary).toBe('1');
+  it('normalizes searchProvider and autoSummary', () => {
+    expect(normalizeSearchProvider('google')).toBe('google');
+    expect(normalizeSearchProvider('nope')).toBe('default');
+    expect(normalizeSettings({ autoSummary: '1', searchProvider: 'bing' }).autoSummary).toBe('1');
     expect(normalizeSettings({ autoSummary: true }).autoSummary).toBe('1');
     expect(normalizeSettings({}).autoSummary).toBe('0');
   });
@@ -28,7 +28,7 @@ describe('engine config', () => {
       temperature: '0.5',
       maxTokens: '1024',
       autoSummary: '1',
-      searchScope: 'title',
+      searchProvider: 'bing',
     })).not.toThrow();
 
     expect(() => validateSettings({
@@ -54,20 +54,13 @@ describe('engine config', () => {
   });
 });
 
-describe('resolveSearchScope', () => {
-  it('falls back to default when Engine is inactive', () => {
-    expect(resolveSearchScope({
-      [`plugin:typecho-plugin-engine`]: JSON.stringify({ searchScope: 'title' }),
-    }, new Set())).toBe('default');
+describe('legacy search settings', () => {
+  it('ignores old searchScope instead of silently selecting an external engine', () => {
+    expect(normalizeSettings({ searchScope: 'title_summary' }).searchProvider).toBe('default');
+    expect(loadSettings({ 'plugin:typecho-plugin-engine': '{"searchScope":"title"}' }).searchProvider).toBe('default');
   });
-
-  it('reads scope from plugin config when active', () => {
-    const options = {
-      [`plugin:typecho-plugin-engine`]: JSON.stringify({ searchScope: 'title_summary' }),
-    };
-    expect(resolveSearchScope(options, new Set(['typecho-plugin-engine']))).toBe('title_summary');
-    expect(resolveSearchScope({
-      [`plugin:typecho-plugin-engine`]: JSON.stringify({ searchScope: 'title' }),
-    }, ['typecho-plugin-engine'])).toBe('title');
+  it('allows search-only configuration without an AI key', () => {
+    expect(validateSettings({ ...SETTINGS_DEFAULTS, searchProvider: 'bing' }).searchProvider).toBe('bing');
+    expect(() => validateSettings({ ...SETTINGS_DEFAULTS, autoSummary: '1' })).toThrow(/API Key/);
   });
 });

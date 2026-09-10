@@ -31,9 +31,11 @@ describe('typecho-plugin-engine', () => {
     const hooks = collectHooks();
 
     expect([...hooks.keys()].sort()).toEqual([
+      'admin:footer',
       'admin:page',
       'admin:writePage:bottom',
       'admin:writePost:bottom',
+      'archive:footer',
       'page:finishPublish',
       'plugin:config:beforeSave',
       'plugin:typecho-plugin-engine:action',
@@ -41,6 +43,24 @@ describe('typecho-plugin-engine', () => {
       'post:finishPublish',
       'route:request',
     ]);
+  });
+
+  it('injects the "智能引擎" link under the 设置 menu for administrators', () => {
+    const footer = collectHooks().get('admin:footer')![0];
+    const html = footer('', { activeMenu: 'engine', user: { group: 'administrator' } });
+    expect(html).toContain("insertAfter(4,'/admin/options-permalink','/admin/plugin/engine','智能引擎',true)");
+
+    const htmlInactive = footer('', { activeMenu: 'options', user: { group: 'administrator' } });
+    expect(htmlInactive).toContain("'智能引擎',false)");
+
+    const nonAdminHtml = footer('unchanged', { activeMenu: 'engine', user: { group: 'editor' } });
+    expect(nonAdminHtml).toBe('unchanged');
+
+    const noUserHtml = footer('unchanged', { activeMenu: 'engine', user: { group: 'visitor' } });
+    expect(noUserHtml).toBe('unchanged');
+
+    const script = html.match(/<script>([\s\S]*?)<\/script>/)![1];
+    expect(() => transformSync(script, { loader: 'js' })).not.toThrow();
   });
 
   it('injects the AI writer editor control into post and page editors', () => {
@@ -154,21 +174,24 @@ describe('typecho-plugin-engine', () => {
           endpoint: 'https://example.com/v1/',
           apiKey: 'secret',
           model: 'demo',
-          searchScope: 'title',
+          searchProvider: 'bing',
           autoSummary: '1',
         }),
       },
     });
     expect(page).toContain('基础设置');
     expect(page).toContain('摘要设置');
-    expect(page).toContain('搜索范围');
+    expect(page).toContain('搜索方式');
     expect(page).toContain('engine-batch-start');
     expect(page).toContain('engine-row-2');
     expect(page).toContain('engine-row-3');
     expect(page).toContain('engine-scope-grid');
-    expect(page).toContain('更精准');
-    expect(page).toContain('更快速');
-    expect(page).toContain('更均衡');
+    expect(page).toContain('站内搜索');
+    expect(page).toContain('Bing');
+    expect(page).toContain('Google');
+    expect(page).toContain('name="searchProvider" value="bing" checked');
+    expect(page).not.toContain('engine-rebuild-index');
+    expect(page).not.toContain('searchScope');
     expect(page).toContain('Max Token');
     expect(page).toContain('grid-template-columns: 1fr 1fr');
     expect(page).toContain('grid-template-columns: 1fr 1fr 1fr');
@@ -740,5 +763,42 @@ describe('typecho-plugin-engine', () => {
       expect(diffBlock.old).toBe('| a | \u0001b\u0002 |');
       expect(diffBlock.new).toBe('| a | \u0003c\u0004 |');
     });
+  });
+});
+
+describe('Engine external search hooks', () => {
+  const options = (provider: string) => ({
+    siteUrl: 'https://example.com',
+    'plugin:typecho-plugin-engine': JSON.stringify({ searchProvider: provider, apiKey: 'do-not-expose-this-key' }),
+  });
+
+  it('injects via archive:footer without exposing AI credentials', async () => {
+    const footer = collectHooks().get('archive:footer')![0];
+    const html = await footer('existing', { options: options('bing') });
+    expect(html).toContain('data-engine-search');
+    expect(html).toContain('existing');
+    expect(html).not.toContain('do-not-expose-this-key');
+    expect(await footer('existing', { options: options('default') })).toBe('existing');
+    expect(await footer('existing')).toBe('existing');
+  });
+
+  it.each(['bing', 'google'])('blocks internal search via route:request in %s mode without a database', async provider => {
+    const route = collectHooks().get('route:request')![0];
+    const db = new Proxy({}, { get() { throw new Error('search must not access database'); } });
+    const result = await route({ handled: false }, {
+      path: '/search/keyword/', request: new Request('https://example.com/search/keyword/'), options: options(provider), db,
+    });
+    expect(result.handled).toBe(true);
+    expect(result.response.status).toBe(404);
+    expect(result.response.headers.get('Cache-Control')).toBe('no-store');
+  });
+
+  it('leaves already handled, default and unrelated requests unchanged', async () => {
+    const route = collectHooks().get('route:request')![0];
+    const original = { handled: false };
+    expect(await route(original, { path: '/search/test/', request: new Request('https://example.com/search/test/'), options: options('default') })).toBe(original);
+    expect(await route(original, { path: '/post/', request: new Request('https://example.com/post/'), options: options('bing') })).toBe(original);
+    const handled = { handled: true, response: new Response('other plugin') };
+    expect(await route(handled, { request: new Request('https://example.com/search/test/'), options: options('bing') })).toBe(handled);
   });
 });

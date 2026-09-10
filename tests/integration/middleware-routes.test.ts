@@ -501,3 +501,66 @@ describe('Middleware: activated plugin routes (registry imported by middleware)'
     }
   });
 });
+
+describe('Middleware: external search stops before route rendering', () => {
+  beforeEach(async () => {
+    resetIsolateBoot();
+    resetCacheProviderForTests();
+    testDb = await createTestDb();
+    d1Stub = createD1Stub(testDb);
+    await testDb.insert(schema.options).values([
+      { name: 'siteUrl', user: 0, value: SITE },
+      { name: 'installed', user: 0, value: '1' },
+      { name: 'secret', user: 0, value: 'search-test-secret' },
+      { name: 'activatedPlugins', user: 0, value: '["typecho-plugin-engine"]' },
+      { name: 'plugin:typecho-plugin-engine', user: 0, value: '{"searchProvider":"bing"}' },
+    ]);
+  });
+
+  async function dispatch(path: string, init?: RequestInit) {
+    const request = new Request(SITE + path, init);
+    const ctx = { request, url: new URL(request.url), locals: {} } as any;
+    const next = vi.fn(async () => new Response('route rendered'));
+    const response = await onRequest(ctx, next) as Response;
+    return { response, next };
+  }
+
+  it.each(['/search', '/search/', '/search/keyword/', '/search/keyword/page/2/', '/?s=keyword', '/?s='])('rejects %s without calling the page', async path => {
+    const { response, next } = await dispatch(path);
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe('Not Found');
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('rejects legacy POST search', async () => {
+    const { response, next } = await dispatch('/', { method: 'POST', body: new URLSearchParams({ s: 'keyword' }) });
+    expect(response.status).toBe(404);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('also rejects Google search mode', async () => {
+    await testDb.update(schema.options).set({ value: '{"searchProvider":"google"}' }).where(eq(schema.options.name, 'plugin:typecho-plugin-engine'));
+    advanceOptionsSnapshotGeneration(testDb as any);
+    const { response, next } = await dispatch('/search/keyword/');
+    expect(response.status).toBe(404);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it.each(['default', 'inactive'])('allows original search when %s', async mode => {
+    const name = mode === 'inactive' ? 'activatedPlugins' : 'plugin:typecho-plugin-engine';
+    const value = mode === 'inactive' ? '[]' : '{"searchProvider":"default"}';
+    await testDb.update(schema.options).set({ value }).where(eq(schema.options.name, name));
+    advanceOptionsSnapshotGeneration(testDb as any);
+    const { response, next } = await dispatch('/search/keyword/');
+    expect(response.status).toBe(200);
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('does not block unrelated homepage traffic', async () => {
+    const { response, next } = await dispatch('/');
+    expect(response.status).toBe(200);
+    expect(next).toHaveBeenCalled();
+  });
+});

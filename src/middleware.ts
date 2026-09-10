@@ -157,23 +157,6 @@ const coreMiddleware = defineMiddleware(async (context, next) => {
   // Admin-configured external domains appended to the CSP (basic settings).
   const cspWhitelist = options.cspWhitelist ?? undefined;
 
-  // Resolve custom category patterns only after options and plugin runtime
-  // state are available so paginated HTML gets the same CDN and CSP handling.
-  const paginated = await resolvePaginatedPath(
-    path,
-    url.search,
-    db,
-    options.categoryPattern as string | undefined,
-  );
-  if (paginated) {
-    context.locals._page = paginated.page;
-    return applySecurityHeaders(
-      await next(paginated.target),
-      { request: context.request, cspWhitelist },
-      pluginCtx,
-    );
-  }
-
   // G: route:request is isolated per plugin — a single plugin bug (e.g. a
   // timed-out outbound call in one handler) must not take the whole site
   // down, since plugins are statically bundled and cannot be hot-unloaded.
@@ -197,6 +180,25 @@ const coreMiddleware = defineMiddleware(async (context, next) => {
     } else {
       return await applySecurityHeaders(pluginRoute.response, { request: context.request, cspWhitelist }, pluginCtx);
     }
+  }
+
+  // Let plugin routes handle the original URL before pagination rewrites bypass
+  // the route hook (including plugin-owned paths ending in /page/N/).
+  // Resolve custom category patterns only after options and plugin runtime
+  // state are available so paginated HTML gets the same CDN and CSP handling.
+  const paginated = await resolvePaginatedPath(
+    path,
+    url.search,
+    db,
+    options.categoryPattern as string | undefined,
+  );
+  if (paginated) {
+    context.locals._page = paginated.page;
+    return applySecurityHeaders(
+      await next(paginated.target),
+      { request: context.request, cspWhitelist },
+      pluginCtx,
+    );
   }
 
   // ── Permalink URL Rewriting ────────────────────────────────────────────────

@@ -42,8 +42,8 @@
         ├─ early-request 外层（Edge Cache / 共享数据缓存，仅公开 GET，跳过 admin/api/静态路径；未审核评论 Cookie 只读）
         ├─ 安装检测（typecho_options 表不存在 → /install）
         ├─ 加载 options + 激活插件 + syncEarlyRequestProviders
+        ├─ route:request filter（插件自定义路由；先于分页改写，避免分页路径绕过插件拦截）
         ├─ 分页 URL 重写（/page/N/ → 基础路径 + locals._page）
-        ├─ route:request filter（插件自定义路由）
         └─ 固定链接重写（post/page/category pattern → 内置路由）
      → src/lib/context.ts
         ├─ 初始化 DB 连接

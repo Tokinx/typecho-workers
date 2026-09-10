@@ -3,7 +3,7 @@ import type { SiteOptions } from '@/lib/options';
 import type { computeUrls } from '@/lib/options';
 import type { UserRow } from '@/lib/context';
 import { getThemeStylesheets } from '@/lib/theme';
-import { getClientSnippets, type PageContext, type HookContext } from '@/lib/plugin';
+import { getClientSnippets, parseActivatedPlugins, type PageContext, type HookContext } from '@/lib/plugin';
 
 interface Props {
   title?: string;
@@ -35,7 +35,7 @@ const pageTitle = title ? `${title} - ${options.title}` : options.title;
 const themeStylesheets = getThemeStylesheets(options.theme || 'typecho-theme-warm');
 
 // Collect client-side snippets from all activated plugins
-const pluginSnippets = await getClientSnippets(pluginCtx ?? { activatedPlugins: new Set<string>() }, options as Record<string, any>, pageContext);
+const pluginSnippets = await getClientSnippets(pluginCtx ?? { activatedPlugins: new Set(parseActivatedPlugins(options.activatedPlugins as string | undefined)) }, options as Record<string, any>, pageContext);
 ---
 <!DOCTYPE html>
 <html lang={options.lang === 'zh_CN' ? 'zh-CN' : 'en'}>

@@ -6,7 +6,7 @@ import {
   maskSecretFormValues,
   toFormValues,
   type EngineSettings,
-  type SearchScope,
+  type SearchProvider,
 } from './config';
 
 export const ADMIN_PAGE_SLUG = 'engine';
@@ -51,9 +51,9 @@ function select(name: string, value: string, options: Record<string, string>): s
 function searchCards(
   name: string,
   value: string,
-  options: Array<{ value: SearchScope; label: string; badge: string; hint: string }>,
+  options: Array<{ value: SearchProvider; label: string; badge: string; hint: string }>,
 ): string {
-  return `<div class="engine-scope-grid" role="radiogroup" aria-label="搜索范围">${options.map((opt) => {
+  return `<div class="engine-scope-grid" role="radiogroup" aria-label="搜索方式">${options.map((opt) => {
     const checked = opt.value === value ? ' checked' : '';
     const active = opt.value === value ? ' is-active' : '';
     return `<label class="engine-scope-card${active}">`
@@ -67,10 +67,10 @@ function searchCards(
   }).join('')}</div>`;
 }
 
-const SEARCH_OPTIONS: Array<{ value: SearchScope; label: string; badge: string; hint: string }> = [
-  { value: 'default', label: '默认', badge: '更精准', hint: '标题 + 正文，召回最全，兼容原有行为' },
-  { value: 'title', label: '仅标题', badge: '更快速', hint: '只搜标题，查询更快、更轻量' },
-  { value: 'title_summary', label: '标题 + 摘要', badge: '更均衡', hint: '搜标题与摘要字段，效果和性能更均衡' },
+const SEARCH_OPTIONS: Array<{ value: SearchProvider; label: string; badge: string; hint: string }> = [
+  { value: 'default', label: '默认', badge: '站内搜索', hint: '搜索标题与正文，保持原有站内搜索行为' },
+  { value: 'bing', label: 'Bing', badge: '外部搜索', hint: '直接跳转 Bing 搜索本站，关闭内部搜索路由' },
+  { value: 'google', label: 'Google', badge: '外部搜索', hint: '直接跳转 Google 搜索本站，关闭内部搜索路由' },
 ];
 
 export function adminPageHtml(csrf: string, config: EngineSettings): string {
@@ -98,7 +98,7 @@ export function adminPageHtml(csrf: string, config: EngineSettings): string {
           {
             label: 'API Key',
             control: textInput('apiKey', v('apiKey'), { type: 'password' }),
-            description: '已保存显示为掩码；保留掩码表示不修改',
+            description: '仅 AI 功能需要；已保存显示为掩码，保留掩码表示不修改',
           },
         )}
         ${fieldRow(
@@ -126,7 +126,7 @@ export function adminPageHtml(csrf: string, config: EngineSettings): string {
                 '0': '截断摘要模式',
                 '1': '智能摘要模式',
               })}</p>
-              <p class="description" style="margin-bottom: 0;">截断摘要：自动截取正文的前300字。<br/>智能摘要：由AI智能生成300字左右的摘要。</p>
+              <p class="description">截断摘要：自动截取正文的前300字。<br/>智能摘要：由AI智能生成300字左右的摘要。</p>
             </div>
           </div>
         </div>
@@ -138,7 +138,7 @@ export function adminPageHtml(csrf: string, config: EngineSettings): string {
             <button type="button" class="btn primary" id="engine-batch-start">开始</button>
             <button type="button" class="btn" id="engine-batch-stop" disabled>停止</button>
           </p>
-          <p class="description" style="margin-bottom: 0;">
+          <p class="description">
             <label class="engine-check"><input type="checkbox" id="engine-skip-existing" checked> 跳过已有摘要</label>
             <br/>
             按篇串行调用 AI。请勿关闭页面；单篇失败自动重试最多 3 次。
@@ -154,10 +154,11 @@ export function adminPageHtml(csrf: string, config: EngineSettings): string {
 
     <section class="engine-panel">
       <header class="engine-panel-head">
-        <h3>搜索范围</h3>
-        <p>控制前台站内搜索匹配哪些字段</p>
+        <h3>搜索方式</h3>
+        <p>选择站内搜索或直接跳转外部搜索引擎</p>
       </header>
-      ${searchCards('searchScope', v('searchScope'), SEARCH_OPTIONS)}
+      ${searchCards('searchProvider', v('searchProvider'), SEARCH_OPTIONS)}
+      <p class="description">外部搜索使用关键词 + site:站点域名，仅能搜索引擎已收录的内容；新文章可能延迟出现。插件停用后恢复默认站内搜索。</p>
     </section>
 
     <p class="submit engine-submit">
@@ -167,7 +168,8 @@ export function adminPageHtml(csrf: string, config: EngineSettings): string {
 </div>
 
 <style>
-#engine-settings-app { max-width: 960px; }
+#engine-settings-app p:last-child,
+#engine-settings-app .engine-batch-actions { margin-bottom: 0; }
 #engine-settings-app .engine-panel {
   background: #fff;
   border: 1px solid #e7e7e7;
@@ -399,7 +401,7 @@ export function adminPageHtml(csrf: string, config: EngineSettings): string {
       temperature: String(data.get('temperature') || ''),
       maxTokens: String(data.get('maxTokens') || ''),
       autoSummary: String(data.get('autoSummary') || '0'),
-      searchScope: String(data.get('searchScope') || 'default'),
+      searchProvider: String(data.get('searchProvider') || 'default'),
     };
   }
 
@@ -543,6 +545,7 @@ export function adminPageHtml(csrf: string, config: EngineSettings): string {
       stopBtn.disabled = true;
     });
   }
+
 })();
 </script>`;
 }

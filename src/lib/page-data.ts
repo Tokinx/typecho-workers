@@ -27,7 +27,6 @@ import type {
 import { getActiveTheme } from '@/lib/theme';
 import { loadQueryCache } from '@/lib/query-cache';
 import { sqlInChunks } from '@/lib/d1-in';
-import { ENGINE_SUMMARY_FIELD, resolveSearchScope } from '@/lib/search-scope';
 
 const MAX_SEARCH_PATTERN_BYTES = 50;
 
@@ -765,27 +764,9 @@ export async function prepareSearchData(
   const trimmed = truncateSearchKeyword(keywords.trim());
   const isUsefulKeyword = trimmed.length >= 2;
   const pattern = `%${trimmed}%`;
-  const scope = resolveSearchScope(ctx.options as Record<string, unknown>, ctx.activatedPlugins);
-
-  let extraWhere;
-  if (!isUsefulKeyword) {
-    extraWhere = sql`1 = 0`;
-  } else if (scope === 'title') {
-    extraWhere = sql`(${schema.contents.title} LIKE ${pattern})`;
-  } else if (scope === 'title_summary') {
-    // Match title or persisted engine_summary field (no full-text scan).
-    extraWhere = sql`(
-      ${schema.contents.title} LIKE ${pattern}
-      OR EXISTS (
-        SELECT 1 FROM ${schema.fields}
-        WHERE ${schema.fields.cid} = ${schema.contents.cid}
-          AND ${schema.fields.name} = ${ENGINE_SUMMARY_FIELD}
-          AND ${schema.fields.str_value} LIKE ${pattern}
-      )
-    )`;
-  } else {
-    extraWhere = sql`(${schema.contents.title} LIKE ${pattern} OR ${schema.contents.text} LIKE ${pattern})`;
-  }
+  const extraWhere = isUsefulKeyword
+    ? sql`(${schema.contents.title} LIKE ${pattern} OR ${schema.contents.text} LIKE ${pattern})`
+    : sql`1 = 0`;
 
   return prepareArchiveData(ctx, requestUrl, locals, url, {
     archiveTitle: `包含关键字 ${trimmed} 的文章`,

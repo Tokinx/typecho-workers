@@ -35,6 +35,7 @@ import {
   isEngineAdminSlug,
 } from './admin-page';
 
+import { isInternalSearchRequest, searchClientHtml, searchDisabledResponse } from './search';
 
 // ===== 比对页签 diff 高亮算法（浏览器端执行）=====
 // 浏览器端内联脚本无法 import 模块，以下纯函数经 toString() 序列化后拼入模板字符串注入页面；
@@ -2606,18 +2607,41 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
   addHook('admin:writePost:bottom', pluginId, (html: string) => html + POST_EDITOR_HTML);
   addHook('admin:writePage:bottom', pluginId, (html: string) => html + PAGE_EDITOR_HTML);
 
-  addHook(
-    'admin:page',
-    pluginId,
-    async (html: string, extra?: {
-      slug?: string;
-      csrfToken?: string;
-      options?: Record<string, unknown>;
-    }) => {
-      if (!isEngineAdminSlug(extra?.slug)) return html;
-      return adminPageHtml(String(extra?.csrfToken || ''), loadSettings(extra?.options));
-    },
-  );
+  addHook('admin:page', pluginId, async (html: string, extra?: {
+    slug?: string;
+    csrfToken?: string;
+    options?: Record<string, unknown>;
+  }) => {
+    if (!isEngineAdminSlug(extra?.slug)) return html;
+    return adminPageHtml(String(extra?.csrfToken || ''), loadSettings(extra?.options));
+  });
+
+  addHook('admin:footer', pluginId, (html: string, extra?: { activeMenu?: string; user?: { group?: string } }) => {
+    const isAdmin = extra?.user?.group && hasPermission(extra.user.group, 'administrator');
+    if (!isAdmin) return html;
+    const active = extra?.activeMenu === ADMIN_PAGE_SLUG;
+    return html + `<script>
+(function(){
+  function insertAfter(rootIndex, afterHref, href, label, focused){
+    var root=document.querySelector('.typecho-head-nav nav > menu > li:nth-child('+rootIndex+')');
+    if(!root)return;
+    var anchor=root.querySelector(':scope > menu a[href="'+afterHref+'"]');
+    if(!anchor||!anchor.parentElement)return;
+    var item=document.createElement('li');
+    item.className=focused?'focus':'';
+    item.innerHTML='<a href="'+href+'">'+label+'</a>';
+    anchor.parentElement.insertAdjacentElement('afterend',item);
+    if(focused)root.classList.add('focus');
+  }
+  insertAfter(4,'/admin/options-permalink','/admin/plugin/engine','智能引擎',${active ? 'true' : 'false'});
+})();
+</script>`;
+  });
+
+  addHook('archive:footer', pluginId, (html: string, extra?: { options?: Record<string, unknown> }) => {
+    const provider = loadSettings(extra?.options).searchProvider;
+    return html + searchClientHtml(provider, String(extra?.options?.siteUrl || ''));
+  });
 
   addHook(
     'route:request',
@@ -2629,6 +2653,9 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
       options?: Record<string, unknown>;
     }) => {
       if (result?.handled || !extra?.request) return result;
+      if (loadSettings(extra.options).searchProvider !== 'default' && await isInternalSearchRequest(extra.request)) {
+        return { handled: true, response: searchDisabledResponse() };
+      }
       if (extra.path !== CONFIG_API_ROUTE) return result;
       return handleConfigSave(extra);
     },
@@ -2655,7 +2682,7 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
           settings: {
             ...settings,
             autoSummary: engineSettings.autoSummary,
-            searchScope: engineSettings.searchScope,
+            searchProvider: engineSettings.searchProvider,
           },
         };
       } catch (error) {
