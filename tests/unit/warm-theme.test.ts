@@ -238,11 +238,12 @@ describe('typecho-theme-warm', () => {
   });
 
 
-  it('uses the reference reading hierarchy without applying breakout to notes or comments', () => {
+  it('uses the reference reading hierarchy with hero and comment-form breakout', () => {
     const css = readFileSync(join(themeRoot, 'style.css'), 'utf8');
     const shell = readFileSync(join(themeRoot, 'components/WarmShell.astro'), 'utf8');
     const post = readFileSync(join(themeRoot, 'components/Post.astro'), 'utf8');
     const page = readFileSync(join(themeRoot, 'components/Page.astro'), 'utf8');
+    const comments = readFileSync(join(themeRoot, 'components/WarmComments.astro'), 'utf8');
     expect(css).toContain('--warm-bg: #fff;');
     expect(css).toContain('--warm-page-width: 840px;');
     expect(css).toContain('--warm-breakout-width: 1040px;');
@@ -253,6 +254,10 @@ describe('typecho-theme-warm', () => {
     expect(css).toMatch(/\.warm-stream-item \{[^}]*padding: var\(--warm-gutter\)/);
     expect(css).toContain('@media (max-width: 639px)');
     expect(css).toContain('animation-iteration-count: 1 !important;');
+    expect(css).toMatch(/\.warm-article__hero \{[^}]*width: min\(var\(--warm-breakout-width\), 100vw\)/);
+    expect(css).toMatch(/\.warm-comment-form \{[^}]*width: min\(var\(--warm-breakout-width\), 100vw\)/);
+    expect(css).toContain('.warm-comment-form__inner');
+    expect(comments).toContain('class="warm-comment-form__inner"');
     expect(shell).toContain('class="warm-skip-link" href="#warm-content"');
     expect(shell).toContain('id="warm-content"');
     expect(shell).not.toContain('fonts.googleapis.com');
