@@ -80,4 +80,31 @@ describe('engine summary helpers', () => {
     expect(items.find((i) => i.cid === post.cid)?.hasSummary).toBe(true);
     expect(items.find((i) => i.cid === page.cid)?.hasSummary).toBe(false);
   });
+
+  it('lists summaries for 100+ published posts without exceeding D1 bind limits', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const count = 105;
+    const inserted = await db.insert(schema.contents).values(
+      Array.from({ length: count }, (_, i) => ({
+        title: `Post ${i + 1}`,
+        slug: `post-${i + 1}`,
+        created: now + i,
+        modified: now + i,
+        text: 'body',
+        type: 'post' as const,
+        status: 'publish' as const,
+        authorId: 1,
+      })),
+    ).returning({ cid: schema.contents.cid });
+
+    const withSummary = inserted.slice(0, 3).map((row) => row.cid!);
+    for (const cid of withSummary) {
+      await upsertSummary(db, cid, `summary-${cid}`);
+    }
+
+    const items = await listPublishedForSummary(db);
+    expect(items).toHaveLength(count);
+    expect(items.filter((i) => i.hasSummary).map((i) => i.cid).sort())
+      .toEqual([...withSummary].sort());
+  });
 });

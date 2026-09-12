@@ -3,6 +3,7 @@
  */
 import { and, eq, inArray, or } from 'drizzle-orm';
 import { schema } from 'typecho/db';
+import { D1_IN_CHUNK_SIZE } from '@/lib/d1-in';
 import { ENGINE_SUMMARY_FIELD } from './config';
 
 export { ENGINE_SUMMARY_FIELD };
@@ -64,12 +65,15 @@ export async function listPublishedForSummary(db: any): Promise<SummaryListItem[
 
   const cids = (rows as Array<{ cid: number | null }>).map((r) => r.cid).filter((cid): cid is number => cid != null);
   const summarySet = new Set<number>();
-  if (cids.length > 0) {
+  // D1 caps bound parameters at 100 per statement. Chunk IN lists so
+  // cid placeholders + the engine_summary name bind stay under the limit.
+  for (let offset = 0; offset < cids.length; offset += D1_IN_CHUNK_SIZE) {
+    const chunk = cids.slice(offset, offset + D1_IN_CHUNK_SIZE);
     const fields = await db
       .select({ cid: schema.fields.cid, str_value: schema.fields.str_value })
       .from(schema.fields)
       .where(and(
-        inArray(schema.fields.cid, cids),
+        inArray(schema.fields.cid, chunk),
         eq(schema.fields.name, ENGINE_SUMMARY_FIELD),
       )) as Array<{ cid: number | null; str_value: string | null }>;
     for (const field of fields) {
