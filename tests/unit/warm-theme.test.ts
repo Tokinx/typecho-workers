@@ -163,7 +163,7 @@ describe('typecho-theme-warm', () => {
     const css = readFileSync(join(themeRoot, 'style.css'), 'utf8');
     expect(css).not.toContain('.warm-list-heading');
     expect(css).not.toContain('.warm-back');
-    expect(css).toContain('.warm-comments {\n  margin: 48px 0 0;\n  padding-top: 40px;');
+    expect(css).toContain('.warm-comments {\n  margin: 40px 0;\n}');
     expect(readFileSync(join(themeRoot, 'components/instantclick.ts'), 'utf8')).toContain('InstantClick 3.1.0');
     const comments = readFileSync(join(themeRoot, 'components/WarmComments.astro'), 'utf8');
     const commentList = readFileSync(join(themeRoot, 'components/WarmCommentList.astro'), 'utf8');
@@ -269,7 +269,10 @@ describe('typecho-theme-warm', () => {
     expect(post).toContain("pluginCtx.activatedPlugins.has('typecho-plugin-engine')");
     expect(post).toContain('await readSummary(db, post.cid)');
     expect(post).toContain('{summary && <p class="warm-article__summary">{summary}</p>}');
-    expect(post.indexOf('class="warm-post-nav"')).toBeLessThan(post.indexOf('<WarmComments'));
+    expect(post).not.toContain('warm-post-nav');
+    expect(post).not.toContain('prevPost');
+    expect(post).not.toContain('nextPost');
+    expect(css).not.toContain('.warm-post-nav');
     expect(page).toContain('warm-article__header warm-article__hero');
     for (const template of ['Index', 'Archive']) {
       expect(readFileSync(join(themeRoot, `components/${template}.astro`), 'utf8')).not.toContain('warm-read-more');
@@ -304,10 +307,6 @@ describe('typecho-theme-warm', () => {
     expect(rule('.warm-note__attachment')).toContain('border-radius: 0;');
     expect(rule('.warm-note__attachment-ext')).toContain('border-radius: 0;');
     expect(rule('.warm-comment__avatar')).toContain('border-radius: 0;');
-    expect(rule('.warm-comment-deferred.is-loading::before')).toContain('border-radius: 0;');
-    for (const match of css.matchAll(/border-radius:\s*([^;]+);/g)) {
-      expect(match[1].trim()).toBe('0');
-    }
     expect(css).not.toContain('box-shadow:');
     expect(css).toMatch(/@media \(max-width: 680px\) \{\s*\.warm-note__images img \{\s*height: 125px;/);
     expect(rule('.warm-note__images--detail')).toContain('margin-top: 28px;');

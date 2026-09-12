@@ -218,7 +218,6 @@ body.warm-theme {
 }
 
 .warm-main {
-  min-height: 42vh;
   margin-top: 64px;
 }
 
@@ -1201,6 +1200,7 @@ body.warm-theme {
 .warm-comment-form button:hover,
 .warm-not-found button:hover {
   background: var(--warm-text);
+  color: #fff;
 }
 
 .warm-comment-form button:disabled {
@@ -1231,7 +1231,7 @@ body.warm-theme {
 
 .warm-replying button {
   min-height: 0;
-  padding: 2px 5px;
+  padding: 2px 8px;
   background: transparent;
   color: var(--warm-accent);
 }
@@ -1254,7 +1254,7 @@ body.warm-theme {
   height: 14px;
   border: 2px solid var(--warm-border);
   border-top-color: var(--warm-accent);
-  border-radius: 0;
+  border-radius: 99rem;
   content: '';
   animation: warm-comment-spin .8s linear infinite;
 }
@@ -1293,7 +1293,7 @@ body.warm-theme {
 .warm-comment__header,
 .warm-comment__identity {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
 }
 
 .warm-comment__header {
@@ -1334,6 +1334,10 @@ body.warm-theme {
   font-size: 13px;
 }
 
+.warm-comment__identity a {
+  display: block;
+}
+
 .warm-comment__identity time {
   display: block;
   color: var(--warm-muted);
@@ -1348,7 +1352,7 @@ body.warm-theme {
   background: transparent;
   color: var(--warm-muted);
   cursor: pointer;
-  font-size: 11px;
+  font-size: 12px !important;
 }
 
 .warm-comment__reply:hover {
@@ -1393,48 +1397,6 @@ body.warm-theme {
 .warm-comment-list > .warm-comment:hover {
   background: var(--warm-surface);
   border-radius: 0;
-}
-
-.warm-post-nav {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 32px;
-  margin: 40px 0;
-}
-
-.warm-post-nav a {
-  min-width: 0;
-  margin-inline: -18px;
-  padding: 18px;
-  transition: background-color 180ms ease;
-}
-
-.warm-post-nav a:last-child {
-  text-align: right;
-}
-
-.warm-post-nav a:hover {
-  background: var(--warm-hover);
-}
-
-.warm-post-nav span,
-.warm-post-nav strong {
-  display: block;
-  overflow-wrap: anywhere;
-}
-
-.warm-post-nav span {
-  color: var(--warm-faint);
-  font-size: 10px;
-  letter-spacing: .08em;
-}
-
-.warm-post-nav strong {
-  margin-top: 8px;
-  color: var(--warm-muted);
-  font-size: 14px;
-  font-weight: 400;
-  line-height: 1.7;
 }
 
 .warm-not-found form {
@@ -1575,18 +1537,8 @@ body.warm-theme {
     display: none;
   }
 
-  .warm-form-grid,
-  .warm-post-nav {
+  .warm-form-grid {
     grid-template-columns: 1fr;
-  }
-
-  .warm-post-nav {
-    gap: 8px;
-    padding-block: 32px;
-  }
-
-  .warm-post-nav a:last-child {
-    text-align: left;
   }
 
   .warm-comment-form {

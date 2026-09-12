@@ -17,7 +17,6 @@ type Props = ThemePostProps;
 const {
   options, urls, pages, sidebarData, currentPath, pluginCtx,
   post, author, categories, tags, commentPagination,
-  prevPost, nextPost,
 } = Astro.props;
 
 const db = getDb(env.DB);
@@ -103,13 +102,6 @@ const description = isNote
       </footer>
     )}
   </article>
-
-  {!isNote && (prevPost || nextPost) && (
-    <nav class="warm-post-nav" aria-label="相邻文章">
-      {prevPost ? <a href={prevPost.permalink}><span>上一篇</span><strong>{prevPost.title}</strong></a> : <span></span>}
-      {nextPost ? <a href={nextPost.permalink}><span>下一篇</span><strong>{nextPost.title}</strong></a> : <span></span>}
-    </nav>
-  )}
 
   {(post.allowComment || commentPagination.totalComments > 0) && (
     <WarmComments
