@@ -28,6 +28,8 @@ html {
   background: var(--warm-bg);
   color: var(--warm-text);
   scroll-behavior: smooth;
+  /* Full-bleed children use 100vw; clip scrollbar-only x overflow without changing their visual width. */
+  overflow-x: clip;
   text-rendering: optimizeLegibility;
 }
 

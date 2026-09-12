@@ -456,6 +456,13 @@ describe('typecho-theme-warm', () => {
     expect(empty.html).toBe('<p>no headings</p>');
   });
 
+  it('keeps full-bleed article images flush with the viewport without horizontal scrolling', () => {
+    const css = readFileSync(join(themeRoot, 'style.css'), 'utf8');
+
+    expect(css).toMatch(/html \{[^}]*overflow-x: clip;/);
+    expect(css).toContain(`.warm-article:not(.is-note) .warm-prose :is(img, table) {\n  position: relative;\n  left: 50%;\n  max-width: 100vw;`);
+  });
+
   it('wires Post.astro to the sticky TOC component', () => {
     const post = readFileSync(join(themeRoot, 'components/Post.astro'), 'utf8');
     const toc = readFileSync(join(themeRoot, 'components/WarmToc.astro'), 'utf8');
