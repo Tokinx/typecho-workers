@@ -85,7 +85,11 @@ describe('Warm navigation', () => {
     menu.dropdown.open = true;
     menu.emit('focusout', { relatedTarget: { inside: true } });
     expect(menu.dropdown.open).toBe(true);
+    // Mobile Safari reports null while a touch tap moves from <summary>
+    // to a nested link. Do not remove that link before its synthetic click.
     menu.emit('focusout', { relatedTarget: null });
+    expect(menu.dropdown.open).toBe(true);
+    menu.emit('focusout', { relatedTarget: { inside: false } });
     expect(menu.dropdown.open).toBe(false);
   });
 

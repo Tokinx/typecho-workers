@@ -126,7 +126,11 @@ const socialLinks = [
           dropdown.querySelector('summary')?.focus();
         });
         dropdown.addEventListener('focusout', event => {
-          if (!dropdown.contains(event.relatedTarget)) dropdown.open = false;
+          // iOS Safari can report a null relatedTarget while a touch tap moves
+          // from <summary> to a menu link. Closing synchronously then removes
+          // the link before its synthetic click, so retain the menu until the
+          // document-level outside-click handler decides it should close.
+          if (event.relatedTarget && !dropdown.contains(event.relatedTarget)) dropdown.open = false;
         });
       });
     })();

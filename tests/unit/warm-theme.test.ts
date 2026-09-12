@@ -130,6 +130,9 @@ describe('typecho-theme-warm', () => {
     expect(shell).toContain("media.dataset.warmRepaired = '1';");
     expect(shell).toContain('media.load()');
     expect(shell).toContain('viewImageSource');
+    // iOS Safari can emit focusout with no relatedTarget before the synthetic
+    // click for a touched dropdown link. The menu must remain open for it.
+    expect(shell).toContain("if (event.relatedTarget && !dropdown.contains(event.relatedTarget)) dropdown.open = false;");
     // Lightbox targets are limited to image links and bare images; plain
     // text links must keep navigating, with a :has() capability fallback.
     expect(shell).toContain("CSS.supports('selector(a:has(> img))')");
@@ -456,16 +459,16 @@ describe('typecho-theme-warm', () => {
     expect(empty.html).toBe('<p>no headings</p>');
   });
 
-  it('uses margin compensation for full-bleed article images without parent overflow', () => {
+  it('constrains top-level article media to the reading breakout width', () => {
     const css = readFileSync(join(themeRoot, 'style.css'), 'utf8');
-    const selector = '.warm-article:not(.is-note) .warm-prose :is(img, table) {';
+    const selector = '.warm-article:not(.is-note) .warm-prose img,\n.warm-article:not(.is-note) .warm-prose table {';
     const ruleStart = css.indexOf(selector);
     const rule = css.slice(ruleStart, css.indexOf('}', ruleStart) + 1);
 
-    expect(rule).toContain('max-width: 100vw;');
-    expect(rule).toContain('margin-inline: calc(50% - 50vw);');
-    expect(rule).not.toContain('left: 50%;');
-    expect(rule).not.toContain('transform:');
+    expect(rule).toContain('position: relative;');
+    expect(rule).toContain('left: 50%;');
+    expect(rule).toContain('max-width: min(var(--warm-breakout-width), calc(100vw - 32px));');
+    expect(rule).toContain('transform: translateX(-50%);');
   });
 
   it('wires Post.astro to the sticky TOC component', () => {
