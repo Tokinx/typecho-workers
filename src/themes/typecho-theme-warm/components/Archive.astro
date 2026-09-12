@@ -26,13 +26,12 @@ const settings = warmSettings(options);
       <article class="warm-stream-item warm-post-card">
         <a class="warm-stream-item__hit" href={post.permalink} aria-label={`阅读：${post.title}`}></a>
         <div class="warm-item-meta">
-          {post.categories[0] ? <a class="warm-category" href={post.categories[0].permalink}>{post.categories[0].name}</a> : null}
-          {post.categories[0] ? <span aria-hidden="true">·</span> : null}
           <time datetime={new Date(post.created * 1000).toISOString()}>{formatWarmDate(post.created, options.postDateFormat, options.timezone)}</time>
+          {post.categories[0] ? <span aria-hidden="true">·</span> : null}
+          {post.categories[0] ? <a class="warm-category" href={post.categories[0].permalink}>{post.categories[0].name}</a> : null}
         </div>
         <h2><a href={post.permalink}>{post.title}</a></h2>
         <p>{plainExcerpt(post.excerpt)}</p>
-        <a class="warm-read-more" href={post.permalink}>阅读全文 <span aria-hidden="true">→</span></a>
       </article>
     )) : <section class="warm-empty"><h2>没有找到内容</h2><p>换个分类或关键词再看看。</p></section>}
   </div>

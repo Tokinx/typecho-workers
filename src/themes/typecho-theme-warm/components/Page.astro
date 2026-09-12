@@ -24,11 +24,14 @@ const settings = warmSettings(options);
   pageContext={{ hasComments: page.allowComment, pageType: 'page' }}
   pluginCtx={pluginCtx}
   section={isAbout ? 'about' : 'none'}
+  detail
 >
   <article class="warm-article warm-page" itemscope itemtype="https://schema.org/Article">
-    <header class="warm-article__header">
-      <div class="warm-item-meta"><span class="warm-note-label">独立页面</span><span aria-hidden="true">·</span><time>{formatWarmDate(page.created, options.postDateFormat, options.timezone)}</time></div>
-      <h1 itemprop="headline">{page.title}</h1>
+    <header class="warm-article__header warm-article__hero">
+      <div class="warm-article__hero-inner">
+        <div class="warm-item-meta"><span class="warm-note-label">独立页面</span><span aria-hidden="true">·</span><time>{formatWarmDate(page.created, options.postDateFormat, options.timezone)}</time></div>
+        <h1 itemprop="headline">{page.title}</h1>
+      </div>
     </header>
     <div class="warm-prose" view-image itemprop="articleBody" set:html={optimizeContentImages(page.content, settings.imageOptimizeParams, urls.siteUrl)} />
   </article>

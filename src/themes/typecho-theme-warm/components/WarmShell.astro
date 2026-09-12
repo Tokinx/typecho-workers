@@ -12,12 +12,14 @@ interface Props extends Omit<ThemeBaseProps, 'user' | 'isLoggedIn'> {
   description?: string;
   section?: WarmSection;
   pageContext?: PageContext;
+  detail?: boolean;
 }
 
 const {
   title,
   description,
   section = 'none',
+  detail = false,
   options,
   urls,
   pages,
@@ -49,26 +51,30 @@ const socialLinks = [
   pluginCtx={pluginCtx}
   bodyClass="warm-theme"
 >
+  <a class="warm-skip-link" href="#warm-content" data-no-instant>跳至正文</a>
   <header class="warm-header">
     <div class="warm-header__inner">
       <a href={homeUrl} class="warm-brand" aria-label={`${options.title} 首页`}>
-        <span class="warm-brand__title">{options.title}<i aria-hidden="true">.</i></span>
+        <span class="warm-brand__title">{options.title}</span>
+        {options.description && <span class="warm-brand__description">{options.description}</span>}
       </a>
 
       <nav class="warm-nav" aria-label="主导航">
-        <a class:list={["warm-nav__link", { "is-active": section === 'home' }]} href={homeUrl}>首页</a>
-        <details class:list={["warm-nav__dropdown", { "is-active": section === 'articles' }]}> 
+        <a class:list={["warm-nav__link", { "is-active": section === 'home' }]} href={homeUrl} aria-current={section === 'home' ? 'page' : undefined}>首页</a>
+        <details class:list={["warm-nav__dropdown", { "is-active": section === 'articles' }]}>
           <summary>
-            <a class:list={["warm-nav__link", { "is-active": section === 'articles' }]} href={`${homeUrl}?stream=posts`}>文章</a>
+            文章
+            <svg class="warm-nav__chevron" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+              <path d="M3 4.5 6 7.5l3-3" stroke="currentColor" stroke-width="1.2" />
+            </svg>
           </summary>
-          {categories.length > 0 && (
-            <div class="warm-nav__menu">
-              {categories.map(category => (<a href={category.permalink}>{category.name}</a>))}
-            </div>
-          )}
+          <div class="warm-nav__menu">
+            <a href={`${homeUrl}?stream=posts`}>全部文章</a>
+            {categories.map(category => (<a href={category.permalink}>{category.name}</a>))}
+          </div>
         </details>
         {notesEnabled && (
-          <a class:list={["warm-nav__link", { "is-active": section === 'notes' }]} href={`${homeUrl}?stream=notes`}>笔记</a>
+          <a class:list={["warm-nav__link", { "is-active": section === 'notes' }]} href={`${homeUrl}?stream=notes`} aria-current={section === 'notes' ? 'page' : undefined}>笔记</a>
         )}
         {pages.map((page) => (
           <a class:list={["warm-nav__link", { "is-active": currentPath != '/' && page.permalink.includes(currentPath) }]} href={page.permalink}>{page.title}</a>
@@ -77,16 +83,16 @@ const socialLinks = [
     </div>
   </header>
 
-  <main class="warm-main">
+  <main id="warm-content" class:list={["warm-main", { "warm-main--detail": detail }]} tabindex="-1">
     <slot />
   </main>
 
   <footer class="warm-footer">
-    <div class="warm-footer__statement">
-      <strong>{options.description}<i aria-hidden="true">.</i></strong>
-    </div>
     <div class="warm-footer__meta">
-      <span>© {new Date().getFullYear()} {options.title}.</span>
+      <div class="warm-footer__copyright">
+        <span>© {new Date().getFullYear()} {options.title}</span>
+        {options.description && <><span aria-hidden="true">·</span><span class="warm-footer__tagline">{options.description}</span></>}
+      </div>
       <nav aria-label="页脚链接">
         {socialLinks.map(link => <a href={link.href}>{link.label}</a>)}
       </nav>
@@ -96,21 +102,48 @@ const socialLinks = [
     (() => {
       const hoverCapable = window.matchMedia('(hover: hover) and (pointer: fine)');
       document.querySelectorAll('.warm-nav__dropdown').forEach(dropdown => {
+        let openedByHover = false;
         dropdown.addEventListener('mouseenter', () => {
-          if (hoverCapable.matches) dropdown.open = true;
+          if (hoverCapable.matches && !dropdown.open) {
+            dropdown.open = true;
+            openedByHover = true;
+          }
+        });
+        dropdown.addEventListener('click', event => {
+          if (!event.target.closest('summary')) return;
+          // The first pointer click must not undo the preceding hover-open.
+          // Keyboard activation (detail=0) keeps the native details toggle.
+          if (openedByHover && event.detail > 0) event.preventDefault();
+          openedByHover = false;
         });
         dropdown.addEventListener('mouseleave', () => {
-          if (hoverCapable.matches) dropdown.open = false;
+          openedByHover = false;
+          if (hoverCapable.matches && !dropdown.contains(document.activeElement)) dropdown.open = false;
+        });
+        dropdown.addEventListener('keydown', event => {
+          if (event.key !== 'Escape') return;
+          dropdown.open = false;
+          dropdown.querySelector('summary')?.focus();
+        });
+        dropdown.addEventListener('focusout', event => {
+          if (!dropdown.contains(event.relatedTarget)) dropdown.open = false;
         });
       });
     })();
   </script>
   <Fragment slot="head">
+    <meta name="theme-color" content="#ffffff" />
     <script is:inline data-instant-track data-no-instant set:html={instantClickSource}></script>
     <script is:inline data-instant-track data-no-instant set:html={viewImageSource}></script>
   </Fragment>
   <script is:inline data-no-instant>
     (() => {
+      // Delegation also covers navigation inserted by InstantClick.
+      document.addEventListener('click', event => {
+        document.querySelectorAll('.warm-nav__dropdown[open]').forEach(dropdown => {
+          if (!dropdown.contains(event.target)) dropdown.open = false;
+        });
+      });
       // ViewImage lightbox: click any note image to view it fullscreen.
       // init() re-registers its document-level listener idempotently, so
       // re-running it after an InstantClick page swap is safe.

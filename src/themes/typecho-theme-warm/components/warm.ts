@@ -1,4 +1,4 @@
-import type { ThemeBaseProps } from '@/lib/theme-props';
+import type { ThemeBaseProps, ThemePostProps } from '@/lib/theme-props';
 import { loadThemeConfig } from '@/lib/theme';
 import { normalizeOptimizeParams } from '@/lib/image-transform';
 import { formatDate } from '@/lib/content';
@@ -121,4 +121,13 @@ export function plainExcerpt(value: string, length = 150): string {
 export function readingMinutes(html: string): number {
   const characters = html.replace(/<[^>]*>/g, '').replace(/\s+/g, '').length;
   return Math.max(1, Math.ceil(characters / 420));
+}
+
+/** Hero summary: only Engine 智能摘要; empty when missing or password-locked. */
+export function warmArticleSummary(
+  post: Pick<ThemePostProps['post'], 'hasPassword' | 'passwordVerified'>,
+  engineSummary: string | null | undefined,
+): string {
+  if (post.hasPassword && !post.passwordVerified) return '';
+  return (engineSummary || '').trim();
 }

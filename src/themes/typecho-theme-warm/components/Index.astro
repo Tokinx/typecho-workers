@@ -193,13 +193,12 @@ if (isNotesStreamOutOfRange) Astro.response.status = 404;
       <article class="warm-stream-item warm-post-card" data-content-type="post">
         <a class="warm-stream-item__hit" href={item.permalink} aria-label={`阅读：${item.title}`}></a>
         <div class="warm-item-meta">
-          {item.categories[0] ? <a class="warm-category" href={item.categories[0].permalink}>{item.categories[0].name}</a> : null}
-          {item.categories[0] ? <span aria-hidden="true">·</span> : null}
           <time datetime={new Date(item.created * 1000).toISOString()}>{formatWarmDate(item.created, options.postDateFormat, options.timezone)}</time>
+          {item.categories[0] ? <span aria-hidden="true">·</span> : null}
+          {item.categories[0] ? <a class="warm-category" href={item.categories[0].permalink}>{item.categories[0].name}</a> : null}
         </div>
         <h2><a href={item.permalink}>{item.title}</a></h2>
         {item.excerpt && <p>{item.excerpt}</p>}
-        <a class="warm-read-more" href={item.permalink}>阅读全文 <span aria-hidden="true">→</span></a>
       </article>
     ))}
   </div>

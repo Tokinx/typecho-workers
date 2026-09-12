@@ -1,6 +1,7 @@
 ---
 import { env } from 'cloudflare:workers';
 import { getDb } from 'typecho/db';
+import { readSummary } from 'typecho-plugin-engine';
 import { getNoteForTheme } from 'typecho-plugin-notes';
 import { createContext } from '@/lib/context';
 import { optimizeContentImages } from '@/lib/image-transform';
@@ -8,7 +9,7 @@ import type { ThemePostProps } from '@/lib/theme-props';
 import WarmShell from './WarmShell.astro';
 import WarmComments from './WarmComments.astro';
 import WarmNoteMedia from './WarmNoteMedia.astro';
-import { formatWarmDate, plainExcerpt, readingMinutes, warmSettings } from './warm';
+import { formatWarmDate, plainExcerpt, readingMinutes, warmArticleSummary, warmSettings } from './warm';
 
 type Props = ThemePostProps;
 
@@ -18,11 +19,12 @@ const {
   prevPost, nextPost,
 } = Astro.props;
 
+const db = getDb(env.DB);
 const noteContext = pluginCtx.activatedPlugins.has('typecho-plugin-notes')
   ? await createContext(Astro.locals, Astro.request)
   : null;
 const note = noteContext
-  ? await getNoteForTheme(noteContext.db ?? getDb(env.DB), post.cid, urls.siteUrl)
+  ? await getNoteForTheme(noteContext.db ?? db, post.cid, urls.siteUrl)
   : null;
 const isNote = note?.type === 'note';
 const settings = warmSettings(options);
@@ -31,7 +33,13 @@ const displayContent = optimizeContentImages(
   settings.imageOptimizeParams,
   urls.siteUrl,
 );
-const description = plainExcerpt(isNote ? note.source : post.content, 160);
+const engineSummary = !isNote && pluginCtx.activatedPlugins.has('typecho-plugin-engine')
+  ? await readSummary(db, post.cid)
+  : null;
+const summary = isNote ? '' : warmArticleSummary(post, engineSummary);
+const description = isNote
+  ? plainExcerpt(note.source, 160)
+  : (summary || (!(post.hasPassword && !post.passwordVerified) ? plainExcerpt(post.content, 160) : ''));
 ---
 <WarmShell
   title={isNote ? '笔记' : post.title}
@@ -44,22 +52,26 @@ const description = plainExcerpt(isNote ? note.source : post.content, 160);
   pageContext={{ hasComments: post.allowComment, pageType: 'post' }}
   pluginCtx={pluginCtx}
   section={isNote ? 'notes' : 'articles'}
+  detail={!isNote}
 >
   <article class:list={["warm-article", { "is-note": isNote }]} itemscope itemtype="https://schema.org/BlogPosting">
-    <header class="warm-article__header">
-      <div class="warm-item-meta">
-        {isNote ? (
-          <span class="warm-note-label">笔记</span>
-        ) : categories[0] ? (
-          <a class="warm-category" href={categories[0].permalink}>{categories[0].name}</a>
-        ) : (
-          <span>文章</span>
-        )}
-        <span aria-hidden="true">·</span>
-        <time datetime={new Date(post.created * 1000).toISOString()} itemprop="datePublished">{formatWarmDate(post.created, options.postDateFormat, options.timezone, isNote)}</time>
-        {!isNote && <><span aria-hidden="true">·</span><span>约 {readingMinutes(post.content)} 分钟阅读</span></>}
+    <header class:list={["warm-article__header", { "warm-article__hero": !isNote }]}>
+      <div class:list={{ "warm-article__hero-inner": !isNote }}>
+        <div class="warm-item-meta">
+          {isNote ? (
+            <span class="warm-note-label">笔记</span>
+          ) : categories[0] ? (
+            <a class="warm-category" href={categories[0].permalink}>{categories[0].name}</a>
+          ) : (
+            <span>文章</span>
+          )}
+          <span aria-hidden="true">·</span>
+          <time datetime={new Date(post.created * 1000).toISOString()} itemprop="datePublished">{formatWarmDate(post.created, options.postDateFormat, options.timezone, isNote)}</time>
+          {!isNote && <><span aria-hidden="true">·</span><span>约 {readingMinutes(post.content)} 分钟阅读</span></>}
+        </div>
+        {!isNote && <h1 itemprop="headline">{post.title}</h1>}
+        {summary && <p class="warm-article__summary">{summary}</p>}
       </div>
-      {!isNote && <h1 itemprop="headline">{post.title}</h1>}
     </header>
 
     <div class:list={["warm-prose", { "warm-note-prose": isNote }]} view-image itemprop="articleBody" set:html={displayContent} />
@@ -74,23 +86,23 @@ const description = plainExcerpt(isNote ? note.source : post.content, 160);
       />
     )}
 
-    {!isNote && tags.length > 0 && (
-      <footer class="warm-article__tags">
-        <span>标签：</span>
-        {tags.map(tag => <a href={tag.permalink}># {tag.name}</a>)}
+    {!isNote && (
+      <footer class="warm-article__footer">
+        {tags.length > 0 && (
+          <div class="warm-article__tags">
+            {tags.map(tag => <a href={tag.permalink}>#{tag.name}</a>)}
+          </div>
+        )}
       </footer>
     )}
-
-    {!isNote && author && (
-      <aside class="warm-author">
-        <span class="warm-author__mark" aria-hidden="true">{(author.screenName || author.name || options.title).slice(0, 1)}</span>
-        <div>
-          <strong>{author.screenName || author.name}</strong>
-          <p>{options.description || '记录关于设计、代码与日常思考。'}</p>
-        </div>
-      </aside>
-    )}
   </article>
+
+  {!isNote && (prevPost || nextPost) && (
+    <nav class="warm-post-nav" aria-label="相邻文章">
+      {prevPost ? <a href={prevPost.permalink}><span>上一篇</span><strong>{prevPost.title}</strong></a> : <span></span>}
+      {nextPost ? <a href={nextPost.permalink}><span>下一篇</span><strong>{nextPost.title}</strong></a> : <span></span>}
+    </nav>
+  )}
 
   {(post.allowComment || commentPagination.totalComments > 0) && (
     <WarmComments
@@ -101,10 +113,4 @@ const description = plainExcerpt(isNote ? note.source : post.content, 160);
     />
   )}
 
-  {!isNote && (prevPost || nextPost) && (
-    <nav class="warm-post-nav" aria-label="相邻文章">
-      {prevPost ? <a href={prevPost.permalink}><span>← 上一篇</span><strong>{prevPost.title}</strong></a> : <span></span>}
-      {nextPost ? <a href={nextPost.permalink}><span>下一篇 →</span><strong>{nextPost.title}</strong></a> : <span></span>}
-    </nav>
-  )}
 </WarmShell>

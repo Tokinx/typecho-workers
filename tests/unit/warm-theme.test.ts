@@ -12,6 +12,7 @@ import {
   safeEmail,
   safeExternalUrl,
   warmSettings,
+  warmArticleSummary,
 } from '../../src/themes/typecho-theme-warm/components/warm';
 
 const themeRoot = join(process.cwd(), 'src/themes/typecho-theme-warm');
@@ -76,7 +77,7 @@ describe('typecho-theme-warm', () => {
     expect(index).not.toContain('categories: [],');
     expect(index).toContain('data-content-type="note"');
     expect(index).not.toContain('warm-list-heading');
-    expect(index.indexOf('class="warm-category"')).toBeLessThan(index.indexOf('formatWarmDate(item.created, options.postDateFormat, options.timezone)'));
+    expect(index.indexOf('class="warm-category"')).toBeGreaterThan(index.indexOf('formatWarmDate(item.created, options.postDateFormat, options.timezone)'));
     expect(index).toContain('formatWarmDate(item.created, options.postDateFormat, options.timezone, true)');
     expect(index).not.toContain('item.categories[0] &&');
     // Note bodies and note grids on the index carry EdgeOne optimization params.
@@ -86,7 +87,7 @@ describe('typecho-theme-warm', () => {
     expect(index).toContain('siteUrl={urls.siteUrl}');
     const archive = readFileSync(join(themeRoot, 'components/Archive.astro'), 'utf8');
     expect(archive).not.toContain('warm-list-heading');
-    expect(archive.indexOf('class="warm-category"')).toBeLessThan(archive.indexOf('formatWarmDate(post.created, options.postDateFormat, options.timezone)'));
+    expect(archive.indexOf('class="warm-category"')).toBeGreaterThan(archive.indexOf('formatWarmDate(post.created, options.postDateFormat, options.timezone)'));
     expect(archive).not.toContain('post.categories[0] &&');
     expect(index).toContain('WarmStreamPagination');
     expect(index).toContain('data-warm-stream');
@@ -114,7 +115,9 @@ describe('typecho-theme-warm', () => {
     expect(shell).toContain('options.description');
     expect(shell).not.toContain('settings.tagline');
     expect(shell).not.toContain('settings.footerDescription');
-    expect(shell).toContain('warm-footer__statement');
+    expect(shell).not.toContain('warm-footer__statement');
+    expect(shell).toContain('warm-brand__description');
+    expect(shell).toContain('warm-footer__tagline');
     expect(shell).toContain('instantClickSource');
     expect(shell).toContain("init('mousedown')");
     expect(shell).toContain('data-instant-track');
@@ -159,7 +162,7 @@ describe('typecho-theme-warm', () => {
     const css = readFileSync(join(themeRoot, 'style.css'), 'utf8');
     expect(css).not.toContain('.warm-list-heading');
     expect(css).not.toContain('.warm-back');
-    expect(css).toContain('.warm-comments {\n  margin: 50px 16px 0;\n  padding-top: 50px;');
+    expect(css).toContain('.warm-comments {\n  margin: 48px 0 0;\n  padding-top: 40px;');
     expect(readFileSync(join(themeRoot, 'components/instantclick.ts'), 'utf8')).toContain('InstantClick 3.1.0');
     const comments = readFileSync(join(themeRoot, 'components/WarmComments.astro'), 'utf8');
     const commentList = readFileSync(join(themeRoot, 'components/WarmCommentList.astro'), 'utf8');
@@ -231,6 +234,90 @@ describe('typecho-theme-warm', () => {
     expect(index).not.toContain('warm-comment-count');
     expect(index).not.toContain('comments: post.commentsNum');
     expect(index).not.toContain('comments: item.comments');
+  });
+
+
+  it('uses the reference reading hierarchy without applying breakout to notes or comments', () => {
+    const css = readFileSync(join(themeRoot, 'style.css'), 'utf8');
+    const shell = readFileSync(join(themeRoot, 'components/WarmShell.astro'), 'utf8');
+    const post = readFileSync(join(themeRoot, 'components/Post.astro'), 'utf8');
+    const page = readFileSync(join(themeRoot, 'components/Page.astro'), 'utf8');
+    expect(css).toContain('--warm-bg: #fff;');
+    expect(css).toContain('--warm-page-width: 840px;');
+    expect(css).toContain('--warm-breakout-width: 1040px;');
+    expect(css).toContain('--warm-font: Inter, ui-sans-serif, system-ui');
+    expect(css).toMatch(/\.warm-article__header h1 \{[^}]*font-family: var\(--warm-serif\)/);
+    expect(css).not.toMatch(/\.warm-prose > :is\(pre, figure, table\)[^{]*,[^{]*\.warm-note/);
+    expect(css).toContain('margin-inline: calc(-1 * var(--warm-gutter));');
+    expect(css).toMatch(/\.warm-stream-item \{[^}]*padding: var\(--warm-gutter\)/);
+    expect(css).toContain('@media (max-width: 639px)');
+    expect(css).toContain('animation-iteration-count: 1 !important;');
+    expect(shell).toContain('class="warm-skip-link" href="#warm-content"');
+    expect(shell).toContain('id="warm-content"');
+    expect(shell).not.toContain('fonts.googleapis.com');
+    expect(shell).not.toContain('@tailwindcss/browser');
+    expect(shell).toContain('>全部文章</a>');
+    expect(shell.match(/<summary>[\s\S]*?<\/summary>/)?.[0]).not.toContain('<a');
+    expect(post).toContain('"warm-article__hero": !isNote');
+    expect(post).toContain("const summary = isNote ? '' : warmArticleSummary(post, engineSummary);");
+    expect(post).toContain("pluginCtx.activatedPlugins.has('typecho-plugin-engine')");
+    expect(post).toContain('await readSummary(db, post.cid)');
+    expect(post).toContain('{summary && <p class="warm-article__summary">{summary}</p>}');
+    expect(post.indexOf('class="warm-post-nav"')).toBeLessThan(post.indexOf('<WarmComments'));
+    expect(page).toContain('warm-article__header warm-article__hero');
+    for (const template of ['Index', 'Archive']) {
+      expect(readFileSync(join(themeRoot, `components/${template}.astro`), 'utf8')).not.toContain('warm-read-more');
+    }
+  });
+
+  it('preserves note media columns, gaps, aspect ratio, mobile height and expansion', () => {
+    const css = readFileSync(join(themeRoot, 'style.css'), 'utf8');
+    const rule = (selector: string) => {
+      const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const match = css.match(new RegExp(`^${escaped} \u007b`, 'm'));
+      const start = match?.index ?? -1;
+      expect(start, selector).toBeGreaterThanOrEqual(0);
+      return css.slice(start, css.indexOf('}', start) + 1);
+    };
+    expect(rule('.warm-note__images')).toContain('grid-template-columns: repeat(2, minmax(0, 1fr));');
+    for (const columns of [2, 3, 4]) {
+      expect(rule(`.warm-note__images.has-${columns}`)).toContain(`grid-template-columns: repeat(${columns}, minmax(0, 1fr));`);
+    }
+    for (const selector of ['.warm-note__images', '.warm-note__media', '.warm-note__attachments']) {
+      expect(rule(selector)).toContain('gap: 8px;');
+      expect(rule(selector)).toContain('margin-top: 15px;');
+    }
+    for (const selector of ['.warm-note__media', '.warm-note__attachments']) {
+      expect(rule(selector)).toContain('grid-template-columns: repeat(2, minmax(0, 1fr));');
+    }
+    expect(rule('.warm-note__images img')).toContain('aspect-ratio: 4 / 3;');
+    expect(rule('.warm-note__images img')).toContain('border-radius: 0;');
+    expect(rule('.warm-note__images img')).toContain('object-fit: cover;');
+    expect(rule('.warm-note__images-more')).toContain('border-radius: 0;');
+    expect(rule('.warm-note__media-item video')).toContain('border-radius: 0;');
+    expect(rule('.warm-note__attachment')).toContain('border-radius: 0;');
+    expect(rule('.warm-note__attachment-ext')).toContain('border-radius: 0;');
+    expect(rule('.warm-comment__avatar')).toContain('border-radius: 0;');
+    expect(rule('.warm-comment-deferred.is-loading::before')).toContain('border-radius: 0;');
+    for (const match of css.matchAll(/border-radius:\s*([^;]+);/g)) {
+      expect(match[1].trim()).toBe('0');
+    }
+    expect(css).not.toContain('box-shadow:');
+    expect(css).toMatch(/@media \(max-width: 680px\) \{\s*\.warm-note__images img \{\s*height: 125px;/);
+    expect(rule('.warm-note__images--detail')).toContain('margin-top: 28px;');
+    expect(rule('.warm-note__image--rest')).toContain('display: none;');
+    expect(rule('.warm-note__images.is-expanded .warm-note__image--rest')).toContain('display: block;');
+    expect(rule('.warm-note__images.is-expanded .warm-note__images-more')).toContain('display: none;');
+  });
+
+  it('shows hero summary only from Engine 智能摘要 when readable', () => {
+    const post = { hasPassword: false, passwordVerified: false };
+    expect(warmArticleSummary(post, '这是智能摘要。')).toBe('这是智能摘要。');
+    expect(warmArticleSummary(post, '  ')).toBe('');
+    expect(warmArticleSummary(post, null)).toBe('');
+    expect(warmArticleSummary(post, undefined)).toBe('');
+    expect(warmArticleSummary({ ...post, hasPassword: true }, '这是智能摘要。')).toBe('');
+    expect(warmArticleSummary({ ...post, hasPassword: true, passwordVerified: true }, '这是智能摘要。')).toBe('这是智能摘要。');
   });
 
   it('renders every note image with a "+N" overlay and ViewImage lightbox', () => {
