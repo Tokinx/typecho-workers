@@ -1,7 +1,8 @@
 import type { ThemeBaseProps, ThemePostProps } from '@/lib/theme-props';
 import { loadThemeConfig } from '@/lib/theme';
 import { normalizeOptimizeParams } from '@/lib/image-transform';
-import { formatDate } from '@/lib/content';
+import { formatDate, generateSlug } from '@/lib/content';
+import { escapeHtml } from '@/lib/escape';
 
 export const WARM_THEME_ID = 'typecho-theme-warm';
 
@@ -130,4 +131,64 @@ export function warmArticleSummary(
 ): string {
   if (post.hasPassword && !post.passwordVerified) return '';
   return (engineSummary || '').trim();
+}
+
+export interface WarmTocItem {
+  id: string;
+  text: string;
+  level: 2 | 3;
+}
+
+const TOC_HEADING_RE = /<(h[23])(\s[^>]*)?>([\s\S]*?)<\/\1>/gi;
+const TOC_EXISTING_ID_RE = /\sid\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i;
+const TOC_MIN_ITEMS = 2;
+
+/**
+ * Collect h2/h3 headings for the article TOC and ensure each has a unique id.
+ * Returns an empty items list when there are fewer than two headings.
+ */
+export function prepareArticleToc(html: string): { html: string; items: WarmTocItem[] } {
+  if (!html) return { html: '', items: [] };
+
+  const used = new Set<string>();
+  const items: WarmTocItem[] = [];
+
+  const nextHtml = html.replace(TOC_HEADING_RE, (match, tag: string, attrs = '', inner: string) => {
+    const text = plainHeadingText(inner);
+    if (!text) return match;
+
+    const level = Number(tag.slice(1)) as 2 | 3;
+    const existing = TOC_EXISTING_ID_RE.exec(attrs)?.slice(1).find(Boolean)?.trim();
+    let id = existing || generateSlug(text) || `section-${items.length + 1}`;
+    const base = id;
+    let suffix = 2;
+    while (used.has(id)) id = `${base}-${suffix++}`;
+    used.add(id);
+    items.push({ id, text, level });
+
+    if (existing) {
+      if (existing === id) return match;
+      const rewrittenAttrs = attrs.replace(TOC_EXISTING_ID_RE, ` id="${escapeHtml(id)}"`);
+      return `<${tag}${rewrittenAttrs}>${inner}</${tag}>`;
+    }
+
+    const suffixAttrs = attrs ? `${attrs} id="${escapeHtml(id)}"` : ` id="${escapeHtml(id)}"`;
+    return `<${tag}${suffixAttrs}>${inner}</${tag}>`;
+  });
+
+  if (items.length < TOC_MIN_ITEMS) return { html: nextHtml, items: [] };
+  return { html: nextHtml, items };
+}
+
+function plainHeadingText(inner: string): string {
+  return inner
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
 }

@@ -8,6 +8,7 @@ import {
   normalizeCommentInitialLoadMode,
   normalizeContinuousLoadMode,
   plainExcerpt,
+  prepareArticleToc,
   readingMinutes,
   safeEmail,
   safeExternalUrl,
@@ -416,5 +417,60 @@ describe('typecho-theme-warm', () => {
     // Malicious input is filtered before it can reach a src attribute.
     const injected = warmSettings({ [`theme:${WARM_THEME_ID}`]: JSON.stringify({ imageOptimizeParams: '?quality=80" onerror="alert(1)' }) } as unknown as WarmOptions);
     expect(injected.imageOptimizeParams).toBe('quality=80onerror=alert1');
+  });
+
+  it('builds an article TOC from h2/h3 headings and injects unique ids', () => {
+    const html = [
+      '<p>intro</p>',
+      '<h2>主题介绍</h2>',
+      '<p>a</p>',
+      '<h3>细节 <em>说明</em></h3>',
+      '<h2 id="custom">主题特点</h2>',
+      '<h2>主题介绍</h2>',
+    ].join('');
+
+    const { html: nextHtml, items } = prepareArticleToc(html);
+    expect(items).toEqual([
+      { id: '主题介绍', text: '主题介绍', level: 2 },
+      { id: '细节-说明', text: '细节 说明', level: 3 },
+      { id: 'custom', text: '主题特点', level: 2 },
+      { id: '主题介绍-2', text: '主题介绍', level: 2 },
+    ]);
+    expect(nextHtml).toContain('<h2 id="主题介绍">主题介绍</h2>');
+    expect(nextHtml).toContain('<h3 id="细节-说明">细节 <em>说明</em></h3>');
+    expect(nextHtml).toContain('<h2 id="custom">主题特点</h2>');
+    expect(nextHtml).toContain('<h2 id="主题介绍-2">主题介绍</h2>');
+  });
+
+  it('hides the article TOC when fewer than two headings exist', () => {
+    const single = prepareArticleToc('<h2>Only one</h2><p>body</p>');
+    expect(single.items).toEqual([]);
+    expect(single.html).toContain('id="only-one"');
+
+    const empty = prepareArticleToc('<p>no headings</p>');
+    expect(empty.items).toEqual([]);
+    expect(empty.html).toBe('<p>no headings</p>');
+  });
+
+  it('wires Post.astro to the sticky TOC component', () => {
+    const post = readFileSync(join(themeRoot, 'components/Post.astro'), 'utf8');
+    const toc = readFileSync(join(themeRoot, 'components/WarmToc.astro'), 'utf8');
+    const css = readFileSync(join(themeRoot, 'style.css'), 'utf8');
+
+    expect(post).toContain('prepareArticleToc');
+    expect(post).toContain('WarmToc');
+    expect(post).toContain('warm-article__body--toc');
+    expect(toc).toContain('data-warm-toc');
+    expect(toc).toContain('aria-label="文章目录"');
+    expect(toc).not.toContain('warm-toc__item--h');
+    // InstantClick re-executes body scripts unless data-no-instant is set.
+    expect(toc).toMatch(/<script is:inline>\s*\n\s*\(\(\) => \{/);
+    expect(toc).not.toMatch(/<script[^>]*data-no-instant/);
+    expect(css).toContain('position: sticky');
+    expect(css).toContain('margin-right: -204px');
+    expect(css).toContain('.warm-article__body--toc');
+    expect(css).toContain('.warm-toc:hover .warm-toc__label');
+    expect(css).toContain('max-width: 0');
+    expect(css).not.toContain('.warm-toc__item--h3');
   });
 });

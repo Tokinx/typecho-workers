@@ -1,0 +1,97 @@
+---
+import type { WarmTocItem } from './warm';
+
+interface Props {
+  items: WarmTocItem[];
+}
+
+const { items } = Astro.props;
+if (items.length < 2) return;
+---
+<nav class="warm-toc" data-warm-toc aria-label="文章目录">
+  <div class="warm-toc__inner">
+    <ol class="warm-toc__list">
+      {items.map((item) => (
+        <li class="warm-toc__item">
+          <a class="warm-toc__link" href={`#${item.id}`} data-warm-toc-link>
+            <span class="warm-toc__label">{item.text}</span>
+          </a>
+        </li>
+      ))}
+    </ol>
+  </div>
+</nav>
+<script is:inline>
+  (() => {
+    const ROOT_ATTR = 'data-warm-toc';
+    const LINK_ATTR = 'data-warm-toc-link';
+    const ACTIVE = 'is-active';
+
+    function initialise(nav) {
+      if (!(nav instanceof HTMLElement) || nav.dataset.warmTocReady === '1') return;
+      const links = [...nav.querySelectorAll(`[${LINK_ATTR}]`)];
+      if (links.length < 2) return;
+
+      const headings = links
+        .map(link => {
+          const id = decodeURIComponent((link.getAttribute('href') || '').replace(/^#/, ''));
+          const heading = id ? document.getElementById(id) : null;
+          return heading ? { link, heading } : null;
+        })
+        .filter(Boolean);
+
+      if (headings.length < 2) return;
+      nav.dataset.warmTocReady = '1';
+
+      let activeId = '';
+      const setActive = id => {
+        if (id === activeId) return;
+        activeId = id;
+        for (const { link, heading } of headings) {
+          link.classList.toggle(ACTIVE, heading.id === id);
+        }
+      };
+
+      const syncFromScroll = () => {
+        const offset = Math.round(window.innerHeight * 0.22);
+        let current = headings[0].heading.id;
+        for (const { heading } of headings) {
+          if (heading.getBoundingClientRect().top - offset <= 0) current = heading.id;
+          else break;
+        }
+        setActive(current);
+      };
+
+      const onClick = event => {
+        const link = event.target.closest(`[${LINK_ATTR}]`);
+        if (!link || !nav.contains(link)) return;
+        const id = decodeURIComponent((link.getAttribute('href') || '').replace(/^#/, ''));
+        const heading = id ? document.getElementById(id) : null;
+        if (!heading) return;
+        event.preventDefault();
+        heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        history.replaceState(null, '', `#${id}`);
+        setActive(id);
+      };
+
+      nav.addEventListener('click', onClick);
+      window.addEventListener('scroll', syncFromScroll, { passive: true });
+      window.addEventListener('resize', syncFromScroll);
+      syncFromScroll();
+
+      // InstantClick re-runs body scripts without data-no-instant; drop listeners
+      // from the previous page once its nav is detached.
+      const cleanupStalePage = () => {
+        if (nav.isConnected) return;
+        nav.removeEventListener('click', onClick);
+        window.removeEventListener('scroll', syncFromScroll);
+        window.removeEventListener('resize', syncFromScroll);
+        window.removeEventListener('instantclick:newpage', cleanupStalePage);
+        delete nav.dataset.warmTocReady;
+      };
+      window.addEventListener('instantclick:newpage', cleanupStalePage);
+    }
+
+    document.querySelectorAll(`[${ROOT_ATTR}]`).forEach(initialise);
+  })();
+</script>

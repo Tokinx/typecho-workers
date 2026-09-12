@@ -9,7 +9,8 @@ import type { ThemePostProps } from '@/lib/theme-props';
 import WarmShell from './WarmShell.astro';
 import WarmComments from './WarmComments.astro';
 import WarmNoteMedia from './WarmNoteMedia.astro';
-import { formatWarmDate, plainExcerpt, readingMinutes, warmArticleSummary, warmSettings } from './warm';
+import WarmToc from './WarmToc.astro';
+import { formatWarmDate, plainExcerpt, prepareArticleToc, readingMinutes, warmArticleSummary, warmSettings } from './warm';
 
 type Props = ThemePostProps;
 
@@ -28,11 +29,14 @@ const note = noteContext
   : null;
 const isNote = note?.type === 'note';
 const settings = warmSettings(options);
-const displayContent = optimizeContentImages(
+const optimizedContent = optimizeContentImages(
   isNote ? note.html : post.content,
   settings.imageOptimizeParams,
   urls.siteUrl,
 );
+const toc = isNote ? { html: optimizedContent, items: [] } : prepareArticleToc(optimizedContent);
+const displayContent = toc.html;
+const tocItems = toc.items;
 const engineSummary = !isNote && pluginCtx.activatedPlugins.has('typecho-plugin-engine')
   ? await readSummary(db, post.cid)
   : null;
@@ -54,7 +58,7 @@ const description = isNote
   section={isNote ? 'notes' : 'articles'}
   detail={!isNote}
 >
-  <article class:list={["warm-article", { "is-note": isNote }]} itemscope itemtype="https://schema.org/BlogPosting">
+  <article class:list={["warm-article", { "is-note": isNote, "has-toc": tocItems.length > 0 }]} itemscope itemtype="https://schema.org/BlogPosting">
     <header class:list={["warm-article__header", { "warm-article__hero": !isNote }]}>
       <div class:list={{ "warm-article__hero-inner": !isNote }}>
         <div class="warm-item-meta">
@@ -74,7 +78,10 @@ const description = isNote
       </div>
     </header>
 
-    <div class:list={["warm-prose", { "warm-note-prose": isNote }]} view-image itemprop="articleBody" set:html={displayContent} />
+    <div class:list={["warm-article__body", { "warm-article__body--toc": tocItems.length > 0 }]}>
+      <div class:list={["warm-prose", { "warm-note-prose": isNote }]} view-image itemprop="articleBody" set:html={displayContent} />
+      {tocItems.length > 0 && <WarmToc items={tocItems} />}
+    </div>
 
     {isNote && (
       <WarmNoteMedia
