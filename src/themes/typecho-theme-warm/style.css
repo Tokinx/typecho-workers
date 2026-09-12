@@ -28,8 +28,6 @@ html {
   background: var(--warm-bg);
   color: var(--warm-text);
   scroll-behavior: smooth;
-  /* Full-bleed children use 100vw; clip scrollbar-only x overflow without changing their visual width. */
-  overflow-x: clip;
   text-rendering: optimizeLegibility;
 }
 
@@ -845,12 +843,12 @@ body.warm-theme {
 }
 
 /* Only top-level article blocks break out: never notes, comments or nested lists. */
-.warm-article:not(.is-note) .warm-prose :is(img, table) {
+.warm-article:not(.is-note) .warm-prose img,
+.warm-article:not(.is-note) .warm-prose table {
   position: relative;
   left: 50%;
-  max-width: 100vw;
-  width: auto;
-  margin-inline: 0;
+  max-width: min(var(--warm-breakout-width), calc(100vw - 32px));
+  width: none;
   transform: translateX(-50%);
 }
 

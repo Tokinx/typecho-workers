@@ -456,11 +456,16 @@ describe('typecho-theme-warm', () => {
     expect(empty.html).toBe('<p>no headings</p>');
   });
 
-  it('keeps full-bleed article images flush with the viewport without horizontal scrolling', () => {
+  it('uses margin compensation for full-bleed article images without parent overflow', () => {
     const css = readFileSync(join(themeRoot, 'style.css'), 'utf8');
+    const selector = '.warm-article:not(.is-note) .warm-prose :is(img, table) {';
+    const ruleStart = css.indexOf(selector);
+    const rule = css.slice(ruleStart, css.indexOf('}', ruleStart) + 1);
 
-    expect(css).toMatch(/html \{[^}]*overflow-x: clip;/);
-    expect(css).toContain(`.warm-article:not(.is-note) .warm-prose :is(img, table) {\n  position: relative;\n  left: 50%;\n  max-width: 100vw;`);
+    expect(rule).toContain('max-width: 100vw;');
+    expect(rule).toContain('margin-inline: calc(50% - 50vw);');
+    expect(rule).not.toContain('left: 50%;');
+    expect(rule).not.toContain('transform:');
   });
 
   it('wires Post.astro to the sticky TOC component', () => {
