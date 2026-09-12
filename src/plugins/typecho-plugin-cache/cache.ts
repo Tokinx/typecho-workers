@@ -944,6 +944,18 @@ export function parseCookieNames(cookieHeader: string | null): Set<string> {
   return names;
 }
 
+/**
+ * Vite's HMR client may still execute a script URL from an HTML document that
+ * was rendered before a component's script metadata changed. Serving public
+ * HTML from the Worker cache during `astro dev` makes that stale-document
+ * window persist across page reloads, which can surface as Astro's
+ * `No script at index N` error. Keep development SSR responses uncached;
+ * production and test modes retain the regular L1/L2/L3 behaviour.
+ */
+export function shouldBypassPageCacheInDevelopment(mode = import.meta.env.MODE): boolean {
+  return mode === 'development';
+}
+
 function requestCachePolicy(request: Request): RequestCacheDecision {
   // Publish-time warm-up self-requests send Cache-Control: no-cache to defeat
   // stale platform-cache entries, yet must render into the shared cache
@@ -1033,6 +1045,7 @@ async function renderAndCache(
 }
 
 async function handleRequest(context: EarlyRequestContext, next: EarlyRequestNext): Promise<Response> {
+  if (shouldBypassPageCacheInDevelopment()) return next();
   const kv = asKv(context.env.TYPECHO_CACHE);
   if (!kv) return renderWithRuntimeRewrite(context, next, 'kv-missing');
   const d1 = d1Binding(context);

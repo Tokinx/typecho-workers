@@ -23,6 +23,7 @@ import {
   normalizeCacheConfig,
   normalizeCacheUrl,
   PUBLIC_HTML_HEADER,
+  shouldBypassPageCacheInDevelopment,
   resetCacheProviderForTests,
   rewriteHtmlString,
   rewriteResourceUrl,
@@ -154,6 +155,12 @@ beforeEach(() => {
 });
 
 describe('typecho-plugin-cache provider', () => {
+  it('disables public page caching only for Astro development mode', () => {
+    expect(shouldBypassPageCacheInDevelopment('development')).toBe(true);
+    expect(shouldBypassPageCacheInDevelopment('test')).toBe(false);
+    expect(shouldBypassPageCacheInDevelopment('production')).toBe(false);
+  });
+
   it('serves a warm L1 response without running the D1 renderer again', async () => {
     const kv = new MemoryKv();
     await activate(kv);
