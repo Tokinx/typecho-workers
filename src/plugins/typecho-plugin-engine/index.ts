@@ -26,6 +26,9 @@ import {
   upsertSummary,
   listPublishedForSummary,
 } from './summary';
+
+export { readSummary, ENGINE_SUMMARY_FIELD } from './summary';
+export { upsertSummary };
 import {
   ADMIN_PAGE_SLUG,
   CONFIG_API_ROUTE,
@@ -950,7 +953,7 @@ const SUMMARY_SYSTEM_PROMPT = [
   '根据标题与正文生成帮助读者快速理解内容的简明中文摘要。',
   '摘要应覆盖主题与关键信息点，不要编造正文没有的事实。',
   '只输出摘要正文本身，不要标题、前后缀、列表符号或引号包裹。',
-  '长度控制在 120～300 字。',
+  '长度控制在 80～120 字。',
 ].join('\n');
 
 async function callLLMSummary(config: EngineConfig, title: string, body: string): Promise<string> {

@@ -106,7 +106,7 @@ export function adminPageHtml(csrf: string, config: EngineSettings): string {
       <header class="engine-panel-head engine-summary-head">
         <div class="engine-summary-title">
           <h3 id="engine-summary-title">智能摘要</h3>
-          <p>使用已保存的 AI 配置生成 120～300 字内容概览</p>
+          <p>使用已保存的 AI 配置生成 80～120 字内容概览</p>
         </div>
         <label class="engine-toggle">
           <input type="checkbox" role="switch" name="autoSummary" id="engine-autoSummary" value="1"${v('autoSummary') === '1' ? ' checked' : ''} aria-label="自动生成智能摘要">
