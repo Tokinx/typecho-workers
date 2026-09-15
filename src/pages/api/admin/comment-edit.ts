@@ -153,6 +153,7 @@ export const POST: APIRoute = async ({ request }) => {
     request,
     options: auth.options,
     db: auth.db,
+    pluginCtx: auth.pluginCtx,
     siteUrl: (auth.options.siteUrl as string) || '',
     permalinkPattern: auth.options.permalinkPattern as string | undefined,
     pagePattern: auth.options.pagePattern as string | undefined,

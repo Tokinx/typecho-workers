@@ -205,6 +205,7 @@ addHook('feedback:comment', pluginId, async (commentData: { _rejected?: string }
 | `comment:markdown` | 评论 Markdown | `(markdown, comment)` | 过滤评论原始文本 |
 | `comment:allowContent` | 评论目标验证 | `(allowed, extra)` | 扩展自定义内容类型的评论资格；返回 `true` 前必须自行校验公开状态 |
 | `comment:avatarMap` | 公开评论 API 输出 | `(avatarMap, { request, options })` | 过滤以评论 ID 为键的头像 URL 映射；异常时保留原映射 |
+| `gravatar:url` | 头像 URL 生成 | `(url, { request?, options? })` | 过滤单个 Gravatar URL（如 Edge Cache 插件按 `avatarCdnUrl` 改写）；异常时保留原 URL |
 | `comment:list` | 公开评论列表 API 响应 | `(payload, { request, options, cid })` | 向评论列表 JSON 附加插件专属字段（如反垃圾时间令牌）；发生在共享缓存之外，每次请求执行；返回原对象或变换后的对象 |
 | `post:write` | 文章保存前 | `(data, extra)` | 过滤文章写入数据 |
 | `page:write` | 页面保存前 | `(data, extra)` | 过滤页面写入数据 |
@@ -217,7 +218,7 @@ addHook('feedback:comment', pluginId, async (commentData: { _rejected?: string }
 
 `applyFilter` 默认会传播插件异常。业务链路（保存内容、评论、登录、插件配置等）会因此中止并暴露错误。纯展示注入点可由系统使用 `applyFilterSafely` 包裹，单个插件失败时跳过该插件输出并继续渲染。
 
-> 部分 call hook（如 `feedback:finishComment`、`post/page:finishPublish`、`post/page:finishSave`）在业务数据后追加 `extra` 对象：`{ request, options, db, waitUntil?, siteUrl?, permalinkPattern?, pagePattern? }`，供插件读取配置、查询数据库、构造链接或后台异步任务。旧插件忽略多余参数，完全向后兼容。
+> 部分 call hook（如 `feedback:finishComment`、`post/page:finishPublish`、`post/page:finishSave`）在业务数据后追加 `extra` 对象：`{ request, options, db, pluginCtx?, waitUntil?, siteUrl?, permalinkPattern?, pagePattern? }`，供插件读取配置、查询数据库、构造链接、调用其它 filter（如 `gravatar:url`）或后台异步任务。旧插件忽略多余参数，完全向后兼容。
 
 ---
 

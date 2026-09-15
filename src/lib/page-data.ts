@@ -16,9 +16,10 @@ import {
 import { renderCommentText, renderContentExcerpt, renderMarkdownFiltered } from '@/lib/markdown';
 import { paginate, paginateLookahead } from '@/lib/pagination';
 import { generateCommentToken, validateUnapprovedCommentToken } from '@/lib/auth';
-import { buildGravatarUrl } from '@/lib/gravatar';
+import { resolveGravatarUrl } from '@/lib/gravatar';
 import { buildCommentPaginationSummary, loadCommentPage, type CommentPage } from '@/lib/comment-page';
 import type { RequestContext } from '@/lib/context';
+import type { HookContext } from '@/lib/plugin';
 import { canViewContent, publishedPostCondition } from '@/lib/content-visibility';
 import type {
   ThemeIndexProps, ThemePostProps, ThemePageProps, ThemeArchiveProps, ThemeNotFoundProps,
@@ -175,18 +176,23 @@ export function buildCommentTree(allComments: CommentRow[], options: SiteOptions
   return sortCommentTree(roots, rootOrder);
 }
 
-export async function buildGravatarMap(allComments: CommentRow[], avatarRating: string): Promise<Record<number, string>> {
+export async function buildGravatarMap(
+  ctx: HookContext,
+  allComments: CommentRow[],
+  avatarRating: string,
+  extra?: { options?: Record<string, unknown>; request?: Request },
+): Promise<Record<number, string>> {
   const urlsByEmail = new Map<string, Promise<string>>();
   const entries = await Promise.all(
     allComments.map(async (c) => {
       const email = (c.mail || '').trim().toLowerCase();
       let pending = urlsByEmail.get(email);
       if (!pending) {
-        pending = buildGravatarUrl(email, {
+        pending = resolveGravatarUrl(ctx, email, {
           defaultImage: 'identicon',
           size: 40,
           rating: avatarRating,
-        });
+        }, extra);
         urlsByEmail.set(email, pending);
       }
       return [c.coid, await pending] as const;
@@ -578,7 +584,10 @@ export async function preparePostData(
 
   const commentTree = buildCommentTree(allComments, options);
   const gravatarMap = options.commentsAvatar
-    ? await buildGravatarMap(allComments, options.commentsAvatarRating || 'G')
+    ? await buildGravatarMap(ctx, allComments, options.commentsAvatarRating || 'G', {
+        options,
+        request: new Request(requestUrl),
+      })
     : {};
 
   const permalink = buildPermalink(
@@ -674,7 +683,10 @@ export async function preparePageData(
 
   const commentTree = buildCommentTree(allComments, options);
   const gravatarMap = options.commentsAvatar
-    ? await buildGravatarMap(allComments, options.commentsAvatarRating || 'G')
+    ? await buildGravatarMap(ctx, allComments, options.commentsAvatarRating || 'G', {
+        options,
+        request: new Request(requestUrl),
+      })
     : {};
   const allowComment = pageRow.allowComment === '1';
 

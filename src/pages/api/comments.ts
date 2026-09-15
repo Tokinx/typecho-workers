@@ -153,7 +153,10 @@ export const GET: APIRoute = async ({ request, locals, url }) => {
     return {
       comments: redactCommentMail(buildCommentTree(commentPage.rows, options)),
       gravatarMap: options.commentsAvatar
-        ? await buildGravatarMap(commentPage.rows, options.commentsAvatarRating || 'G')
+        ? await buildGravatarMap(pluginCtx, commentPage.rows, options.commentsAvatarRating || 'G', {
+            options,
+            request,
+          })
         : {},
       pagination: commentPage.pagination,
     };
@@ -189,7 +192,10 @@ export const GET: APIRoute = async ({ request, locals, url }) => {
     commentData = {
       comments: redactCommentMail(buildCommentTree(commentPage.rows, options)),
       gravatarMap: options.commentsAvatar
-        ? await buildGravatarMap(commentPage.rows, options.commentsAvatarRating || 'G')
+        ? await buildGravatarMap(pluginCtx, commentPage.rows, options.commentsAvatarRating || 'G', {
+            options,
+            request,
+          })
         : {},
       pagination: commentPage.pagination,
     };

@@ -3,7 +3,7 @@ import Admin from '@/layouts/Admin.astro';
 import { createContext, requireAuth } from '@/lib/context';
 import { hasPermission } from '@/lib/auth';
 import { formatDate } from '@/lib/content';
-import { buildGravatarUrl } from '@/lib/gravatar';
+import { resolveGravatarUrl } from '@/lib/gravatar';
 import { applyFilterSafely } from '@/lib/plugin';
 import { eq, and, inArray, sql } from 'drizzle-orm';
 import { schema } from '@/db';
@@ -32,7 +32,10 @@ const [stats, gravatarUrl] = await Promise.all([
         ]),
       )),
   ]),
-  buildGravatarUrl(user!.mail, { size: 220, defaultImage: 'mp' }),
+  resolveGravatarUrl(ctx, user!.mail, { size: 220, defaultImage: 'mp' }, {
+    options,
+    request: Astro.request,
+  }),
 ]);
 const [postCount, commentCount, catCount, userOptionRows] = stats;
 const userOptions = new Map(userOptionRows.map((option) => [option.name, option.value]));

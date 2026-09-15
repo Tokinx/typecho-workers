@@ -1469,6 +1469,7 @@ describe('plugin registration and controls', () => {
       'system:begin',
       'plugin:config:beforeSave',
       'csp:directives',
+      'gravatar:url',
       'comment:avatarMap',
       'admin:page',
       'admin:footer',
@@ -1878,6 +1879,24 @@ describe('plugin registration and controls', () => {
     expect(avatars).toEqual({
       1: 'https://avatar.example.com/avatar/hash?d=identicon&s=40',
     });
+  });
+
+  it('rewrites a single Gravatar URL via gravatar:url', () => {
+    const hook = collectHooks().get('gravatar:url')!;
+    const rewritten = hook(
+      'https://www.gravatar.com/avatar/hash?d=identicon&s=40',
+      {
+        request: new Request('https://example.com/archives/1/'),
+        options: {
+          siteUrl: 'https://example.com',
+          [`plugin:${CACHE_PLUGIN_ID}`]: JSON.stringify({
+            ...defaultSettings,
+            avatarCdnUrl: 'https://avatar.example.com/avatar',
+          }),
+        },
+      },
+    );
+    expect(rewritten).toBe('https://avatar.example.com/avatar/hash?d=identicon&s=40');
   });
 
   it('does not let stale D1 options overwrite a newer KV control document', async () => {

@@ -2,7 +2,7 @@
 import Admin from '@/layouts/Admin.astro';
 import { createContext, requirePermission } from '@/lib/context';
 import { hasPermission } from '@/lib/auth';
-import { buildGravatarUrl } from '@/lib/gravatar';
+import { resolveGravatarUrl } from '@/lib/gravatar';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { schema } from '@/db';
 import { formatDate } from '@/lib/content';
@@ -115,11 +115,11 @@ const totalPages = Math.max(1, Math.ceil(totalComments / pageSize));
 const avatarMap = new Map<number, string>();
 const avatarEntries = await Promise.all(commentsList.map(async c => [
   c.coid,
-  await buildGravatarUrl(c.mail, {
+  await resolveGravatarUrl(ctx, c.mail, {
     defaultImage: 'identicon',
     size: 40,
     rating: avatarRating,
-  }),
+  }, { options, request: Astro.request }),
 ] as const));
 for (const [coid, avatar] of avatarEntries) avatarMap.set(coid, avatar);
 

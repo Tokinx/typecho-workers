@@ -29,6 +29,25 @@ function kvBinding(): KVNamespace | null {
   return candidate && typeof candidate.get === 'function' && typeof candidate.put === 'function' ? candidate : null;
 }
 
+/** Rewrite a single Gravatar URL via the plugin Avatar CDN setting. */
+function rewriteAvatarUrl(
+  avatarUrl: string,
+  pluginId: string,
+  extra?: { request?: Request; options?: Record<string, unknown> },
+): string {
+  if (!extra?.options || typeof avatarUrl !== 'string') return avatarUrl;
+  const config = normalizeCacheConfig(loadPluginConfig(extra.options, pluginId));
+  if (!config.avatarCdnUrl) return avatarUrl;
+  const siteUrl = String(extra.options.siteUrl || extra.request?.url || '');
+  let requestOrigin = siteUrl;
+  try {
+    requestOrigin = new URL(extra.request?.url || siteUrl).origin;
+  } catch {
+    return avatarUrl;
+  }
+  return rewriteResourceUrl(avatarUrl, config, requestOrigin, siteUrl);
+}
+
 const HTML_DOMAIN_ALLOWED = new Set<string>(['home', 'post', 'page', 'note', 'archive', 'other', 'all']);
 const DATA_GROUP_ALLOWED = new Set<string>(['frontend', 'admin', 'all']);
 const DATA_GROUP_DOMAINS: Record<'frontend' | 'admin', SharedCacheDomain[]> = {
@@ -106,23 +125,19 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
     return directives;
   });
 
+  addHook('gravatar:url', pluginId, (
+    avatarUrl: string,
+    extra?: { request?: Request; options?: Record<string, unknown> },
+  ) => rewriteAvatarUrl(avatarUrl, pluginId, extra));
+
   addHook('comment:avatarMap', pluginId, (
     avatars: Record<string, string>,
     extra?: { request?: Request; options?: Record<string, unknown> },
   ) => {
-    if (!extra?.options) return avatars;
-    const config = normalizeCacheConfig(loadPluginConfig(extra.options, pluginId));
-    if (!config.avatarCdnUrl) return avatars;
-    const siteUrl = String(extra.options.siteUrl || extra.request?.url || '');
-    let requestOrigin = siteUrl;
-    try {
-      requestOrigin = new URL(extra.request?.url || siteUrl).origin;
-    } catch {
-      return avatars;
-    }
+    if (!extra?.options || !avatars || typeof avatars !== 'object') return avatars;
     return Object.fromEntries(Object.entries(avatars).map(([coid, avatarUrl]) => [
       coid,
-      rewriteResourceUrl(avatarUrl, config, requestOrigin, siteUrl),
+      rewriteAvatarUrl(avatarUrl, pluginId, extra),
     ]));
   });
 

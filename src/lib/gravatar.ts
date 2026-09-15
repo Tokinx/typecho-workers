@@ -1,7 +1,14 @@
+import { applyFilterSafely, type HookContext } from '@/lib/plugin';
+
 export interface GravatarUrlOptions {
   defaultImage?: string;
   size?: number;
   rating?: string;
+}
+
+export interface GravatarFilterExtra {
+  options?: Record<string, unknown>;
+  request?: Request;
 }
 
 export async function createGravatarHash(email: string): Promise<string> {
@@ -20,4 +27,19 @@ export async function buildGravatarUrl(
   params.set('s', String(size));
   if (rating) params.set('r', rating);
   return `https://www.gravatar.com/avatar/${hash}?${params.toString()}`;
+}
+
+/**
+ * Build a Gravatar URL and pass it through the `gravatar:url` filter hook
+ * (e.g. Edge Cache plugin Avatar CDN rewrite).
+ */
+export async function resolveGravatarUrl(
+  ctx: HookContext,
+  email: string | null | undefined,
+  opts: GravatarUrlOptions = {},
+  extra?: GravatarFilterExtra,
+): Promise<string> {
+  const url = await buildGravatarUrl(email, opts);
+  const filtered = await applyFilterSafely(ctx, 'gravatar:url', url, extra);
+  return typeof filtered === 'string' ? filtered : url;
 }

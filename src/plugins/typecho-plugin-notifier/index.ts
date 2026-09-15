@@ -13,7 +13,8 @@ import { schema } from 'typecho/db';
 import { eq } from 'drizzle-orm';
 import { getAuthCookies, validateAuthToken, requireAdminCSRF } from '@/lib/auth';
 import { isSameOriginRequest } from '@/lib/admin-auth';
-import { buildGravatarUrl } from '@/lib/gravatar';
+import { resolveGravatarUrl } from '@/lib/gravatar';
+import { parseActivatedPlugins, type HookContext } from '@/lib/plugin';
 
 import {
   PLUGIN_ID, loadConfig, isValidEmail,
@@ -37,6 +38,7 @@ interface HookExtra {
   request?: Request;
   options?: Record<string, unknown>;
   db?: any;
+  pluginCtx?: HookContext;
   siteUrl?: string;
   permalinkPattern?: string;
   pagePattern?: string;
@@ -58,6 +60,15 @@ function logSendFailure(result: { sent: boolean; error?: string }): void {
   if (!result.sent) {
     console.error(`[${PLUGIN_ID}] 通知发送失败: ${result.error || '未知错误'}`);
   }
+}
+
+function hookContextFromExtra(extra?: HookExtra): HookContext {
+  if (extra?.pluginCtx) return extra.pluginCtx;
+  return {
+    activatedPlugins: new Set(
+      parseActivatedPlugins(String(extra?.options?.activatedPlugins || '')),
+    ),
+  };
 }
 
 /** Build the base template variables shared by every notification. */
@@ -92,9 +103,16 @@ function systemVars(options: Record<string, unknown>, payload: EmailPayload, rea
   };
 }
 
-/** Build the gravatar URL for a comment author (async). */
-async function commentAvatarUrl(mail?: string | null): Promise<string> {
-  return buildGravatarUrl(mail || '', { defaultImage: 'identicon', size: 40 });
+/** Build the gravatar URL for a comment author (async), via gravatar:url filter. */
+async function commentAvatarUrl(
+  ctx: HookContext,
+  mail: string | null | undefined,
+  extra?: HookExtra,
+): Promise<string> {
+  return resolveGravatarUrl(ctx, mail || '', { defaultImage: 'identicon', size: 40 }, {
+    options: extra?.options,
+    request: extra?.request,
+  });
 }
 
 /** Query administrator mail addresses (excluding the actor's own uid). */
@@ -121,8 +139,9 @@ function renderEmail(subjectTemplate: string, bodyTemplate: string, vars: Templa
 }
 
 /** Example variables used by the test page (covers every comment placeholder). */
-function testVars(options: Record<string, unknown>): TemplateVars {
+async function testVars(ctx: HookContext, options: Record<string, unknown>, request?: Request): Promise<TemplateVars> {
   const siteUrl = String(options.siteUrl || '');
+  const extra = { options, request };
   return {
     ...baseVars(options),
     'post.title': '测试文章',
@@ -130,16 +149,22 @@ function testVars(options: Record<string, unknown>): TemplateVars {
     'reply.author': '测试访客',
     'reply.content': '这是一条来自「' + String(options.title || '站点') + '」的测试通知，收到即说明配置正常。',
     'reply.mail': 'guest@example.com',
-    'reply.avatarUrl': 'https://www.gravatar.com/avatar/guest',
+    'reply.avatarUrl': await commentAvatarUrl(ctx, 'guest@example.com', extra),
     'comment.author': '父评论者',
     'comment.content': '这是被回复的评论内容。',
     'comment.mail': 'parent@example.com',
-    'comment.avatarUrl': 'https://www.gravatar.com/avatar/parent',
+    'comment.avatarUrl': await commentAvatarUrl(ctx, 'parent@example.com', extra),
   };
 }
 
-function sendTestEmail(config: NotifierConfig, to: string, options: Record<string, unknown>): ReturnType<typeof sendEmail> {
-  const mail = renderEmail(config.mailSubject, config.mailBody, testVars(options));
+async function sendTestEmail(
+  config: NotifierConfig,
+  to: string,
+  ctx: HookContext,
+  options: Record<string, unknown>,
+  request?: Request,
+): ReturnType<typeof sendEmail> {
+  const mail = renderEmail(config.mailSubject, config.mailBody, await testVars(ctx, options, request));
   return sendEmail(config.emailProvider, config.emailApiKey, config.emailFrom, {
     to,
     fromName: config.emailFromName,
@@ -149,11 +174,16 @@ function sendTestEmail(config: NotifierConfig, to: string, options: Record<strin
   });
 }
 
-function sendTestWebhook(config: NotifierConfig, options: Record<string, unknown>): ReturnType<typeof sendWebhook> {
+async function sendTestWebhook(
+  config: NotifierConfig,
+  ctx: HookContext,
+  options: Record<string, unknown>,
+  request?: Request,
+): ReturnType<typeof sendWebhook> {
   return sendWebhook(
     config.webhookUrl,
     config.webhookToken,
-    renderTemplate(config.commentWebhookPayload, jsonEscapeVars(testVars(options))),
+    renderTemplate(config.commentWebhookPayload, jsonEscapeVars(await testVars(ctx, options, request))),
   );
 }
 
@@ -248,11 +278,11 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
         'reply.author': replyAuthor,
         'reply.content': replyContent,
         'reply.mail': replyMail,
-        'reply.avatarUrl': await commentAvatarUrl(replyMail),
+        'reply.avatarUrl': await commentAvatarUrl(hookContextFromExtra(extra), replyMail, extra),
         'comment.author': parentComment?.author || '',
         'comment.content': parentComment?.text || '',
         'comment.mail': parentComment?.mail || '',
-        'comment.avatarUrl': await commentAvatarUrl(parentComment?.mail),
+        'comment.avatarUrl': await commentAvatarUrl(hookContextFromExtra(extra), parentComment?.mail, extra),
       };
 
       // Admin authored the comment → skip the WebHook push (the admin already knows).
@@ -369,7 +399,7 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
           if (invalid) {
             return { handled: true, response: jsonOk(`邮件渠道不可用：${invalid}`, false) };
           }
-          const resultSend = await sendTestEmail(config, to, options);
+          const resultSend = await sendTestEmail(config, to, hookContextFromExtra(extra), options, extra.request);
           if (resultSend.sent) {
             return { handled: true, response: jsonOk('测试邮件已发送，请检查收件箱', true) };
           }
@@ -380,7 +410,7 @@ export default function init({ addHook, pluginId }: PluginInitContext): void {
           if (!isWebhookReady(config)) {
             return { handled: true, response: jsonOk('WebHook 渠道不可用：请先填写地址并保存设置', false) };
           }
-          const resultSend = await sendTestWebhook(config, options);
+          const resultSend = await sendTestWebhook(config, hookContextFromExtra(extra), options, extra.request);
           if (resultSend.sent) {
             return { handled: true, response: jsonOk('测试请求已发送', true) };
           }

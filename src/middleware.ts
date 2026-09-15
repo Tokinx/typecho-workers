@@ -170,6 +170,7 @@ const coreMiddleware = defineMiddleware(async (context, next) => {
     db,
     options,
     env,
+    pluginCtx,
   });
   if (pluginRoute?.handled && pluginRoute.response instanceof Response) {
     // G6-4: hard-block plugins from claiming reserved core paths.

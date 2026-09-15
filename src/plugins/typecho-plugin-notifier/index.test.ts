@@ -579,6 +579,32 @@ describe('typecho-plugin-notifier', () => {
       expect(JSON.parse(webhookBody)).toEqual({ author: '访客', content: '不错的文章' });
     });
 
+    it('rewrites comment avatar URLs through the gravatar:url filter for WebHook payloads', async () => {
+      const { addHook, removePluginHooks } = await import('@/lib/plugin');
+      const cdnPluginId = 'test-avatar-cdn';
+      addHook('gravatar:url', cdnPluginId, (url: string) =>
+        String(url).replace('www.gravatar.com', 'avatar.cdn.test'));
+      try {
+        const fetchMock = stubFetch();
+        const hooks = collectHooks();
+        const handler = hooks.get('feedback:finishComment')!;
+        const pluginCtx = { activatedPlugins: new Set([cdnPluginId]) };
+        await handler(commentFixture, makeExtra({
+          pluginCtx,
+          options: options({
+            commentWebhook: '1',
+            commentWebhookPayload: '{"avatar":"{reply.avatarUrl}"}',
+          }),
+        }));
+        const webhookBody = fetchMock.mock.calls.find(([u]) => u === WEBHOOK_URL)![1].body;
+        const payload = JSON.parse(webhookBody);
+        expect(payload.avatar).toContain('https://avatar.cdn.test/avatar/');
+        expect(payload.avatar).not.toContain('www.gravatar.com');
+      } finally {
+        removePluginHooks(cdnPluginId);
+      }
+    });
+
     it('dedupes when the parent commenter mailbox is already an admin recipient', async () => {
       const fetchMock = stubFetch();
       const hooks = collectHooks();

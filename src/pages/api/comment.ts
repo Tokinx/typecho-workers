@@ -298,6 +298,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     request,
     options,
     db,
+    pluginCtx,
     siteUrl: (options.siteUrl as string) || '',
     permalinkPattern: options.permalinkPattern as string | undefined,
     pagePattern: options.pagePattern as string | undefined,
