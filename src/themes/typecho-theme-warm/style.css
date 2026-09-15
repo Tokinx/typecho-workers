@@ -768,24 +768,84 @@ body.warm-theme {
   text-align: center;
 }
 
-.warm-prose blockquote {
-  margin: 2.7em 0;
+.warm-prose blockquote,
+.warm-note__content blockquote {
+  margin: 1.7em 0;
   padding-left: 1.35em;
   border-left: 1px solid #d9d5cf;
   color: #625d57;
   font-family: var(--warm-serif);
   font-size: 1.08em;
-  font-weight: 400;
-  line-height: 2.05;
   letter-spacing: .005em;
 }
 
-.warm-prose blockquote p {
+.warm-prose blockquote p,
+.warm-note__content blockquote p {
   margin-bottom: 1em;
 }
 
-.warm-prose blockquote > :last-child {
+.warm-prose blockquote > :last-child,
+.warm-note__content blockquote > :last-child {
   margin-bottom: 0;
+}
+
+/* GitHub-style markdown alerts (`> [!NOTE]` …) */
+.warm-prose .markdown-alert,
+.warm-note__content .markdown-alert {
+  padding: 1em 1em 1em 1.35em;
+  line-height: 1;
+  letter-spacing: 0;
+  background: #f9f9f8;
+}
+
+.warm-prose .markdown-alert > :first-child,
+.warm-note__content .markdown-alert > :first-child {
+  margin-top: 0;
+}
+
+.warm-prose .markdown-alert > :last-child,
+.warm-note__content .markdown-alert > :last-child {
+  margin-bottom: 0;
+}
+
+.warm-prose .markdown-alert-title,
+.warm-note__content .markdown-alert-title {
+  margin: 0 0 .5rem !important;
+  font-weight: 650;
+  font-size: .92rem;
+  letter-spacing: .02em;
+}
+
+.warm-prose .markdown-alert p,
+.warm-note__content .markdown-alert p {
+  margin-bottom: .85em;
+}
+
+.warm-prose .markdown-alert-note,
+.warm-note__content .markdown-alert-note {
+  border-left-color: #5b8ab5;
+}
+.warm-prose .markdown-alert-note .markdown-alert-title,
+.warm-note__content .markdown-alert-note .markdown-alert-title {
+  color: #5b8ab5;
+}
+
+.warm-prose .markdown-alert-tip,
+.warm-note__content .markdown-alert-tip {
+  border-left-color: #6a9a6e;
+}
+.warm-prose .markdown-alert-tip .markdown-alert-title,
+.warm-note__content .markdown-alert-tip .markdown-alert-title {
+  color: #6a9a6e;
+}
+
+.warm-prose .markdown-alert-warning,
+.warm-note__content .markdown-alert-warning {
+  border-left-color: #c4a035;
+}
+.warm-prose .markdown-alert-warning .markdown-alert-title,
+.warm-note__content .markdown-alert-warning .markdown-alert-title {
+  color: #c4a035;
 }
 
 .warm-prose code {
