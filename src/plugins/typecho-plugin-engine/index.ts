@@ -1774,7 +1774,11 @@ function editorHtml(contentType: ContentType): string {
         var converter = new window.HyperDown();
         converter.enableHtml(true);
         converter.enableLine(true);
-        return window.DOMPurify.sanitize(converter.makeHtml(source), { USE_PROFILES: { html: true } });
+        var html = converter.makeHtml(source);
+        if (typeof window.transformGithubAlerts === 'function') {
+          html = window.transformGithubAlerts(html);
+        }
+        return window.DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
       } catch (error) {
         // Fall through to plain-text rendering.
       }

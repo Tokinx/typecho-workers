@@ -364,6 +364,7 @@ const writePostBottomHtml = await applyFilterSafely(ctx, 'admin:writePost:bottom
 
   <Fragment slot="footer">
     <script is:inline src="/vendor/hyperdown.js"></script>
+    <script is:inline src="/vendor/markdown-alerts.js"></script>
     <script is:inline src="/vendor/pagedown.js"></script>
     <script is:inline src="/vendor/paste.js"></script>
     <script is:inline src="/vendor/purify.js"></script>
@@ -440,6 +441,9 @@ const writePostBottomHtml = await applyFilterSafely(ctx, 'admin:writePost:bottom
       reloadScroll = scrollableEditor(textarea, preview);
 
       converter.hook('makeHtml', function (html) {
+        if (typeof transformGithubAlerts === 'function') {
+          html = transformGithubAlerts(html);
+        }
         html = html.replace('<p><!--more--></p>', '<!--more-->');
         if (html.indexOf('<!--more-->') > 0) {
           var parts = html.split(/\s*<\!\-\-more\-\->\s*/),

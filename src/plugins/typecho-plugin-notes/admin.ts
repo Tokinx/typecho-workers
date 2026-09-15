@@ -77,6 +77,10 @@ export function notesAdminPageHtml(csrfToken: string): string {
 .note-meta{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:9px;color:#a0aaba;font-size:12px}
 .note-meta-left{display:flex;align-items:center;gap:8px;min-width:0}
 .note-visibility{color:#7f8da1}.note-body{font-size:15px;line-height:1.8;color:#3f4b5f;overflow-wrap:anywhere}.note-body>:first-child{margin-top:0}.note-body>:last-child{margin-bottom:0}.note-body img{max-width:100%;height:auto;border-radius:3px}
+.note-body .markdown-alert{margin:12px 0;padding:1rem;border-left:3px solid #e7eaf0;color:#403d39;line-height:1;letter-spacing:0;background:#f9f9f8}.note-body .markdown-alert>:first-child{margin-top:0}.note-body .markdown-alert>:last-child{margin-bottom:0}.note-body .markdown-alert-title{margin:0 0 .5rem!important;font-weight:650;font-size:.92rem;letter-spacing:.02em}.note-body .markdown-alert p{margin:0 0 .85em;line-height:1.75}
+.note-body .markdown-alert-note{border-left-color:#0969da}.note-body .markdown-alert-note .markdown-alert-title{color:#0969da}
+.note-body .markdown-alert-tip{border-left-color:#1a7f37}.note-body .markdown-alert-tip .markdown-alert-title{color:#1a7f37}
+.note-body .markdown-alert-warning{border-left-color:#bf8700}.note-body .markdown-alert-warning .markdown-alert-title{color:#bf8700}
 .note-body .note-topic-highlight{padding:0 2px;color:#356f9f;background:#edf5ff;text-decoration:none;cursor:pointer}
 .note-media-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:12px}.note-media-list a{display:block;aspect-ratio:1.35;overflow:hidden;border-radius:3px;background:#eef1f5}.note-media-list img{width:100%;height:100%;object-fit:cover}.note-media-list.has-1{grid-template-columns:minmax(0,1fr);max-width:50%}.note-media-list.has-2{grid-template-columns:repeat(2,minmax(0,1fr))}.note-media-list.has-3{grid-template-columns:repeat(3,minmax(0,1fr))}.note-media-list.has-4{grid-template-columns:repeat(4,minmax(0,1fr))}.note-media{display:grid;gap:4px}.note-media video{max-width:100%;border-radius:3px;background:#000;display:block}.note-media audio{max-width:100%;min-width:0;width:100%;display:block}.note-media-name{color:#8a96a8;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .note-attachments{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
@@ -98,6 +102,7 @@ export function notesAdminPageHtml(csrfToken: string): string {
 </style>
 
 <script src="/vendor/hyperdown.js"></script>
+<script src="/vendor/markdown-alerts.js"></script>
 <script src="/vendor/pagedown.js"></script>
 <script src="/vendor/purify.js"></script>
 <script src="/vendor/view-image.min.js"></script>
@@ -120,7 +125,7 @@ function setupMarkdownEditor(){
   if(typeof HyperDown!=="function"||!window.Markdown||typeof Markdown.Editor!=="function")return;
   var converter=new HyperDown(),options={strings:{bold:"加粗 <strong> Ctrl+B",boldexample:"加粗文字",italic:"斜体 <em> Ctrl+I",italicexample:"斜体文字",link:"链接 <a> Ctrl+L",linkdescription:"请输入链接描述",quote:"引用 <blockquote> Ctrl+Q",quoteexample:"引用文字",code:"代码 <pre><code> Ctrl+K",codeexample:"请输入代码",image:"上传图片 <img> Ctrl+G",imagedescription:"请输入图片描述",olist:"数字列表 <ol> Ctrl+O",ulist:"普通列表 <ul> Ctrl+U",litem:"列表项目",heading:"标题 <h1>/<h2> Ctrl+H",headingexample:"标题文字",ok:"确定",cancel:"取消",help:"Markdown 语法帮助"}};
   converter.enableHtml(true);converter.enableLine(true);
-  converter.hook("makeHtml",function(html){return window.DOMPurify?DOMPurify.sanitize(html,{USE_PROFILES:{html:true}}):html});
+  converter.hook("makeHtml",function(html){if(typeof transformGithubAlerts==="function")html=transformGithubAlerts(html);return window.DOMPurify?DOMPurify.sanitize(html,{USE_PROFILES:{html:true}}):html});
   markdownEditor=new Markdown.Editor(converter,"",options);
   markdownEditor.hooks.set("insertImageDialog",function(callback){
     pendingImageCallback=callback;

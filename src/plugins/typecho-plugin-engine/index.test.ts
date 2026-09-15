@@ -135,7 +135,8 @@ describe('typecho-plugin-engine', () => {
     expect(postHtml).toContain('renderModalViews();');
     expect(postHtml).toContain('window.HyperDown && window.DOMPurify');
     expect(postHtml).toContain('converter.enableHtml(true);');
-    expect(postHtml).toContain('window.DOMPurify.sanitize(converter.makeHtml(source)');
+    expect(postHtml).toContain('window.transformGithubAlerts');
+    expect(postHtml).toContain('window.DOMPurify.sanitize(html, { USE_PROFILES: { html: true } })');
     // 模板字符串内的正则必须用双反斜杠，避免 \n 被解释为真实换行导致语法错误
     expect(postHtml).toContain("escapeHtmlText(source).replace(/\\n/g, '<br>')");
   });
