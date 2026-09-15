@@ -8,9 +8,17 @@
  */
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { addHook, type HookContext } from '@/lib/plugin';
-import { autop, escapeHtml, generateExcerpt, renderCommentText, renderContentExcerpt, renderMarkdown, renderMarkdownFiltered, resetMarkdownRenderCache, stripHtmlTags, stripTypechoMarkers } from '@/lib/markdown';
+import { autop, escapeHtml, generateExcerpt, renderCommentText, renderContentExcerpt, renderMarkdown, renderMarkdownFiltered, resetMarkdownRenderCache, stripHtmlTags, stripTypechoMarkers, transformGithubAlerts } from '@/lib/markdown';
 import { notifyEarlyRequestInvalidation } from '@/lib/early-request';
 import { marked } from 'marked';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const HyperDown = require('../../public/vendor/hyperdown.js') as new () => {
+  enableHtml: (v: boolean) => void;
+  enableLine: (v: boolean) => void;
+  makeHtml: (src: string) => string;
+};
 
 // ---------------------------------------------------------------------------
 // renderMarkdown
@@ -40,6 +48,80 @@ describe('renderMarkdown', () => {
     const src = 'See [link][foo]<!--more-->\n\n[foo]: https://example.com';
     const html = renderMarkdown(src);
     expect(html).toContain('href="https://example.com"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GitHub-style alerts (`> [!NOTE]`)
+// ---------------------------------------------------------------------------
+
+describe('transformGithubAlerts / GFM alerts', () => {
+  const alertSource = (type: string, body: string) => `> [!${type}]\n> ${body}`;
+
+  it.each([
+    ['NOTE', 'note'],
+    ['TIP', 'tip'],
+    ['WARNING', 'warning'],
+  ] as const)('renders [!%s] with colored border class', (type, cls) => {
+    const html = renderMarkdown(alertSource(type, '补充说明'));
+    expect(html).toContain(`class="markdown-alert markdown-alert-${cls}"`);
+    expect(html).toContain(`data-alert="${type}"`);
+    expect(html).toContain(`class="markdown-alert-title">${type}</p>`);
+    expect(html).toContain('补充说明');
+    expect(html).toContain('<blockquote');
+    expect(html).not.toContain(`[!${type}]`);
+  });
+
+  it('shows arbitrary [!label] text as the title without a color class', () => {
+    const html = renderMarkdown('> [!重要]\n> 请务必注意');
+    expect(html).toContain('class="markdown-alert"');
+    expect(html).not.toContain('markdown-alert-note');
+    expect(html).toContain('class="markdown-alert-title">重要</p>');
+    expect(html).toContain('请务必注意');
+    expect(html).not.toContain('[!重要]');
+  });
+
+  it('escapes HTML in the extracted label', () => {
+    const html = renderMarkdown('> [!<script>x</script>]\n> body');
+    expect(html).toContain('class="markdown-alert-title">&lt;script&gt;x&lt;/script&gt;</p>');
+    expect(html).not.toContain('<script>x</script>');
+  });
+
+  it('leaves ordinary blockquotes alone', () => {
+    const html = renderMarkdown('> just a quote');
+    expect(html).toContain('<blockquote');
+    expect(html).not.toContain('markdown-alert');
+  });
+
+  it('preserves inline markdown inside alerts', () => {
+    const html = renderMarkdown('> [!TIP]\n> use **bold** and [link](https://example.com)');
+    expect(html).toContain('<strong>bold</strong>');
+    expect(html).toContain('href="https://example.com"');
+    expect(html).toContain('markdown-alert-tip');
+  });
+
+  it('transforms HyperDown preview HTML the same way', () => {
+    const hd = new HyperDown();
+    hd.enableHtml(true);
+    hd.enableLine(true);
+    const raw = hd.makeHtml(alertSource('WARNING', '请三思'));
+    expect(raw).toContain('<blockquote');
+    const html = transformGithubAlerts(raw);
+    expect(html).toContain('markdown-alert-warning');
+    expect(html).toContain('class="markdown-alert-title">WARNING</p>');
+    expect(html).toContain('请三思');
+    expect(html).not.toContain('[!WARNING]');
+  });
+
+  it('keeps alerts across <!--more--> excerpt splits', () => {
+    const html = renderContentExcerpt(
+      '> [!NOTE]\n> intro<!--more-->\n\nafter',
+      'more',
+      '/p/',
+    );
+    expect(html).toContain('markdown-alert-note');
+    expect(html).toContain('intro');
+    expect(html).not.toContain('after');
   });
 });
 
@@ -322,6 +404,13 @@ describe('renderCommentText', () => {
     const markdown = renderCommentText('**bold**', { markdown: true });
     expect(plain).not.toContain('<strong>');
     expect(markdown).toContain('<strong>bold</strong>');
+  });
+
+  it('renders GFM alerts when comment markdown is enabled', () => {
+    const html = renderCommentText('> [!NOTE]\n> 评论提示', { markdown: true });
+    expect(html).toContain('markdown-alert-note');
+    expect(html).toContain('class="markdown-alert-title">NOTE</p>');
+    expect(html).toContain('评论提示');
   });
 });
 

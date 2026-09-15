@@ -42,6 +42,7 @@ export {
   autop,
   stripTypechoMarkers,
   stripHtmlTags,
+  transformGithubAlerts,
 } from './markdown';
 
 // ── Network ──

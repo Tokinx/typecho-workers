@@ -2,6 +2,9 @@ import { marked } from 'marked';
 import sanitizeHtml from 'sanitize-html';
 import { applyFilter, type HookContext } from '@/lib/plugin';
 import { escapeHtml as escapeHtmlShared } from '@/lib/escape';
+import { transformGithubAlerts } from '@/lib/markdown-alerts';
+
+export { transformGithubAlerts } from '@/lib/markdown-alerts';
 
 // ─── HTML escape helper ─────────────────────────────────────────────────────
 
@@ -25,6 +28,9 @@ const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
     a: ['href', 'title', 'target', 'rel'],
     code: ['class'],
     pre: ['class'],
+    // GFM alerts (`> [!NOTE]`) render as classed blockquotes.
+    blockquote: ['class', 'data-alert'],
+    p: ['class'],
     td: ['align', 'valign'],
     th: ['align', 'valign'],
     iframe: ['src', 'width', 'height', 'frameborder', 'allowfullscreen'],
@@ -43,6 +49,8 @@ const COMMENT_MARKDOWN_OPTIONS: sanitizeHtml.IOptions = {
     img: ['src', 'alt', 'title'],
     code: ['class'],
     pre: ['class'],
+    blockquote: ['class', 'data-alert'],
+    p: ['class'],
   },
 };
 
@@ -132,7 +140,7 @@ export function renderContent(text: string, maxExcerptLength = 200): RenderedCon
   }
 
   const content = stripMarkdownPrefix(text).replace(MORE_COMMENT_RE, '');
-  const parsed = marked.parse(content, { async: false }) as string;
+  const parsed = transformGithubAlerts(marked.parse(content, { async: false }) as string);
   const html = sanitizeHtml(parsed, SANITIZE_OPTIONS);
   const plain = stripHtmlTags(parsed);
   const plainExcerpt = plain.length <= maxExcerptLength
@@ -155,7 +163,9 @@ export function renderCommentText(text: string, options: CommentRenderOptions = 
 
   const sanitizeOptions = buildCommentSanitizeOptions(options.htmlTagAllowed, !!options.markdown);
   if (options.markdown) {
-    const html = marked.parse(stripMarkdownPrefix(text), { async: false }) as string;
+    const html = transformGithubAlerts(
+      marked.parse(stripMarkdownPrefix(text), { async: false }) as string,
+    );
     return sanitizeHtml(html, sanitizeOptions);
   }
 
@@ -200,7 +210,7 @@ export async function renderMarkdownFiltered(ctx: HookContext, text: string): Pr
     console.error('[markdown] content:markdown filter failed:', error);
   }
 
-  const html = marked.parse(content, { async: false }) as string;
+  const html = transformGithubAlerts(marked.parse(content, { async: false }) as string);
   let sanitized = sanitizeHtml(html, SANITIZE_OPTIONS);
 
   try {
@@ -254,7 +264,7 @@ export function renderContentExcerpt(
   // regardless of whether the author placed <!--more--> inline or between
   // paragraphs — enabling a clean split on the rendered output.
   const withPlaceholder = content.replace(MORE_COMMENT_RE, '\n\n' + MORE_PLACEHOLDER + '\n\n');
-  const html = marked.parse(withPlaceholder, { async: false }) as string;
+  const html = transformGithubAlerts(marked.parse(withPlaceholder, { async: false }) as string);
   const sanitized = sanitizeHtml(html, SANITIZE_OPTIONS);
 
   // Split on the rendered placeholder and keep only the excerpt (part before it).
