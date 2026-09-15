@@ -111,9 +111,36 @@ function getPage(locals: Record<string, unknown>, url: URL): number {
   return raw ? (typeof raw === 'number' ? raw : parseInt(raw, 10) || 1) : 1;
 }
 
+function compareCommentsByCreated(
+  a: { created: number; coid: number },
+  b: { created: number; coid: number },
+): number {
+  if (a.created !== b.created) return a.created - b.created;
+  return a.coid - b.coid;
+}
+
+/**
+ * commentsOrder only applies to top-level comments. Nested replies stay
+ * chronological (oldest → newest) so conversation threads read naturally.
+ */
+function sortCommentTree(roots: CommentNode[], rootOrder: 'ASC' | 'DESC'): CommentNode[] {
+  const sortLevel = (nodes: CommentNode[], order: 'ASC' | 'DESC') => {
+    nodes.sort((a, b) => {
+      const cmp = compareCommentsByCreated(a, b);
+      return order === 'DESC' ? -cmp : cmp;
+    });
+    for (const node of nodes) {
+      sortLevel(node.children, 'ASC');
+    }
+  };
+  sortLevel(roots, rootOrder);
+  return roots;
+}
+
 export function buildCommentTree(allComments: CommentRow[], options: SiteOptions): CommentNode[] {
   const map = new Map<number, CommentNode>();
   const roots: CommentNode[] = [];
+  const rootOrder = options.commentsOrder === 'DESC' ? 'DESC' : 'ASC';
 
   for (const c of allComments) {
     map.set(c.coid, {
@@ -132,7 +159,8 @@ export function buildCommentTree(allComments: CommentRow[], options: SiteOptions
   }
 
   if (!options.commentsThreaded) {
-    return allComments.map(comment => map.get(comment.coid)!);
+    const flat = allComments.map(comment => map.get(comment.coid)!);
+    return sortCommentTree(flat, rootOrder);
   }
 
   for (const c of allComments) {
@@ -144,7 +172,7 @@ export function buildCommentTree(allComments: CommentRow[], options: SiteOptions
     }
   }
 
-  return roots;
+  return sortCommentTree(roots, rootOrder);
 }
 
 export async function buildGravatarMap(allComments: CommentRow[], avatarRating: string): Promise<Record<number, string>> {

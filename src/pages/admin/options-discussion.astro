@@ -89,7 +89,7 @@ const commentsMaxNestingLevels = Math.min(7, Math.max(2, Number(options.comments
               <option value="DESC" selected={options.commentsOrder === 'DESC'}>较新的</option>
               <option value="ASC" selected={!options.commentsOrder || options.commentsOrder === 'ASC'}>较旧的</option>
             </select>
-            <label for="commentsShow-commentsOrder">的评论显示在前面</label>
+            <label for="commentsShow-commentsOrder">的主评论显示在前面（嵌套子评论始终按时间正序）</label>
           </span>
         </li>
       </ul>

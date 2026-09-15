@@ -94,6 +94,31 @@ describe('loadCommentPage', () => {
     expect(second.pagination.totalPages).toBe(2);
   });
 
+  it('orders roots by commentsOrder while keeping replies chronological', async () => {
+    const rootOld = await addComment(10);
+    const replyOlder = await addComment(20, rootOld.coid);
+    const replyNewer = await addComment(30, rootOld.coid);
+    const rootNew = await addComment(40);
+    const newReplyOlder = await addComment(50, rootNew.coid);
+    const newReplyNewer = await addComment(60, rootNew.coid);
+
+    const page = await loadCommentPage(
+      db as any,
+      1,
+      options({ commentsPageSize: 10, commentsOrder: 'DESC' }),
+      'https://example.com/post?commentPage=1',
+    );
+
+    expect(page.rows.map(row => row.coid)).toEqual([
+      rootNew.coid,
+      newReplyOlder.coid,
+      newReplyNewer.coid,
+      rootOld.coid,
+      replyOlder.coid,
+      replyNewer.coid,
+    ]);
+  });
+
   it('treats approved replies with a missing or unapproved parent as roots', async () => {
     const waitingParent = await db.insert(schema.comments).values({
       cid: 1,
@@ -235,5 +260,34 @@ describe('loadPublicCommentPage', () => {
     expect(first.pagination.hasNext).toBe(true);
     expect(second.pagination.hasNext).toBe(true);
     expect(rootThree.coid).not.toBe(first.rows.at(-1)?.coid);
+  });
+
+  it('keeps public threaded replies chronological under DESC root order', async () => {
+    const rootOld = await addComment(10);
+    const replyOlder = await addComment(20, rootOld.coid);
+    const replyNewer = await addComment(30, rootOld.coid);
+    const rootNew = await addComment(40);
+
+    const first = await loadPublicCommentPage(
+      db as any,
+      1,
+      options({ commentsPageSize: 1, commentsOrder: 'DESC' }),
+      'https://example.com/post?commentPage=1',
+    );
+    const second = await loadPublicCommentPage(
+      db as any,
+      1,
+      options({ commentsPageSize: 1, commentsOrder: 'DESC' }),
+      'https://example.com/post?commentPage=2',
+    );
+
+    expect(first.rows.map(row => row.coid)).toEqual([rootNew.coid]);
+    expect(second.rows.map(row => row.coid)).toEqual([
+      rootOld.coid,
+      replyOlder.coid,
+      replyNewer.coid,
+    ]);
+    expect(first.pagination.hasNext).toBe(true);
+    expect(second.pagination.hasNext).toBe(false);
   });
 });

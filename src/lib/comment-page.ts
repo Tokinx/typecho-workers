@@ -25,8 +25,18 @@ export interface CommentPage {
   pagination: CommentPagination;
 }
 
+type ThreadedCommentRow = CommentRow & {
+  __root_created?: number;
+  __root_coid?: number;
+};
+
 const COMMENT_PAGE_SIZE_MAX = 100;
 const COMMENT_LEGACY_UNPAGED_MAX = 200;
+
+/** Drop CTE-only sort keys so callers receive plain comment rows. */
+function stripThreadSortKeys(rows: ThreadedCommentRow[]): CommentRow[] {
+  return rows.map(({ __root_created: _rootCreated, __root_coid: _rootCoid, ...row }) => row);
+}
 
 function pageUrl(requestUrl: string, page: number): string {
   const url = new URL(requestUrl);
@@ -255,7 +265,7 @@ export async function loadCommentPage(
   // recursive expansion to the selected thread. Capability-based pending
   // comment reads keep the general predicate below.
   if (!unapprovedCommentId) {
-    const rows = await db.all<CommentRow>(sql`
+    const rows = await db.all<ThreadedCommentRow>(sql`
       WITH RECURSIVE selected_roots(coid) AS (
         SELECT candidate.coid
         FROM ${schema.comments} AS candidate INDEXED BY typecho_comments_cid_status_created
@@ -270,11 +280,15 @@ export async function loadCommentPage(
         LIMIT ${pageSize} OFFSET ${offset}
       ),
       thread AS (
-        SELECT comment.*
+        SELECT comment.*,
+          comment.created AS "__root_created",
+          comment.coid AS "__root_coid"
         FROM ${schema.comments} AS comment
         INNER JOIN selected_roots AS root ON root.coid = comment.coid
         UNION ALL
-        SELECT child.*
+        SELECT child.*,
+          parent_comment."__root_created",
+          parent_comment."__root_coid"
         FROM ${schema.comments} AS child INDEXED BY typecho_comments_cid_parent_status
         INNER JOIN thread AS parent_comment ON child.parent = parent_comment.coid
         WHERE child.cid = ${cid}
@@ -282,9 +296,9 @@ export async function loadCommentPage(
       )
       SELECT *
       FROM thread
-      ORDER BY created ${orderSql}, coid ${orderSql}
+      ORDER BY "__root_created" ${orderSql}, "__root_coid" ${orderSql}, created ASC, coid ASC
     `);
-    return { rows, pagination };
+    return { rows: stripThreadSortKeys(rows), pagination };
   }
 
   const candidateStatus = unapprovedCommentId
@@ -293,7 +307,7 @@ export async function loadCommentPage(
   const childStatus = unapprovedCommentId
     ? sql`(child.status = 'approved' OR child.coid = ${unapprovedCommentId})`
     : sql`child.status = 'approved'`;
-  const rows = await db.all<CommentRow>(sql`
+  const rows = await db.all<ThreadedCommentRow>(sql`
     WITH RECURSIVE selected_roots(coid) AS (
       SELECT candidate.coid
       FROM ${schema.comments} AS candidate
@@ -313,11 +327,15 @@ export async function loadCommentPage(
       LIMIT ${pageSize} OFFSET ${offset}
     ),
     thread AS (
-      SELECT comment.*
+      SELECT comment.*,
+        comment.created AS "__root_created",
+        comment.coid AS "__root_coid"
       FROM ${schema.comments} AS comment
       INNER JOIN selected_roots AS root ON root.coid = comment.coid
       UNION ALL
-      SELECT child.*
+      SELECT child.*,
+        parent_comment."__root_created",
+        parent_comment."__root_coid"
       FROM ${schema.comments} AS child
       INNER JOIN thread AS parent_comment ON child.parent = parent_comment.coid
       WHERE child.cid = ${cid}
@@ -325,9 +343,9 @@ export async function loadCommentPage(
     )
     SELECT *
     FROM thread
-    ORDER BY created ${orderSql}, coid ${orderSql}
+    ORDER BY "__root_created" ${orderSql}, "__root_coid" ${orderSql}, created ASC, coid ASC
   `);
-  return { rows, pagination };
+  return { rows: stripThreadSortKeys(rows), pagination };
 }
 
 /**
@@ -390,7 +408,7 @@ async function loadPublicPagedCommentPage(
   }
 
   const orderSql = order === 'DESC' ? sql`DESC` : sql`ASC`;
-  type PublicThreadRow = CommentRow & { __has_next?: number };
+  type PublicThreadRow = ThreadedCommentRow & { __has_next?: number };
   const rows = await db.all<PublicThreadRow>(sql`
     WITH RECURSIVE selected_roots(coid) AS (
       SELECT candidate.coid
@@ -411,11 +429,15 @@ async function loadPublicPagedCommentPage(
       LIMIT ${pageSize}
     ),
     thread AS (
-      SELECT comment.*
+      SELECT comment.*,
+        comment.created AS "__root_created",
+        comment.coid AS "__root_coid"
       FROM ${schema.comments} AS comment
       INNER JOIN paged_roots AS root ON root.coid = comment.coid
       UNION ALL
-      SELECT child.*
+      SELECT child.*,
+        parent_comment."__root_created",
+        parent_comment."__root_coid"
       FROM ${schema.comments} AS child INDEXED BY typecho_comments_cid_parent_status
       INNER JOIN thread AS parent_comment ON child.parent = parent_comment.coid
       WHERE child.cid = ${cid}
@@ -428,11 +450,11 @@ async function loadPublicPagedCommentPage(
         LIMIT 1 OFFSET ${pageSize}
       ) AS "__has_next"
     FROM thread
-    ORDER BY created ${orderSql}, coid ${orderSql}
+    ORDER BY "__root_created" ${orderSql}, "__root_coid" ${orderSql}, created ASC, coid ASC
   `);
   const hasNext = Number(rows[0]?.__has_next || 0) === 1;
   return {
-    rows: rows.map(({ __has_next: _hasNext, ...row }) => row),
+    rows: rows.map(({ __has_next: _hasNext, __root_created: _rootCreated, __root_coid: _rootCoid, ...row }) => row),
     pagination: buildLookaheadPagination(
       requestUrl,
       true,
