@@ -113,6 +113,36 @@ describe('transformGithubAlerts / GFM alerts', () => {
     expect(html).not.toContain('[!WARNING]');
   });
 
+  it('splits HyperDown-merged consecutive quotes into separate alerts', () => {
+    const hd = new HyperDown();
+    hd.enableHtml(true);
+    hd.enableLine(true);
+    const md = [
+      '> 普通引用',
+      '',
+      '> [!AAA]',
+      '> 自定义',
+      '',
+      '> [!NOTE]',
+      '> 提示',
+      '',
+      '> [!TIP]',
+      '> 技巧',
+    ].join('\n');
+    const raw = hd.makeHtml(md);
+    // HyperDown merges consecutive quotes into one blockquote.
+    expect(raw.match(/<blockquote/gi)?.length ?? 0).toBe(1);
+    const html = transformGithubAlerts(raw);
+    expect(html).toContain('<blockquote><p>普通引用</p></blockquote>');
+    expect(html).toContain('data-alert="AAA"');
+    expect(html).toContain('class="markdown-alert-title">AAA</p>');
+    expect(html).toContain('markdown-alert-note');
+    expect(html).toContain('markdown-alert-tip');
+    expect(html).not.toContain('[!NOTE]');
+    expect(html).not.toContain('[!TIP]');
+    expect(html).not.toContain('[!AAA]');
+  });
+
   it('keeps alerts across <!--more--> excerpt splits', () => {
     const html = renderContentExcerpt(
       '> [!NOTE]\n> intro<!--more-->\n\nafter',

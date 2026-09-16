@@ -77,7 +77,8 @@ export function notesAdminPageHtml(csrfToken: string): string {
 .note-meta{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:9px;color:#a0aaba;font-size:12px}
 .note-meta-left{display:flex;align-items:center;gap:8px;min-width:0}
 .note-visibility{color:#7f8da1}.note-body{font-size:15px;line-height:1.8;color:#3f4b5f;overflow-wrap:anywhere}.note-body>:first-child{margin-top:0}.note-body>:last-child{margin-bottom:0}.note-body img{max-width:100%;height:auto;border-radius:3px}
-.note-body .markdown-alert{margin:12px 0;padding:1rem;border-left:3px solid #e7eaf0;color:#403d39;line-height:1;letter-spacing:0;background:#f9f9f8}.note-body .markdown-alert>:first-child{margin-top:0}.note-body .markdown-alert>:last-child{margin-bottom:0}.note-body .markdown-alert-title{margin:0 0 .5rem!important;font-weight:650;font-size:.92rem;letter-spacing:.02em}.note-body .markdown-alert p{margin:0 0 .85em;line-height:1.75}
+.note-body :is(blockquote,.markdown-alert){margin:12px 0;padding:1rem;border-left:3px solid #e7eaf0;color:#64748b;background:#f9f9f8}.note-body :is(blockquote,.markdown-alert)>:first-child{margin-top:0}.note-body :is(blockquote,.markdown-alert)>:last-child{margin-bottom:0}
+.note-body .markdown-alert{color:#403d39;line-height:1;letter-spacing:0}.note-body .markdown-alert-title{margin:0 0 .5rem!important;font-weight:650;font-size:.92rem;letter-spacing:.02em}.note-body .markdown-alert p{margin:0 0 .85em;line-height:1.75}
 .note-body .markdown-alert-note{border-left-color:#0969da}.note-body .markdown-alert-note .markdown-alert-title{color:#0969da}
 .note-body .markdown-alert-tip{border-left-color:#1a7f37}.note-body .markdown-alert-tip .markdown-alert-title{color:#1a7f37}
 .note-body .markdown-alert-warning{border-left-color:#bf8700}.note-body .markdown-alert-warning .markdown-alert-title{color:#bf8700}

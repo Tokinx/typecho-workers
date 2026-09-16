@@ -6,6 +6,10 @@
  *
  * The text inside `[!…]` is shown as the alert title. Border accent
  * colors are only applied for NOTE / TIP / WARNING (case-insensitive).
+ *
+ * HyperDown with `enableLine(true)` merges consecutive `>` blocks into one
+ * `<blockquote>` with multiple `<p>` children — those are split here so
+ * each `[!label]` paragraph becomes its own alert.
  */
 
 import { escapeHtml } from '@/lib/escape';
@@ -20,10 +24,11 @@ const MARKER_TAIL_RE = '(?:[ \\t]*<br\\s*\\/?>|[ \\t]*\\n|[ \\t]+)?';
 /** Capture any non-empty label up to 64 chars (no nested `]`). */
 const LABEL_CAPTURE = '([^\\]]{1,64}?)';
 const HAS_ALERT_MARKER_RE = /\[![^\]]+\]/;
+const PARAGRAPH_RE = /<p\b[^>]*>[\s\S]*?<\/p>/gi;
 
 /**
- * Rewrite blockquotes that begin with `[!label]` into alert blockquotes
- * with the extracted label shown as a title.
+ * Rewrite blockquotes that begin with (or contain) `[!label]` into alert
+ * blockquotes with the extracted label shown as a title.
  *
  * Non-alert blockquotes are left unchanged.
  */
@@ -32,37 +37,88 @@ export function transformGithubAlerts(html: string): string {
     return html;
   }
 
-  return html.replace(/<blockquote\b[^>]*>([\s\S]*?)<\/blockquote>/gi, (full, inner: string) => {
+  return html.replace(/<blockquote\b[^>]*>([\s\S]*?)<\/blockquote>/gi, (_full, inner: string) => {
     const cleaned = String(inner).replace(LINE_SPAN_RE, '').trim();
-
-    // marked: <p>[!label]\nbody</p>  (+ optional sibling blocks)
-    const pMatch = cleaned.match(
-      new RegExp(
-        `^<p(?:\\s[^>]*)?>\\s*\\[!${LABEL_CAPTURE}\\]${MARKER_TAIL_RE}([\\s\\S]*?)<\\/p>([\\s\\S]*)$`,
-        'i',
-      ),
-    );
-    if (pMatch) {
-      const label = pMatch[1].trim();
-      if (!label) return full;
-      const first = pMatch[2].trim();
-      const rest = pMatch[3].trim();
-      const body = [first ? `<p>${first}</p>` : '', rest].filter(Boolean).join('\n');
-      return renderAlert(label, body);
+    if (!HAS_ALERT_MARKER_RE.test(cleaned)) {
+      return `<blockquote>${inner}</blockquote>`;
     }
 
-    // HyperDown: [!label]<br>body  (no wrapping <p>)
+    // HyperDown line-mode: several consecutive quotes merged into one
+    // blockquote with multiple <p> children. Split per paragraph.
+    const paragraphs = cleaned.match(PARAGRAPH_RE);
+    if (paragraphs && paragraphs.length > 0) {
+      return splitMergedBlockquote(cleaned, paragraphs);
+    }
+
+    // HyperDown single alert without a wrapping <p>: [!label]<br>body
     const rawMatch = cleaned.match(
       new RegExp(`^\\[!${LABEL_CAPTURE}\\]${MARKER_TAIL_RE}([\\s\\S]*)$`, 'i'),
     );
     if (rawMatch) {
       const label = rawMatch[1].trim();
-      if (!label) return full;
-      return renderAlert(label, wrapAlertBody(rawMatch[2].trim()));
+      if (label) return renderAlert(label, wrapAlertBody(rawMatch[2].trim()));
     }
 
-    return full;
+    return `<blockquote>${inner}</blockquote>`;
   });
+}
+
+/**
+ * Turn a merged HyperDown / marked blockquote into a sequence of normal
+ * quotes and alert quotes, keyed off paragraphs that start with `[!label]`.
+ */
+function splitMergedBlockquote(cleaned: string, paragraphs: string[]): string {
+  const alertParaRe = new RegExp(
+    `^<p(?:\\s[^>]*)?>\\s*\\[!${LABEL_CAPTURE}\\]${MARKER_TAIL_RE}([\\s\\S]*?)<\\/p>$`,
+    'i',
+  );
+
+  type Segment =
+    | { kind: 'quote'; html: string }
+    | { kind: 'alert'; label: string; body: string };
+
+  const segments: Segment[] = [];
+  let cursor = 0;
+
+  for (const para of paragraphs) {
+    const index = cleaned.indexOf(para, cursor);
+    if (index === -1) continue;
+    const before = cleaned.slice(cursor, index).trim();
+    if (before) pushQuote(segments, before);
+    cursor = index + para.length;
+
+    const match = para.match(alertParaRe);
+    if (match) {
+      const label = match[1].trim();
+      if (label) {
+        const body = match[2].trim();
+        segments.push({ kind: 'alert', label, body: body ? `<p>${body}</p>` : '' });
+        continue;
+      }
+    }
+    pushQuote(segments, para);
+  }
+
+  const after = cleaned.slice(cursor).trim();
+  if (after) pushQuote(segments, after);
+
+  if (!segments.some(seg => seg.kind === 'alert')) {
+    return `<blockquote>${cleaned}</blockquote>`;
+  }
+
+  return segments.map(seg => {
+    if (seg.kind === 'alert') return renderAlert(seg.label, seg.body);
+    return `<blockquote>${seg.html}</blockquote>`;
+  }).join('');
+}
+
+function pushQuote(segments: Array<{ kind: 'quote'; html: string } | { kind: 'alert'; label: string; body: string }>, html: string): void {
+  const last = segments[segments.length - 1];
+  if (last?.kind === 'quote') {
+    last.html += html;
+    return;
+  }
+  segments.push({ kind: 'quote', html });
 }
 
 function wrapAlertBody(body: string): string {

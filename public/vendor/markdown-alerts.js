@@ -2,8 +2,9 @@
  * GitHub-style markdown alerts for HyperDown / admin preview.
  * Keep in sync with src/lib/markdown-alerts.ts.
  *
- * Transforms `> [!任意标题]` into a blockquote whose title is the
- * extracted label. Border accents: NOTE blue / TIP green / WARNING yellow.
+ * HyperDown with enableLine(true) merges consecutive `>` blocks into one
+ * <blockquote> with multiple <p> children — those are split so each
+ * `[!label]` paragraph becomes its own alert.
  */
 (function (root) {
   'use strict';
@@ -12,6 +13,7 @@
   var MARKER_TAIL_RE = '(?:[ \\t]*<br\\s*\\/?>|[ \\t]*\\n|[ \\t]+)?';
   var LABEL_CAPTURE = '([^\\]]{1,64}?)';
   var HAS_ALERT_MARKER_RE = /\[![^\]]+\]/;
+  var PARAGRAPH_RE = /<p\b[^>]*>[\s\S]*?<\/p>/gi;
 
   function escapeHtml(str) {
     return String(str)
@@ -48,26 +50,73 @@
     );
   }
 
+  function pushQuote(segments, html) {
+    var last = segments[segments.length - 1];
+    if (last && last.kind === 'quote') {
+      last.html += html;
+      return;
+    }
+    segments.push({ kind: 'quote', html: html });
+  }
+
+  function splitMergedBlockquote(cleaned, paragraphs) {
+    var alertParaRe = new RegExp(
+      '^<p(?:\\s[^>]*)?>\\s*\\[!' + LABEL_CAPTURE + '\\]' + MARKER_TAIL_RE + '([\\s\\S]*?)<\\/p>$',
+      'i'
+    );
+    var segments = [];
+    var cursor = 0;
+    var i;
+
+    for (i = 0; i < paragraphs.length; i++) {
+      var para = paragraphs[i];
+      var index = cleaned.indexOf(para, cursor);
+      if (index === -1) continue;
+      var before = cleaned.slice(cursor, index).trim();
+      if (before) pushQuote(segments, before);
+      cursor = index + para.length;
+
+      var match = para.match(alertParaRe);
+      if (match) {
+        var label = match[1].trim();
+        if (label) {
+          var body = match[2].trim();
+          segments.push({ kind: 'alert', label: label, body: body ? '<p>' + body + '</p>' : '' });
+          continue;
+        }
+      }
+      pushQuote(segments, para);
+    }
+
+    var after = cleaned.slice(cursor).trim();
+    if (after) pushQuote(segments, after);
+
+    var hasAlert = false;
+    for (i = 0; i < segments.length; i++) {
+      if (segments[i].kind === 'alert') { hasAlert = true; break; }
+    }
+    if (!hasAlert) return '<blockquote>' + cleaned + '</blockquote>';
+
+    return segments.map(function (seg) {
+      if (seg.kind === 'alert') return renderAlert(seg.label, seg.body);
+      return '<blockquote>' + seg.html + '</blockquote>';
+    }).join('');
+  }
+
   function transformGithubAlerts(html) {
     if (!html || !HAS_ALERT_MARKER_RE.test(html)) {
       return html;
     }
 
-    return String(html).replace(/<blockquote\b[^>]*>([\s\S]*?)<\/blockquote>/gi, function (full, inner) {
+    return String(html).replace(/<blockquote\b[^>]*>([\s\S]*?)<\/blockquote>/gi, function (_full, inner) {
       var cleaned = String(inner).replace(LINE_SPAN_RE, '').trim();
+      if (!HAS_ALERT_MARKER_RE.test(cleaned)) {
+        return '<blockquote>' + inner + '</blockquote>';
+      }
 
-      var pRe = new RegExp(
-        '^<p(?:\\s[^>]*)?>\\s*\\[!' + LABEL_CAPTURE + '\\]' + MARKER_TAIL_RE + '([\\s\\S]*?)<\\/p>([\\s\\S]*)$',
-        'i'
-      );
-      var pMatch = cleaned.match(pRe);
-      if (pMatch) {
-        var pLabel = pMatch[1].trim();
-        if (!pLabel) return full;
-        var first = pMatch[2].trim();
-        var rest = pMatch[3].trim();
-        var pBody = [first ? '<p>' + first + '</p>' : '', rest].filter(Boolean).join('\n');
-        return renderAlert(pLabel, pBody);
+      var paragraphs = cleaned.match(PARAGRAPH_RE);
+      if (paragraphs && paragraphs.length > 0) {
+        return splitMergedBlockquote(cleaned, paragraphs);
       }
 
       var rawRe = new RegExp(
@@ -77,11 +126,10 @@
       var rawMatch = cleaned.match(rawRe);
       if (rawMatch) {
         var rawLabel = rawMatch[1].trim();
-        if (!rawLabel) return full;
-        return renderAlert(rawLabel, wrapAlertBody(rawMatch[2].trim()));
+        if (rawLabel) return renderAlert(rawLabel, wrapAlertBody(rawMatch[2].trim()));
       }
 
-      return full;
+      return '<blockquote>' + inner + '</blockquote>';
     });
   }
 

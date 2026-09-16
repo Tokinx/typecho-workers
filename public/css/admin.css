@@ -929,20 +929,22 @@ select { border: 1px solid #CCC; height: 28px; }
 
 #wmd-preview pre code, .wmd-preview pre code { padding: 0; color: #444; }
 
-#wmd-preview blockquote, .wmd-preview blockquote { margin: 1em 1.5em; padding-left: 1.5em; border-left: 4px solid #E9E9E6; color: #777; }
-
-/* Alerts (`> [!NOTE]`) — article / Engine / Notes editor preview */
-#wmd-preview .markdown-alert, .wmd-preview .markdown-alert {
+#wmd-preview :is(blockquote,.markdown-alert), .wmd-preview :is(blockquote,.markdown-alert) {
   margin: 1em 0;
   padding: 1rem;
   border-left: 4px solid #E9E9E6;
+  color: #777;
+  background: #f9f9f8;
+}
+#wmd-preview :is(blockquote,.markdown-alert) > :first-child, .wmd-preview :is(blockquote,.markdown-alert) > :first-child { margin-top: 0; }
+#wmd-preview :is(blockquote,.markdown-alert) > :last-child, .wmd-preview :is(blockquote,.markdown-alert) > :last-child { margin-bottom: 0; }
+
+/* Alerts (`> [!NOTE]`) — same panel as quote, plus title / accent colors */
+#wmd-preview .markdown-alert, .wmd-preview .markdown-alert {
   color: #444;
   line-height: 1;
   letter-spacing: 0;
-  background: #f9f9f8;
 }
-#wmd-preview .markdown-alert > :first-child, .wmd-preview .markdown-alert > :first-child { margin-top: 0; }
-#wmd-preview .markdown-alert > :last-child, .wmd-preview .markdown-alert > :last-child { margin-bottom: 0; }
 #wmd-preview .markdown-alert-title, .wmd-preview .markdown-alert-title {
   margin: 0 0 .5rem !important;
   font-weight: 700;
@@ -962,17 +964,20 @@ select { border: 1px solid #CCC; height: 28px; }
 #wmd-preview .markdown-alert-warning .markdown-alert-title, .wmd-preview .markdown-alert-warning .markdown-alert-title { color: #bf8700; }
 
 /* Comment list preview (manage-comments) */
-.comment-content .markdown-alert {
+.comment-content blockquote {
   margin: .75em 0;
   padding: .75rem .85rem;
   border-left: 3px solid #E9E9E6;
+  color: #777;
+  background: #f9f9f8;
+}
+.comment-content blockquote > :first-child { margin-top: 0; }
+.comment-content blockquote > :last-child { margin-bottom: 0; }
+.comment-content .markdown-alert {
   color: #444;
   line-height: 1;
   letter-spacing: 0;
-  background: #f9f9f8;
 }
-.comment-content .markdown-alert > :first-child { margin-top: 0; }
-.comment-content .markdown-alert > :last-child { margin-bottom: 0; }
 .comment-content .markdown-alert-title {
   margin: 0 0 .45rem !important;
   font-weight: 700;

@@ -771,12 +771,13 @@ body.warm-theme {
 .warm-prose blockquote,
 .warm-note__content blockquote {
   margin: 1.7em 0;
-  padding-left: 1.35em;
+  padding: 1em 1em 1em 1.35em;
   border-left: 1px solid #d9d5cf;
   color: #625d57;
   font-family: var(--warm-serif);
   font-size: 1.08em;
   letter-spacing: .005em;
+  background: #f9f9f8;
 }
 
 .warm-prose blockquote p,
@@ -784,28 +785,22 @@ body.warm-theme {
   margin-bottom: 1em;
 }
 
+.warm-prose blockquote > :first-child,
+.warm-note__content blockquote > :first-child {
+  margin-top: 0;
+}
+
 .warm-prose blockquote > :last-child,
 .warm-note__content blockquote > :last-child {
   margin-bottom: 0;
 }
 
-/* GitHub-style markdown alerts (`> [!NOTE]` …) */
+/* GitHub-style markdown alerts (`> [!NOTE]` …) — same panel as quote, plus title */
 .warm-prose .markdown-alert,
 .warm-note__content .markdown-alert {
-  padding: 1em 1em 1em 1.35em;
   line-height: 1;
   letter-spacing: 0;
-  background: #f9f9f8;
-}
-
-.warm-prose .markdown-alert > :first-child,
-.warm-note__content .markdown-alert > :first-child {
-  margin-top: 0;
-}
-
-.warm-prose .markdown-alert > :last-child,
-.warm-note__content .markdown-alert > :last-child {
-  margin-bottom: 0;
+  color: #403d39;
 }
 
 .warm-prose .markdown-alert-title,
