@@ -173,15 +173,15 @@ describe('scanner fast-fail 404', () => {
       // Existing category under the custom pattern → rewritten, not 404.
       const next = vi.fn(async () => new Response('category page', { status: 200 }));
       const response = await onRequest(makeCtx('/topics/guides/'), next) as Response;
-      expect(response.status).toBe(302); // ctx.rewrite mock
-      expect(next).not.toHaveBeenCalled();
+      expect(response.status).toBe(200);
+      expect(next).toHaveBeenCalledExactlyOnceWith('/category/guides/');
 
       // Any slug under the custom pattern rewrites (existence is resolved
       // by the category route) — the fast-fail must not intercept it.
       const next2 = vi.fn(async () => new Response('category page', { status: 200 }));
       const response2 = await onRequest(makeCtx('/topics/does-not-exist/'), next2) as Response;
-      expect(response2.status).toBe(302);
-      expect(next2).not.toHaveBeenCalled();
+      expect(response2.status).toBe(200);
+      expect(next2).toHaveBeenCalledExactlyOnceWith('/category/does-not-exist/');
 
       // A multi-segment path matching no pattern at all → fast 404.
       const next3 = vi.fn(async () => new Response('rendered', { status: 200 }));

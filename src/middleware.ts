@@ -30,9 +30,11 @@ import 'virtual:typecho-plugin-registry';
 const redirectToInstall = (request: Request) =>
   applySecurityHeaders(new Response(null, { status: 302, headers: { Location: '/install' } }), { request });
 
+const BUILT_IN_PAGE_ROUTE = /^\/[^/]+\.html$/;
+
 const BUILT_IN_ROUTES = [
   /^\/archives\/\d+\/?$/,       // post: /archives/{cid}/
-  /^\/[^/]+\.html$/,            // page: /{slug}.html
+  BUILT_IN_PAGE_ROUTE,           // page: /{slug}.html
   /^\/category\/[^/]+\/?$/,     // category: /category/{slug}/
   /^\/category\/[^/]+\/feed\.xml$/, // category feed
   /^\/tag\//,
@@ -183,6 +185,39 @@ const coreMiddleware = defineMiddleware(async (context, next) => {
     }
   }
 
+  // next(target) renders the internal route without restarting this middleware.
+  // In particular, a page's internal /{slug}.html target must not be mistaken
+  // for a configured post permalink on a second pass. Keep the normal render
+  // error handling and security headers for rewritten responses too.
+  const renderRoute = async (target?: string): Promise<Response> => {
+    let response: Response;
+    try {
+      const renderStartedAt = phases ? performance.now() : 0;
+      response = target ? await next(target) : await next();
+      if (phases) phases.renderMs = performance.now() - renderStartedAt;
+    } catch (err) {
+      console.error('[middleware] next() threw:', path, err);
+      return applySecurityHeaders(new Response('Server error', { status: 500 }), { request: context.request, cspWhitelist }, pluginCtx);
+    }
+    if (response.status === 404) {
+      // Only warn for admin paths (should never 404); info for everything else
+      // (bots hitting non-existent routes is normal traffic noise).
+      if (path.startsWith('/admin')) {
+        console.warn('[middleware] admin route 404:', { path, method: context.request.method });
+      }
+    }
+
+    response = await applySecurityHeaders(response, {
+      request: context.request,
+      // The editor's same-origin, sandboxed iframe is the sole exception to
+      // the default anti-framing policy.
+      allowSameOriginFrame: path === '/admin/preview',
+      cspWhitelist,
+    }, pluginCtx);
+
+    return response;
+  };
+
   // Let plugin routes handle the original URL before pagination rewrites bypass
   // the route hook (including plugin-owned paths ending in /page/N/).
   // Resolve custom category patterns only after options and plugin runtime
@@ -195,25 +230,22 @@ const coreMiddleware = defineMiddleware(async (context, next) => {
   );
   if (paginated) {
     context.locals._page = paginated.page;
-    return applySecurityHeaders(
-      await next(paginated.target),
-      { request: context.request, cspWhitelist },
-      pluginCtx,
-    );
+    return renderRoute(paginated.target);
   }
 
   // ── Permalink URL Rewriting ────────────────────────────────────────────────
-  // After a rewrite the middleware runs again on the NEW path.
-  // To avoid infinite loops, skip rewriting for paths that already
-  // match an Astro built-in route (the rewrite targets).
+  // Root-level .html URLs can be either default pages or custom permalinks.
+  // Match configured patterns before falling back to the page route, while
+  // retaining priority for all other built-in and reserved routes.
   const postPattern = options.permalinkPattern as string | undefined;
   const pagePattern = options.pagePattern as string | undefined;
   const categoryPattern = options.categoryPattern as string | undefined;
 
   const isBuiltInRoute = BUILT_IN_ROUTES.some((re) => re.test(path));
+  const isBuiltInPageRoute = BUILT_IN_PAGE_ROUTE.test(path);
 
   if (
-    !isBuiltInRoute &&
+    (!isBuiltInRoute || isBuiltInPageRoute) &&
     !path.startsWith('/admin') &&
     !path.startsWith('/api/') &&
     !path.startsWith('/feed') &&
@@ -232,6 +264,16 @@ const coreMiddleware = defineMiddleware(async (context, next) => {
 
           if (match.groups.cid) {
             cid = parseInt(match.groups.cid, 10);
+            if (isBuiltInPageRoute) {
+              // A numeric page slug (or a pagePattern using {cid}) can share
+              // this shape. Only an actual post may claim the post route;
+              // publication/visibility checks remain in the content loader.
+              const row = await db.query.contents.findFirst({
+                columns: { cid: true },
+                where: and(eq(schema.contents.cid, cid), eq(schema.contents.type, 'post')),
+              });
+              cid = row?.cid ?? null;
+            }
           } else if (match.groups.slug) {
             const row = await db.query.contents.findFirst({
               columns: { cid: true },
@@ -243,7 +285,7 @@ const coreMiddleware = defineMiddleware(async (context, next) => {
           }
 
           if (cid) {
-            return context.rewrite(`/archives/${cid}/`);
+            return renderRoute(`/archives/${cid}/${url.search}`);
           }
         }
       }
@@ -262,6 +304,13 @@ const coreMiddleware = defineMiddleware(async (context, next) => {
 
           if (match.groups.slug) {
             slug = match.groups.slug;
+            if (isBuiltInPageRoute) {
+              const row = await db.query.contents.findFirst({
+                columns: { slug: true },
+                where: and(eq(schema.contents.slug, slug), eq(schema.contents.type, 'page')),
+              });
+              slug = row?.slug ?? null;
+            }
           } else if (match.groups.cid) {
             const row = await db.query.contents.findFirst({
               columns: { slug: true },
@@ -276,7 +325,7 @@ const coreMiddleware = defineMiddleware(async (context, next) => {
           }
 
           if (slug) {
-            return context.rewrite(`/${slug}.html`);
+            return renderRoute(`/${slug}.html${url.search}`);
           }
         }
       }
@@ -295,6 +344,13 @@ const coreMiddleware = defineMiddleware(async (context, next) => {
 
           if (match.groups.slug) {
             slug = match.groups.slug;
+            if (isBuiltInPageRoute) {
+              const row = await db.query.metas.findFirst({
+                columns: { slug: true },
+                where: and(eq(schema.metas.slug, slug), eq(schema.metas.type, 'category')),
+              });
+              slug = row?.slug ?? null;
+            }
           } else if (match.groups.mid) {
             const row = await db.query.metas.findFirst({
               columns: { slug: true },
@@ -309,7 +365,7 @@ const coreMiddleware = defineMiddleware(async (context, next) => {
           }
 
           if (slug) {
-            return context.rewrite(`/category/${slug}/`);
+            return renderRoute(`/category/${slug}/${url.search}`);
           }
         }
       }
@@ -324,6 +380,7 @@ const coreMiddleware = defineMiddleware(async (context, next) => {
     // the offender. /note/ is the notes plugin's public route and
     // /.well-known/ hosts ACME challenges, so both are exempt.
     if (
+      !isBuiltInRoute &&
       !path.startsWith('/note/') &&
       !path.startsWith('/.well-known') &&
       isScannerPath(path)
@@ -349,33 +406,7 @@ const coreMiddleware = defineMiddleware(async (context, next) => {
     }
   }
 
-  // Execute the route handler
-  let response: Response;
-  try {
-    const renderStartedAt = phases ? performance.now() : 0;
-    response = await next();
-    if (phases) phases.renderMs = performance.now() - renderStartedAt;
-  } catch (err) {
-    console.error('[middleware] next() threw:', path, err);
-    return applySecurityHeaders(new Response('Server error', { status: 500 }), { request: context.request, cspWhitelist }, pluginCtx);
-  }
-  if (response.status === 404) {
-    // Only warn for admin paths (should never 404); info for everything else
-    // (bots hitting non-existent routes is normal traffic noise).
-    if (path.startsWith('/admin')) {
-      console.warn('[middleware] admin route 404:', { path, method: context.request.method });
-    }
-  }
-
-  response = await applySecurityHeaders(response, {
-    request: context.request,
-    // The editor's same-origin, sandboxed iframe is the sole exception to
-    // the default anti-framing policy.
-    allowSameOriginFrame: path === '/admin/preview',
-    cspWhitelist,
-  }, pluginCtx);
-
-  return response;
+  return renderRoute();
 });
 
 export const onRequest = defineMiddleware(async (context, next) => {
