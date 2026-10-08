@@ -4,6 +4,7 @@ import themeLoader from './src/integrations/theme-loader.ts';
 import pluginLoader from './src/integrations/plugin-loader.ts';
 import clientLoader from './src/integrations/client-loader.ts';
 import { sharedAliases } from './vite.shared.mjs';
+import { resolveBuildCommit } from './scripts/build-info.ts';
 
 const isBuild = process.argv.includes('build');
 
@@ -37,6 +38,9 @@ export default defineConfig({
   },
   integrations: [themeLoader(), pluginLoader(), clientLoader()],
   vite: {
+    define: {
+      __TYPECHO_BUILD_COMMIT__: JSON.stringify(resolveBuildCommit()),
+    },
     build: {
       minify: false,
       cssMinify: false,

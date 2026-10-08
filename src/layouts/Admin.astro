@@ -26,6 +26,7 @@ interface Props {
 
 const { title, options, urls, user, activeMenu, bodyClass, addLink, pluginCtx } = Astro.props;
 const _pluginCtx: HookContext = pluginCtx ?? { activatedPlugins: new Set<string>() };
+const buildCommit = __TYPECHO_BUILD_COMMIT__;
 
 const userGroup = user?.group || 'visitor';
 const isAdmin = hasPermission(userGroup, 'administrator');
@@ -196,7 +197,8 @@ if (adminNotice) {
   <div class="typecho-foot" role="contentinfo">
     <div class="copyright">
       <p>&copy; {new Date().getFullYear()} <a href={urls.siteUrl}>{options.title}</a>.
-      Powered by <a href="https://github.com/Tokinx/typecho-workers">Typecho Workers</a>.</p>
+      Powered by <a href="https://github.com/Tokinx/typecho-workers">Typecho Workers</a>.
+      <span class="build-revision" title={buildCommit ? `Git commit: ${buildCommit}` : '未提供 Git 提交信息'}>{buildCommit?.slice(0, 7) ?? 'unknown'}</span></p>
     </div>
   </div>
 

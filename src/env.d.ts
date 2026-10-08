@@ -1,5 +1,8 @@
 /// <reference path="../.astro/types.d.ts" />
 
+// Replaced by Vite at build time; no Git process or runtime binding is needed.
+declare const __TYPECHO_BUILD_COMMIT__: string | null;
+
 // Vite raw imports
 declare module '*.sql?raw' {
   const content: string;

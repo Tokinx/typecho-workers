@@ -143,6 +143,12 @@ Cloudflare Workers Builds 从 Git 检出时没有本地的 `wrangler.toml`。本
 后，在 Worker 的 **Variables and Secrets** 中分别添加这两个 Secret，再重新部署，
 然后才能提交安装表单。
 
+后台底部版权行会显示本次构建的 Git 短提交 hash，悬停可查看完整 hash。
+构建时依次读取 `TYPECHO_BUILD_COMMIT`（可选的手动覆盖）、`WORKERS_CI_COMMIT_SHA`、
+`CF_PAGES_COMMIT_SHA`、`GITHUB_SHA`，否则读取本地 `git rev-parse HEAD`。
+手动覆盖须为完整的 40 或 64 位十六进制提交 hash；没有有效提交信息时显示 `unknown`，
+不影响构建。此信息固化在构建产物中，不需要添加 Worker 运行时变量或数据库配置。
+
 ---
 
 ## 命令参考
